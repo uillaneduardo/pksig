@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PKSIG Demo</title>
+  <title>PKSIG MVP Demo</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -44,13 +44,11 @@
       font-size: .875rem;
     }
 
-    .app-shell { min-height: 100vh; }
-
     .sidebar {
       width: var(--pks-sidebar);
+      min-height: 100vh;
       background: var(--pks-surface);
       border-right: 1px solid var(--pks-line);
-      min-height: 100vh;
       padding: 1.25rem 1rem;
       position: fixed;
       inset: 0 auto 0 0;
@@ -85,32 +83,20 @@
     }
 
     .nav-pks { display: grid; gap: .25rem; }
-
     .nav-pks .nav-link {
       color: var(--pks-text);
       font-weight: 700;
       border-radius: var(--pks-radius-sm);
-      min-height: 2.75rem;
+      min-height: 2.6rem;
       display: flex;
       align-items: center;
       gap: .75rem;
-      padding: .625rem .75rem;
+      padding: .55rem .7rem;
       cursor: pointer;
     }
-
-    .nav-pks .nav-link i {
-      width: 1.125rem;
-      text-align: center;
-      color: var(--pks-muted);
-      font-size: 1rem;
-    }
-
+    .nav-pks .nav-link i { width: 1.125rem; text-align: center; color: var(--pks-muted); }
     .nav-pks .nav-link:hover,
-    .nav-pks .nav-link.active {
-      background: var(--pks-primary-soft);
-      color: var(--pks-primary);
-    }
-
+    .nav-pks .nav-link.active { background: var(--pks-primary-soft); color: var(--pks-primary); }
     .nav-pks .nav-link.active i { color: var(--pks-primary); }
 
     .user-card {
@@ -139,17 +125,8 @@
       font-size: .75rem;
     }
 
-    .page-title h1 {
-      font-size: 1.625rem;
-      font-weight: 900;
-      letter-spacing: -.03em;
-      margin: 0;
-    }
-
-    .page-title p {
-      color: var(--pks-muted);
-      margin: .25rem 0 0;
-    }
+    .page-title h1 { font-size: 1.625rem; font-weight: 900; letter-spacing: -.03em; margin: 0; }
+    .page-title p { color: var(--pks-muted); margin: .25rem 0 0; }
 
     .search-box {
       min-height: 2.625rem;
@@ -164,128 +141,42 @@
       min-width: min(420px, 100%);
     }
 
-    .btn {
-      min-height: 2.375rem;
-      border-radius: var(--pks-radius-sm);
-      font-weight: 700;
-      font-size: .8125rem;
-      padding-inline: .875rem;
-    }
-
-    .btn-primary {
-      --bs-btn-bg: var(--pks-primary);
-      --bs-btn-border-color: var(--pks-primary);
-      --bs-btn-hover-bg: #1d4ed8;
-      --bs-btn-hover-border-color: #1d4ed8;
-    }
+    .btn { min-height: 2.35rem; border-radius: var(--pks-radius-sm); font-weight: 700; font-size: .8125rem; padding-inline: .875rem; }
+    .btn-primary { --bs-btn-bg: var(--pks-primary); --bs-btn-border-color: var(--pks-primary); --bs-btn-hover-bg: #1d4ed8; --bs-btn-hover-border-color: #1d4ed8; }
 
     .page { display: none; }
     .page.active { display: block; }
 
-    .panel,
-    .stat-card,
-    .system-card {
+    .panel, .stat-card, .system-card {
       background: var(--pks-surface);
       border: 1px solid var(--pks-line);
       border-radius: var(--pks-radius-lg);
       box-shadow: var(--pks-shadow);
     }
 
-    .stat-card {
-      padding: 1rem;
-      display: flex;
-      align-items: center;
-      gap: .875rem;
-      min-height: 7rem;
-    }
-
-    .stat-card strong {
-      display: block;
-      font-size: 1.55rem;
-      line-height: 1.1;
-      font-weight: 900;
-      letter-spacing: -.03em;
-    }
-
+    .panel, .system-card { padding: 1rem; }
+    .stat-card { padding: 1rem; display: flex; align-items: center; gap: .875rem; min-height: 6.5rem; }
+    .stat-card strong { display: block; font-size: 1.55rem; line-height: 1.1; font-weight: 900; letter-spacing: -.03em; }
     .muted { color: var(--pks-muted); }
 
-    .icon-bubble {
-      width: 2.625rem;
-      height: 2.625rem;
-      border-radius: .875rem;
-      display: grid;
-      place-items: center;
-      font-size: 1.05rem;
-      flex: 0 0 auto;
-    }
-
+    .icon-bubble { width: 2.625rem; height: 2.625rem; border-radius: .875rem; display: grid; place-items: center; font-size: 1.05rem; flex: 0 0 auto; }
     .bubble-blue { color: var(--pks-primary); background: var(--pks-primary-soft); }
     .bubble-green { color: var(--pks-success); background: var(--pks-success-soft); }
     .bubble-orange { color: var(--pks-warning); background: var(--pks-warning-soft); }
     .bubble-purple { color: var(--pks-purple); background: var(--pks-purple-soft); }
+    .bubble-red { color: var(--pks-danger); background: var(--pks-danger-soft); }
 
-    .panel { padding: 1rem; }
-
-    .panel-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
-      margin-bottom: 1rem;
-    }
-
-    .panel-head h2,
-    .system-card h2 {
-      font-size: 1.05rem;
-      font-weight: 900;
-      letter-spacing: -.01em;
-      margin: 0;
-    }
-
-    .panel-head p,
-    .system-card p { margin: .25rem 0 0; color: var(--pks-muted); }
+    .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+    .panel-head h2, .system-card h2 { font-size: 1.05rem; font-weight: 900; letter-spacing: -.01em; margin: 0; }
+    .panel-head p, .system-card p { margin: .25rem 0 0; color: var(--pks-muted); }
 
     .kanban-scroll { overflow-x: auto; padding-bottom: .25rem; }
+    .kanban { display: grid; grid-template-columns: repeat(7, minmax(180px, 1fr)); gap: .75rem; min-width: 1320px; }
+    .kanban-column { background: var(--pks-surface-soft); border-radius: var(--pks-radius-md); padding: .75rem; min-height: 350px; }
+    .kanban-column h3 { display: flex; justify-content: space-between; align-items: center; font-size: .875rem; font-weight: 900; margin-bottom: .75rem; }
+    .count { background: #e7ebf1; color: var(--pks-muted); border-radius: 999px; padding: .125rem .5rem; font-size: .75rem; }
 
-    .kanban {
-      display: grid;
-      grid-template-columns: repeat(5, minmax(170px, 1fr));
-      gap: .75rem;
-      min-width: 920px;
-    }
-
-    .kanban-column {
-      background: var(--pks-surface-soft);
-      border-radius: var(--pks-radius-md);
-      padding: .75rem;
-      min-height: 320px;
-    }
-
-    .kanban-column h3 {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: .875rem;
-      font-weight: 900;
-      margin-bottom: .75rem;
-    }
-
-    .count {
-      background: #e7ebf1;
-      color: var(--pks-muted);
-      border-radius: 999px;
-      padding: .125rem .5rem;
-      font-size: .75rem;
-    }
-
-    .service-card {
-      background: var(--pks-surface);
-      border: 1px solid var(--pks-line);
-      border-radius: var(--pks-radius-md);
-      padding: .8125rem;
-      margin-bottom: .625rem;
-    }
-
+    .service-card { background: var(--pks-surface); border: 1px solid var(--pks-line); border-radius: var(--pks-radius-md); padding: .8125rem; margin-bottom: .625rem; }
     .service-card strong { display: block; font-weight: 900; margin-bottom: .2rem; }
     .service-card small { display: block; color: var(--pks-muted); margin-top: .2rem; }
 
@@ -302,174 +193,174 @@
       font-weight: 700;
     }
 
-    .system-card { padding: 1rem; }
+    .table-pks { --bs-table-bg: transparent; margin: 0; }
+    .table-pks th { color: var(--pks-muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .02em; border-bottom-color: var(--pks-line); }
+    .table-pks td { vertical-align: middle; border-bottom-color: var(--pks-line); }
 
-    .spec-list { display: grid; gap: .625rem; }
-    .spec-item { display: flex; justify-content: space-between; gap: 1rem; padding-bottom: .625rem; border-bottom: 1px solid var(--pks-line); }
-    .spec-item:last-child { border: 0; padding-bottom: 0; }
-    .spec-item span { color: var(--pks-muted); }
-    .spec-item strong { text-align: right; }
-
-    .swatch {
-      min-height: 4.625rem;
-      border-radius: var(--pks-radius-md);
-      border: 1px solid var(--pks-line);
-      padding: .625rem;
-      display: flex;
-      align-items: end;
-      font-size: .75rem;
-      font-weight: 900;
-    }
-
-    .badge-pks {
-      border-radius: 999px;
-      font-size: .75rem;
-      font-weight: 900;
-      padding: .35rem .6rem;
-      display: inline-flex;
-      align-items: center;
-      gap: .25rem;
-    }
-
+    .badge-pks { border-radius: 999px; font-size: .75rem; font-weight: 900; padding: .35rem .6rem; display: inline-flex; align-items: center; gap: .25rem; }
     .badge-blue { background: var(--pks-primary-soft); color: var(--pks-primary); }
     .badge-green { background: var(--pks-success-soft); color: var(--pks-success); }
     .badge-orange { background: var(--pks-warning-soft); color: var(--pks-warning); }
     .badge-red { background: var(--pks-danger-soft); color: var(--pks-danger); }
+    .badge-purple { background: var(--pks-purple-soft); color: var(--pks-purple); }
 
     .form-control, .form-select { min-height: 2.5rem; border-color: var(--pks-line); border-radius: var(--pks-radius-sm); font-size: .875rem; }
     .form-label { font-weight: 700; font-size: .8125rem; }
 
-    .type-scale h1 { font-size: 1.75rem; font-weight: 900; letter-spacing: -.03em; }
-    .type-scale h2 { font-size: 1.25rem; font-weight: 900; }
-    .type-scale h3 { font-size: 1rem; font-weight: 900; }
-
     @media (max-width: 991.98px) {
       .sidebar { display: none; }
       .main-area { margin-left: 0; padding: 1rem; }
-      .mobile-bar {
-        display: flex !important;
-        position: sticky;
-        top: 0;
-        z-index: 1040;
-        background: var(--pks-surface);
-        border-bottom: 1px solid var(--pks-line);
-      }
-      .search-box { min-width: 100%; }
+      .mobile-bar { display: flex !important; position: sticky; top: 0; z-index: 1040; background: var(--pks-surface); border-bottom: 1px solid var(--pks-line); padding: .75rem 1rem; }
+      .user-card { position: static; margin-top: 1rem; }
     }
   </style>
 </head>
 <body>
-  <div class="mobile-bar d-none align-items-center justify-content-between px-3 py-2 w-100">
+  <div class="mobile-bar d-none align-items-center justify-content-between">
     <div class="brand mb-0"><span class="brand-mark">P</span> PKSIG</div>
     <button class="btn btn-outline-secondary" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileMenu" aria-label="Abrir menu"><i class="bi bi-list"></i></button>
   </div>
 
   <aside class="sidebar">
     <div class="brand"><span class="brand-mark">P</span> PKSIG</div>
-    <nav class="nav-pks">
-      <a class="nav-link active" data-page="painel"><i class="bi bi-house"></i>Painel</a>
-      <a class="nav-link" data-page="bancada"><i class="bi bi-kanban"></i>Bancada</a>
-      <a class="nav-link" data-page="servicos"><i class="bi bi-tools"></i>Serviços</a>
-      <a class="nav-link" data-page="clientes"><i class="bi bi-people"></i>Clientes</a>
-      <a class="nav-link" data-page="equipamentos"><i class="bi bi-pc-display"></i>Equipamentos</a>
-      <a class="nav-link" data-page="financeiro"><i class="bi bi-currency-dollar"></i>Financeiro</a>
-      <a class="nav-link" data-page="design"><i class="bi bi-grid-1x2"></i>Design System</a>
-      <a class="nav-link" data-page="config"><i class="bi bi-gear"></i>Configurações</a>
-    </nav>
-    <div class="user-card"><span class="avatar">UL</span><div><strong>Uillan Lira</strong><br><small class="muted">Administrador</small></div></div>
+    <nav class="nav-pks" id="desktopNav"></nav>
+    <div class="user-card">
+      <div class="avatar">UE</div>
+      <div><strong>Uillan Eduardo</strong><small class="d-block muted">Operador técnico</small></div>
+    </div>
   </aside>
 
   <div class="offcanvas offcanvas-start" tabindex="-1" id="mobileMenu">
     <div class="offcanvas-header"><div class="brand mb-0"><span class="brand-mark">P</span> PKSIG</div><button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button></div>
-    <div class="offcanvas-body"><nav class="nav-pks mobile-nav"></nav></div>
+    <div class="offcanvas-body"><nav class="nav-pks" id="mobileNav"></nav></div>
   </div>
 
   <main class="main-area w-100">
     <header class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 mb-4">
-      <div class="page-title"><h1 id="page-title">Painel</h1><p id="page-subtitle">Visão geral da operação</p></div>
-      <div class="search-box"><i class="bi bi-search"></i><span>Buscar serviços, clientes, equipamentos...</span></div>
+      <div class="page-title"><h1 id="pageTitle">Painel</h1><p id="pageSubtitle">Visão geral da operação</p></div>
+      <div class="d-flex flex-column flex-sm-row gap-2 align-items-stretch align-items-sm-center">
+        <div class="search-box"><i class="bi bi-search"></i><span>Buscar serviços, clientes, equipamentos...</span></div>
+        <button class="btn btn-outline-secondary" data-goto="atendimentos"><i class="bi bi-chat-left-text me-1"></i>Novo atendimento</button>
+        <button class="btn btn-primary" data-goto="servicos"><i class="bi bi-plus-lg me-1"></i>Novo serviço</button>
+      </div>
     </header>
 
     <section class="page active" id="painel">
       <div class="row g-3 mb-3">
-        <div class="col-12 col-sm-6 col-xl-3"><div class="stat-card"><span class="icon-bubble bubble-blue"><i class="bi bi-clipboard-check"></i></span><div><strong>28</strong><small class="muted">Serviços em aberto</small></div></div></div>
-        <div class="col-12 col-sm-6 col-xl-3"><div class="stat-card"><span class="icon-bubble bubble-green"><i class="bi bi-check2-circle"></i></span><div><strong>12</strong><small class="muted">Concluídos hoje</small></div></div></div>
-        <div class="col-12 col-sm-6 col-xl-3"><div class="stat-card"><span class="icon-bubble bubble-orange"><i class="bi bi-clock"></i></span><div><strong>6</strong><small class="muted">Aguardando peças</small></div></div></div>
-        <div class="col-12 col-sm-6 col-xl-3"><div class="stat-card"><span class="icon-bubble bubble-purple"><i class="bi bi-cash-stack"></i></span><div><strong>R$ 14.250</strong><small class="muted">Entradas do mês</small></div></div></div>
+        <div class="col-md-6 col-xl-3"><div class="stat-card"><div class="icon-bubble bubble-blue"><i class="bi bi-tools"></i></div><div><small class="muted">Serviços ativos</small><strong>18</strong></div></div></div>
+        <div class="col-md-6 col-xl-3"><div class="stat-card"><div class="icon-bubble bubble-orange"><i class="bi bi-hourglass-split"></i></div><div><small class="muted">Aguardando</small><strong>5</strong></div></div></div>
+        <div class="col-md-6 col-xl-3"><div class="stat-card"><div class="icon-bubble bubble-green"><i class="bi bi-check2-circle"></i></div><div><small class="muted">Prontos</small><strong>3</strong></div></div></div>
+        <div class="col-md-6 col-xl-3"><div class="stat-card"><div class="icon-bubble bubble-purple"><i class="bi bi-cash-coin"></i></div><div><small class="muted">Resultado do período</small><strong>R$ 3.240</strong></div></div></div>
       </div>
 
       <div class="row g-3">
-        <div class="col-12 col-xl-9">
-          <div class="panel">
-            <div class="panel-head"><div><h2>Bancada</h2><p>Serviços organizados por status</p></div><button class="btn btn-primary"><i class="bi bi-plus-lg"></i>Novo Serviço</button></div>
-            <div class="kanban-scroll"><div class="kanban">
-              <div class="kanban-column"><h3>Entrada <span class="count">8</span></h3><div class="service-card"><strong>#OS00032</strong>Carlos Silva<small>iPhone 11</small><small><i class="bi bi-dot"></i>24/05 09:15</small></div><div class="service-card"><strong>#OS00031</strong>Mariana Costa<small>Notebook Dell</small></div></div>
-              <div class="kanban-column"><h3>Em avaliação <span class="count">6</span></h3><div class="service-card"><strong>#OS00029</strong>Ana Paula<small>iPad Air</small></div><div class="service-card"><strong>#OS00028</strong>Bruno Lima<small>MacBook Air</small></div></div>
-              <div class="kanban-column"><h3>Em reparo <span class="count">7</span></h3><div class="service-card"><strong>#OS00026</strong>Rafael Oliveira<small>PlayStation 5</small><small>Técnico: Lucas</small></div></div>
-              <div class="kanban-column"><h3>Aguardando <span class="count">4</span></h3><div class="service-card"><strong>#OS00023</strong>Thiago Martins<small>iPhone 12</small><small>Motivo: peça</small></div></div>
-              <div class="kanban-column"><h3>Pronto <span class="count">12</span></h3><div class="service-card"><strong>#OS00021</strong>Viviane Rocha<small>iPhone SE</small></div></div>
-            </div></div>
-          </div>
-        </div>
-        <div class="col-12 col-xl-3 d-grid gap-3">
-          <div class="panel"><div class="panel-head"><div><h2>Ações rápidas</h2><p>Atalhos principais</p></div></div><div class="quick-row">Novo Serviço <i class="bi bi-chevron-right"></i></div><div class="quick-row">Novo Cliente <i class="bi bi-chevron-right"></i></div><div class="quick-row">Nova Movimentação <i class="bi bi-chevron-right"></i></div></div>
-          <div class="panel"><div class="panel-head"><div><h2>Resumo financeiro</h2><p>Este mês</p></div></div><div class="quick-row">Entradas <strong>R$ 14.250</strong></div><div class="quick-row">Saídas <strong>R$ 3.240</strong></div></div>
-        </div>
+        <div class="col-xl-8"><div class="panel"><div class="panel-head"><div><h2>Fila operacional</h2><p>Resumo dos serviços que precisam de ação.</p></div><button class="btn btn-outline-secondary" data-goto="bancada">Abrir bancada</button></div><div id="painelFila"></div></div></div>
+        <div class="col-xl-4"><div class="panel"><div class="panel-head"><div><h2>Ações rápidas</h2><p>Entradas mais usadas no MVP.</p></div></div>
+          <div class="quick-row" data-goto="atendimentos"><span>Novo atendimento</span><i class="bi bi-chevron-right"></i></div>
+          <div class="quick-row" data-goto="clientes"><span>Cadastrar cliente</span><i class="bi bi-chevron-right"></i></div>
+          <div class="quick-row" data-goto="equipamentos"><span>Cadastrar equipamento</span><i class="bi bi-chevron-right"></i></div>
+          <div class="quick-row" data-goto="financeiro"><span>Lançar movimentação</span><i class="bi bi-chevron-right"></i></div>
+        </div></div>
       </div>
     </section>
 
-    <section class="page" id="design">
-      <div class="row g-3">
-        <div class="col-12 col-lg-4"><div class="system-card h-100"><h2>Fundação visual</h2><p>Interface minimalista, responsiva, clara e com baixa densidade visual.</p><div class="spec-list"><div class="spec-item"><span>Framework</span><strong>Bootstrap 5.3</strong></div><div class="spec-item"><span>Tipografia</span><strong>Roboto / Google Fonts</strong></div><div class="spec-item"><span>Ícones</span><strong>Bootstrap Icons</strong></div><div class="spec-item"><span>Grid</span><strong>12 colunas / gap 16px</strong></div></div></div></div>
-        <div class="col-12 col-lg-4"><div class="system-card h-100"><h2>Tipografia</h2><p>Escala compacta para sistema operacional.</p><div class="type-scale"><h1>H1 26px / 900</h1><h2>H2 17–20px / 900</h2><h3>Label 14–16px / 700</h3><p class="muted">Texto auxiliar 13–14px com line-height confortável.</p></div></div></div>
-        <div class="col-12 col-lg-4"><div class="system-card h-100"><h2>Espaçamentos</h2><p>Múltiplos de 4px para consistência entre telas.</p><div class="spec-list"><div class="spec-item"><span>Sidebar</span><strong>248px</strong></div><div class="spec-item"><span>Main padding</span><strong>24px desktop / 16px mobile</strong></div><div class="spec-item"><span>Card padding</span><strong>16px</strong></div><div class="spec-item"><span>Botões</span><strong>38px altura</strong></div><div class="spec-item"><span>Inputs</span><strong>40–42px altura</strong></div></div></div></div>
-        <div class="col-12 col-lg-8"><div class="system-card h-100"><h2>Cores</h2><p>Paleta clara com azul como ação principal. Status usam cores suaves.</p><div class="row g-2 mt-2"><div class="col-6 col-md"><div class="swatch text-white" style="background:#2563eb">Brand<br>#2563EB</div></div><div class="col-6 col-md"><div class="swatch" style="background:#f7f8fb">Background<br>#F7F8FB</div></div><div class="col-6 col-md"><div class="swatch" style="background:#fff">Surface<br>#FFFFFF</div></div><div class="col-6 col-md"><div class="swatch text-white" style="background:#16a34a">Success<br>#16A34A</div></div><div class="col-6 col-md"><div class="swatch text-white" style="background:#f59e0b">Warning<br>#F59E0B</div></div></div></div></div>
-        <div class="col-12 col-lg-4"><div class="system-card h-100"><h2>Componentes</h2><p>Pequenos, objetivos e com hierarquia clara.</p><div class="d-flex flex-wrap gap-2 mt-2"><button class="btn btn-primary"><i class="bi bi-plus-lg"></i>Novo Serviço</button><button class="btn btn-outline-secondary"><i class="bi bi-funnel"></i>Filtros</button><button class="btn btn-light border">Cancelar</button><span class="badge-pks badge-blue">Entrada</span><span class="badge-pks badge-orange">Aguardando</span><span class="badge-pks badge-green">Pronto</span><span class="badge-pks badge-red">Cancelado</span></div></div></div>
-        <div class="col-12 col-lg-4"><div class="system-card h-100"><h2>Formulários</h2><p>Campos essenciais, poucos blocos por tela e ações finais claras.</p><label class="form-label mt-2">Cliente</label><input class="form-control mb-2" placeholder="Buscar cliente..."><label class="form-label">Defeito informado</label><input class="form-control mb-3" placeholder="Descreva o defeito relatado"><button class="btn btn-primary">Salvar</button></div></div>
-        <div class="col-12 col-lg-4"><div class="system-card h-100"><h2>Cards da Bancada</h2><p>Somente identificação, cliente, equipamento e motivo quando houver.</p><div class="service-card"><strong>#OS00023</strong>Thiago Martins<small>iPhone 12</small><small>Motivo: peça</small></div></div></div>
-        <div class="col-12 col-lg-4"><div class="system-card h-100"><h2>Responsividade</h2><p>A navegação vira menu lateral offcanvas no mobile. Quadros horizontais usam scroll controlado.</p><div class="spec-list"><div class="spec-item"><span>Mobile</span><strong>Offcanvas</strong></div><div class="spec-item"><span>Kanban</span><strong>scroll-x</strong></div><div class="spec-item"><span>Cards</span><strong>1 coluna</strong></div></div></div></div>
-      </div>
-    </section>
+    <section class="page" id="atendimentos"><div class="row g-3"><div class="col-lg-5"><div class="panel"><div class="panel-head"><div><h2>Novo atendimento</h2><p>Nem todo atendimento vira OS.</p></div></div><form class="row g-3"><div class="col-12"><label class="form-label">Cliente</label><input class="form-control" value="Maria Oliveira"></div><div class="col-12"><label class="form-label">Origem</label><select class="form-select"><option>WhatsApp</option><option>Presencial</option><option>Indicação</option></select></div><div class="col-12"><label class="form-label">Solicitação</label><textarea class="form-control" rows="4">Celular não carrega e cliente precisa de orçamento.</textarea></div><div class="col-12 d-grid"><button type="button" class="btn btn-primary">Salvar atendimento</button></div></form></div></div><div class="col-lg-7"><div class="panel"><div class="panel-head"><div><h2>Atendimentos recentes</h2><p>Contato inicial e triagem comercial.</p></div></div><div id="atendimentoLista"></div></div></div></div></section>
 
-    <section class="page" id="bancada"><div class="panel"><h2>Bancada</h2><p class="muted mt-1">Visão operacional dos serviços ativos por status.</p></div></section>
-    <section class="page" id="servicos"><div class="panel"><h2>Serviços</h2><p class="muted mt-1">Lista e detalhe dos serviços.</p></div></section>
-    <section class="page" id="clientes"><div class="panel"><h2>Clientes</h2><p class="muted mt-1">Cadastro e consulta de clientes.</p></div></section>
-    <section class="page" id="equipamentos"><div class="panel"><h2>Equipamentos</h2><p class="muted mt-1">Histórico técnico por equipamento.</p></div></section>
-    <section class="page" id="financeiro"><div class="panel"><h2>Financeiro</h2><p class="muted mt-1">Entradas, saídas e movimentações.</p></div></section>
-    <section class="page" id="config"><div class="panel"><h2>Configurações</h2><p class="muted mt-1">Listas auxiliares do sistema.</p></div></section>
+    <section class="page" id="bancada"><div class="panel"><div class="panel-head"><div><h2>Bancada</h2><p>Visão dos serviços ativos agrupados por status. Bancada não é entidade.</p></div><button class="btn btn-primary" data-goto="servicos">Novo serviço</button></div><div class="kanban-scroll"><div class="kanban" id="kanban"></div></div></div></section>
+
+    <section class="page" id="servicos"><div class="panel"><div class="panel-head"><div><h2>Serviços</h2><p>Centro operacional: cliente, equipamento, laudo, orçamento, custos, pagamentos e status.</p></div><button class="btn btn-primary">Nova OS</button></div><div class="table-responsive"><table class="table table-pks"><thead><tr><th>Serviço</th><th>Cliente</th><th>Equipamento</th><th>Status</th><th>Próxima ação</th><th>Total</th></tr></thead><tbody id="servicosTabela"></tbody></table></div></div></section>
+
+    <section class="page" id="clientes"><div class="row g-3"><div class="col-lg-4"><div class="panel"><div class="panel-head"><div><h2>Cadastro rápido</h2><p>Dados mínimos para iniciar.</p></div></div><input class="form-control mb-2" placeholder="Nome"><input class="form-control mb-2" placeholder="WhatsApp"><input class="form-control mb-3" placeholder="Documento opcional"><button class="btn btn-primary w-100">Salvar cliente</button></div></div><div class="col-lg-8"><div class="panel"><div class="panel-head"><div><h2>Clientes</h2><p>Quem solicita ou é responsável pelo equipamento.</p></div></div><div id="clientesLista"></div></div></div></div></section>
+
+    <section class="page" id="equipamentos"><div class="panel"><div class="panel-head"><div><h2>Equipamentos</h2><p>Objeto físico vinculado ao cliente e aos serviços.</p></div><button class="btn btn-primary">Novo equipamento</button></div><div class="table-responsive"><table class="table table-pks"><thead><tr><th>Equipamento</th><th>Cliente</th><th>Identificação</th><th>Último serviço</th></tr></thead><tbody id="equipamentosTabela"></tbody></table></div></div></section>
+
+    <section class="page" id="orcamentos"><div class="panel"><div class="panel-head"><div><h2>Orçamentos</h2><p>Peças, insumos, mão de obra, prazo e garantia.</p></div><button class="btn btn-primary">Gerar orçamento</button></div><div id="orcamentosLista"></div></div></section>
+
+    <section class="page" id="financeiro"><div class="row g-3"><div class="col-md-4"><div class="stat-card"><div class="icon-bubble bubble-green"><i class="bi bi-arrow-down-circle"></i></div><div><small class="muted">Entradas</small><strong>R$ 4.180</strong></div></div></div><div class="col-md-4"><div class="stat-card"><div class="icon-bubble bubble-red"><i class="bi bi-arrow-up-circle"></i></div><div><small class="muted">Saídas</small><strong>R$ 940</strong></div></div></div><div class="col-md-4"><div class="stat-card"><div class="icon-bubble bubble-purple"><i class="bi bi-graph-up-arrow"></i></div><div><small class="muted">Saldo</small><strong>R$ 3.240</strong></div></div></div><div class="col-12"><div class="panel"><div class="panel-head"><div><h2>Movimentações</h2><p>Entradas e saídas vinculadas a serviços ou avulsas.</p></div><button class="btn btn-primary">Nova movimentação</button></div><div id="financeiroLista"></div></div></div></div></section>
+
+    <section class="page" id="estoque"><div class="panel"><div class="panel-head"><div><h2>Estoque</h2><p>Controle simples de peças e insumos usados nos serviços.</p></div><button class="btn btn-primary">Novo item</button></div><div id="estoqueLista"></div></div></section>
+
+    <section class="page" id="garantias"><div class="panel"><div class="panel-head"><div><h2>Garantias</h2><p>Consulta de serviços entregues com prazo de garantia ativo.</p></div></div><div id="garantiasLista"></div></div></section>
+
+    <section class="page" id="relatorios"><div class="row g-3"><div class="col-md-6"><div class="system-card"><h2>Operação</h2><p>Serviços por status, tempo na bancada e gargalos.</p><div class="quick-row"><span>Tempo médio em avaliação</span><strong>1,8 dia</strong></div><div class="quick-row"><span>Maior gargalo</span><strong>Aguardando peça</strong></div></div></div><div class="col-md-6"><div class="system-card"><h2>Financeiro</h2><p>Entradas, saídas, custos por serviço e resultado.</p><div class="quick-row"><span>Ticket médio</span><strong>R$ 180</strong></div><div class="quick-row"><span>Margem estimada</span><strong>68%</strong></div></div></div></div></section>
+
+    <section class="page" id="configuracoes"><div class="row g-3"><div class="col-lg-6"><div class="system-card"><h2>Empresa</h2><p>Dados usados nos documentos e comprovantes.</p><div class="spec-list mt-3"><div class="quick-row"><span>Nome</span><strong>PK Suporte & Reparo</strong></div><div class="quick-row"><span>Modo</span><strong>Operação individual</strong></div></div></div></div><div class="col-lg-6"><div class="system-card"><h2>Status do serviço</h2><p>Lista operacional inicial.</p><div class="d-flex flex-wrap gap-2 mt-3" id="statusBadges"></div></div></div></div></section>
+
+    <section class="page" id="design"><div class="row g-3"><div class="col-lg-6"><div class="system-card"><h2>Design system</h2><p>Demo baseada em Bootstrap, Roboto e tokens visuais PKSIG.</p><div class="d-flex gap-2 flex-wrap mt-3"><span class="badge-pks badge-blue">Primário</span><span class="badge-pks badge-green">Sucesso</span><span class="badge-pks badge-orange">Atenção</span><span class="badge-pks badge-red">Crítico</span><span class="badge-pks badge-purple">Especial</span></div></div></div><div class="col-lg-6"><div class="system-card"><h2>Semântica</h2><p>Cliente é quem. Equipamento é o quê. Serviço é o que está acontecendo. Status é onde está no fluxo.</p></div></div></div></section>
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script>
-    const pageInfo = {
-      painel: ['Painel', 'Visão geral da operação'],
-      bancada: ['Bancada', 'Serviços ativos organizados por status'],
-      servicos: ['Serviços', 'Consulta e acompanhamento dos serviços'],
-      clientes: ['Clientes', 'Cadastro e histórico de relacionamento'],
-      equipamentos: ['Equipamentos', 'Histórico técnico dos aparelhos'],
-      financeiro: ['Financeiro', 'Movimentações de entrada e saída'],
-      design: ['Design System', 'Especificações visuais e componentes do PKSIG'],
-      config: ['Configurações', 'Listas auxiliares e padrões do sistema']
-    };
+    const pages = [
+      ['painel', 'bi-house', 'Painel', 'Visão geral da operação'],
+      ['atendimentos', 'bi-chat-left-text', 'Atendimentos', 'Contato inicial, triagem e intenção do cliente'],
+      ['bancada', 'bi-kanban', 'Bancada', 'Serviços ativos organizados por status'],
+      ['servicos', 'bi-tools', 'Serviços', 'Centro operacional do sistema'],
+      ['clientes', 'bi-people', 'Clientes', 'Quem solicita ou é responsável pelo equipamento'],
+      ['equipamentos', 'bi-pc-display', 'Equipamentos', 'Objeto físico vinculado ao cliente'],
+      ['orcamentos', 'bi-file-earmark-text', 'Orçamentos', 'Valores, prazos, peças, mão de obra e garantia'],
+      ['financeiro', 'bi-cash-coin', 'Financeiro', 'Entradas, saídas, custos e pagamentos'],
+      ['estoque', 'bi-box-seam', 'Estoque', 'Peças e insumos usados na operação'],
+      ['garantias', 'bi-shield-check', 'Garantias', 'Prazos e retornos após entrega'],
+      ['relatorios', 'bi-bar-chart', 'Relatórios', 'Indicadores operacionais e financeiros'],
+      ['configuracoes', 'bi-gear', 'Configurações', 'Parâmetros básicos do sistema'],
+      ['design', 'bi-palette', 'Design System', 'Referência visual da interface']
+    ];
 
-    const desktopNav = document.querySelector('.sidebar .nav-pks');
-    document.querySelector('.mobile-nav').innerHTML = desktopNav.innerHTML;
+    const statusList = ['Entrada', 'Em avaliação', 'Orçamento', 'Aguardando', 'Em reparo', 'Em teste', 'Pronto'];
+    const services = [
+      {id:'SV-024', cliente:'Maria Oliveira', equipamento:'Samsung A12', defeito:'Não carrega', status:'Aguardando', motivo:'Peça', acao:'Confirmar chegada do conector', total:'R$ 160'},
+      {id:'SV-025', cliente:'Carlos Souza', equipamento:'Dell Inspiron', defeito:'Desliga sozinho', status:'Em avaliação', motivo:'', acao:'Testar temperatura e fonte', total:'R$ 220'},
+      {id:'SV-026', cliente:'Hamburgueria Norte', equipamento:'Epson TM-T20X', defeito:'Impressão travando', status:'Pronto', motivo:'Retirada', acao:'Avisar cliente para retirada', total:'R$ 180'},
+      {id:'SV-027', cliente:'João Pedro', equipamento:'iPhone XR', defeito:'Tela quebrada', status:'Em reparo', motivo:'', acao:'Finalizar troca da tela', total:'R$ 380'},
+      {id:'SV-028', cliente:'Ana Paula', equipamento:'Lenovo Ideapad', defeito:'Sistema lento', status:'Entrada', motivo:'', acao:'Realizar checklist de entrada', total:'R$ 120'},
+      {id:'SV-029', cliente:'Mercadinho Sol', equipamento:'Roteador TP-Link', defeito:'Rede instável', status:'Orçamento', motivo:'Aprovação', acao:'Enviar proposta de configuração', total:'R$ 250'},
+      {id:'SV-030', cliente:'Braba Burgers', equipamento:'Notebook Acer', defeito:'Não imprime no iFood', status:'Em teste', motivo:'', acao:'Testar impressão térmica', total:'R$ 200'}
+    ];
 
-    function openPage(page) {
-      document.querySelectorAll('.nav-link').forEach(item => item.classList.toggle('active', item.dataset.page === page));
-      document.querySelectorAll('.page').forEach(item => item.classList.toggle('active', item.id === page));
-      document.getElementById('page-title').textContent = pageInfo[page][0];
-      document.getElementById('page-subtitle').textContent = pageInfo[page][1];
-      const offcanvasEl = document.getElementById('mobileMenu');
-      const instance = bootstrap.Offcanvas.getInstance(offcanvasEl);
-      if (instance) instance.hide();
+    function renderNav(target) {
+      const html = pages.map(([id, icon, label]) => `<a class="nav-link ${id === 'painel' ? 'active' : ''}" data-page="${id}"><i class="bi ${icon}"></i>${label}</a>`).join('');
+      document.getElementById(target).innerHTML = html;
     }
 
-    document.addEventListener('click', event => {
-      const link = event.target.closest('.nav-link[data-page]');
+    function badge(status) {
+      const map = { 'Entrada':'badge-blue', 'Em avaliação':'badge-purple', 'Orçamento':'badge-orange', 'Aguardando':'badge-orange', 'Em reparo':'badge-blue', 'Em teste':'badge-purple', 'Pronto':'badge-green' };
+      return `<span class="badge-pks ${map[status] || 'badge-blue'}">${status}</span>`;
+    }
+
+    function render() {
+      renderNav('desktopNav'); renderNav('mobileNav');
+      document.getElementById('painelFila').innerHTML = services.slice(0,5).map(s => `<div class="quick-row"><span><strong>${s.equipamento}</strong><small class="d-block muted">${s.cliente} • ${s.acao}</small></span>${badge(s.status)}</div>`).join('');
+      document.getElementById('kanban').innerHTML = statusList.map(st => `<div class="kanban-column"><h3>${st}<span class="count">${services.filter(s => s.status === st).length}</span></h3>${services.filter(s => s.status === st).map(s => `<div class="service-card"><strong>${s.equipamento}</strong>${s.cliente}<small>Defeito: ${s.defeito}</small>${s.motivo ? `<small>Motivo: ${s.motivo}</small>` : ''}<small>Próxima ação: ${s.acao}</small></div>`).join('')}</div>`).join('');
+      document.getElementById('servicosTabela').innerHTML = services.map(s => `<tr><td><strong>${s.id}</strong></td><td>${s.cliente}</td><td>${s.equipamento}</td><td>${badge(s.status)}</td><td>${s.acao}</td><td><strong>${s.total}</strong></td></tr>`).join('');
+      document.getElementById('clientesLista').innerHTML = [...new Set(services.map(s => s.cliente))].map(c => `<div class="quick-row"><span>${c}<small class="d-block muted">${services.filter(s => s.cliente === c).length} serviço(s)</small></span><i class="bi bi-chevron-right"></i></div>`).join('');
+      document.getElementById('equipamentosTabela').innerHTML = services.map(s => `<tr><td><strong>${s.equipamento}</strong></td><td>${s.cliente}</td><td>${s.equipamento.includes('iPhone') || s.equipamento.includes('Samsung') ? 'IMEI pendente' : 'S/N pendente'}</td><td>${s.id}</td></tr>`).join('');
+      document.getElementById('atendimentoLista').innerHTML = services.slice(0,4).map(s => `<div class="quick-row"><span>${s.cliente}<small class="d-block muted">${s.defeito} • ${s.equipamento}</small></span><button class="btn btn-sm btn-outline-secondary" data-goto="servicos">Criar OS</button></div>`).join('');
+      document.getElementById('orcamentosLista').innerHTML = services.filter(s => ['Orçamento','Aguardando'].includes(s.status)).map(s => `<div class="quick-row"><span>${s.id} • ${s.equipamento}<small class="d-block muted">${s.cliente} • ${s.defeito}</small></span><strong>${s.total}</strong></div>`).join('');
+      document.getElementById('financeiroLista').innerHTML = ['Entrada vinculada ao SV-026 — R$ 180', 'Saída avulsa: conector de carga — R$ 35', 'Entrada vinculada ao SV-027 — R$ 200', 'Saída: frete de peça — R$ 18'].map(t => `<div class="quick-row"><span>${t}</span><i class="bi bi-chevron-right"></i></div>`).join('');
+      document.getElementById('estoqueLista').innerHTML = ['Conector de carga Samsung A12 — 2 un.', 'Bobina térmica 80mm — 6 un.', 'Pasta térmica — 1 un.', 'Fonte universal notebook — 1 un.'].map(t => `<div class="quick-row"><span>${t}</span><button class="btn btn-sm btn-outline-secondary">Movimentar</button></div>`).join('');
+      document.getElementById('garantiasLista').innerHTML = ['SV-018 • iPhone 8 • 83 dias restantes', 'SV-020 • Dell Inspiron • 24 dias restantes', 'SV-026 • Epson TM-T20X • iniciar após entrega'].map(t => `<div class="quick-row"><span>${t}</span><span class="badge-pks badge-green">Ativa</span></div>`).join('');
+      document.getElementById('statusBadges').innerHTML = [...statusList, 'Entregue', 'Cancelado', 'Garantia'].map(s => badge(s)).join('');
+    }
+
+    function goTo(page) {
+      const meta = pages.find(p => p[0] === page) || pages[0];
+      document.querySelectorAll('.page').forEach(el => el.classList.toggle('active', el.id === page));
+      document.querySelectorAll('.nav-link').forEach(el => el.classList.toggle('active', el.dataset.page === page));
+      document.getElementById('pageTitle').textContent = meta[2];
+      document.getElementById('pageSubtitle').textContent = meta[3];
+      const offcanvas = bootstrap.Offcanvas.getInstance(document.getElementById('mobileMenu'));
+      if (offcanvas) offcanvas.hide();
+      window.scrollTo({top:0, behavior:'smooth'});
+    }
+
+    document.addEventListener('click', (event) => {
+      const link = event.target.closest('[data-page], [data-goto]');
       if (!link) return;
-      openPage(link.dataset.page);
+      goTo(link.dataset.page || link.dataset.goto);
     });
+
+    render();
   </script>
 </body>
 </html>
