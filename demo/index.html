@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PKSIG Demo</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: Inter, Arial, sans-serif;
+    }
+
+    body {
+      background: #f5f6f8;
+      color: #1f2937;
+      display: flex;
+      min-height: 100vh;
+    }
+
+    aside {
+      width: 240px;
+      background: #111827;
+      color: white;
+      padding: 24px;
+    }
+
+    aside h1 {
+      font-size: 20px;
+      margin-bottom: 32px;
+    }
+
+    aside nav {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    aside nav a {
+      color: #d1d5db;
+      text-decoration: none;
+      padding: 10px 12px;
+      border-radius: 8px;
+      transition: .2s;
+    }
+
+    aside nav a:hover,
+    aside nav a.active {
+      background: #1f2937;
+      color: white;
+    }
+
+    main {
+      flex: 1;
+      padding: 32px;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+
+    .header h2 {
+      font-size: 28px;
+    }
+
+    button {
+      background: #111827;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 12px 16px;
+      cursor: pointer;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .card {
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      border: 1px solid #e5e7eb;
+    }
+
+    .card small {
+      color: #6b7280;
+    }
+
+    .card h3 {
+      margin-top: 8px;
+      font-size: 24px;
+    }
+
+    .kanban {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+
+    .column {
+      background: #eef0f3;
+      padding: 12px;
+      border-radius: 12px;
+    }
+
+    .column h4 {
+      margin-bottom: 12px;
+      font-size: 14px;
+      color: #374151;
+    }
+
+    .service {
+      background: white;
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 12px;
+      border: 1px solid #e5e7eb;
+    }
+
+    .service strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .service small {
+      color: #6b7280;
+      display: block;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <aside>
+    <h1>PKSIG</h1>
+
+    <nav>
+      <a class="active" href="#">Painel</a>
+      <a href="#">Bancada</a>
+      <a href="#">Serviços</a>
+      <a href="#">Clientes</a>
+      <a href="#">Equipamentos</a>
+      <a href="#">Financeiro</a>
+      <a href="#">Configurações</a>
+    </nav>
+  </aside>
+
+  <main>
+    <div class="header">
+      <div>
+        <h2>Painel</h2>
+      </div>
+
+      <button>Novo Serviço</button>
+    </div>
+
+    <section class="cards">
+      <div class="card">
+        <small>Serviços abertos</small>
+        <h3>18</h3>
+      </div>
+
+      <div class="card">
+        <small>Aguardando</small>
+        <h3>5</h3>
+      </div>
+
+      <div class="card">
+        <small>Prontos</small>
+        <h3>3</h3>
+      </div>
+
+      <div class="card">
+        <small>Resultado do período</small>
+        <h3>R$ 3.240</h3>
+      </div>
+    </section>
+
+    <section class="kanban">
+      <div class="column">
+        <h4>Entrada</h4>
+
+        <div class="service">
+          <strong>Samsung A12</strong>
+          Maria Oliveira
+          <small>Não carrega</small>
+        </div>
+      </div>
+
+      <div class="column">
+        <h4>Em avaliação</h4>
+
+        <div class="service">
+          <strong>Dell Inspiron</strong>
+          Carlos Souza
+          <small>Desliga sozinho</small>
+        </div>
+      </div>
+
+      <div class="column">
+        <h4>Aguardando</h4>
+
+        <div class="service">
+          <strong>Epson TM-T20X</strong>
+          Hamburgueria Norte
+          <small>Motivo: peça</small>
+        </div>
+      </div>
+
+      <div class="column">
+        <h4>Pronto</h4>
+
+        <div class="service">
+          <strong>iPhone XR</strong>
+          João Pedro
+          <small>Aguardando retirada</small>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
