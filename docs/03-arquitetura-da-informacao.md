@@ -286,6 +286,269 @@ Deve incluir:
 
 ---
 
+# Estrutura e Campos dos Formulários
+
+## Novo Serviço
+
+Formulário principal do sistema.
+
+Representa a entrada operacional de um equipamento para atendimento.
+
+### Estrutura
+
+```text
+Novo Serviço
+
+1. Cliente
+2. Equipamento
+3. Serviço
+```
+
+### Campos do Cliente
+
+- buscar cliente existente;
+- nome;
+- telefone.
+
+### Campos do Equipamento
+
+- categoria;
+- marca;
+- modelo;
+- IMEI / série / patrimônio;
+- acessórios recebidos;
+- observação física inicial.
+
+### Campos do Serviço
+
+- defeito informado;
+- data de entrada;
+- status inicial;
+- motivo de espera, quando status = Aguardando;
+- observações iniciais.
+
+### Ações
+
+- salvar serviço;
+- cancelar;
+- salvar e abrir detalhe do serviço.
+
+### Resultado esperado
+
+Ao salvar:
+
+- cliente é criado, caso não exista;
+- equipamento é criado, caso não exista;
+- serviço é criado;
+- serviço aparece na Bancada.
+
+---
+
+## Novo Cliente
+
+Formulário auxiliar para relacionamento.
+
+### Campos
+
+- nome;
+- telefone / WhatsApp;
+- tipo: pessoa física ou empresa;
+- e-mail, opcional;
+- documento, opcional;
+- endereço, opcional;
+- observação.
+
+### Ações
+
+- salvar cliente;
+- cancelar;
+- salvar e adicionar equipamento;
+- salvar e criar serviço.
+
+---
+
+## Novo Equipamento
+
+Formulário auxiliar para cadastro técnico.
+
+### Campos
+
+- cliente vinculado;
+- categoria;
+- marca;
+- modelo;
+- cor, opcional;
+- IMEI / série / patrimônio;
+- acessórios;
+- observações técnicas.
+
+### Ações
+
+- salvar equipamento;
+- cancelar;
+- salvar e criar serviço.
+
+---
+
+## Atualizar Status do Serviço
+
+Formulário operacional utilizado para movimentar o serviço na Bancada.
+
+### Campos
+
+- serviço selecionado;
+- status;
+- motivo de espera, quando status = Aguardando;
+- observação da atualização.
+
+### Status disponíveis
+
+```text
+Entrada
+Em avaliação
+Orçamento
+Aguardando
+Em reparo
+Em teste
+Pronto
+Entregue
+Cancelado
+Garantia
+```
+
+### Ações
+
+- salvar alteração;
+- cancelar.
+
+### Resultado esperado
+
+O serviço muda de coluna na Bancada.
+
+---
+
+## Laudo / Avaliação
+
+Parte interna do Serviço.
+
+### Campos
+
+- defeito informado pelo cliente;
+- testes realizados;
+- diagnóstico técnico;
+- causa provável;
+- solução recomendada;
+- observações internas.
+
+### Ações
+
+- salvar avaliação;
+- salvar e gerar orçamento;
+- cancelar.
+
+---
+
+## Orçamento
+
+Parte interna do Serviço.
+
+### Campos
+
+- descrição do serviço;
+- mão de obra;
+- peças / materiais;
+- desconto;
+- valor total;
+- status do orçamento.
+
+### Status do orçamento
+
+```text
+Não enviado
+Enviado
+Aprovado
+Recusado
+```
+
+### Ações
+
+- salvar orçamento;
+- marcar como aprovado;
+- marcar como recusado;
+- cancelar.
+
+---
+
+## Nova Movimentação Financeira
+
+Formulário do módulo Financeiro.
+
+### Campos
+
+- tipo: entrada ou saída;
+- data;
+- hora;
+- valor;
+- forma de pagamento;
+- categoria;
+- descrição;
+- vínculo: avulsa ou vinculada a serviço;
+- serviço vinculado, quando necessário.
+
+### Exemplos
+
+Entrada vinculada:
+
+```text
+Pagamento de serviço
+```
+
+Saída vinculada:
+
+```text
+Compra de peça para serviço
+```
+
+Saída avulsa:
+
+```text
+Álcool isopropílico
+Ferramenta
+Frete geral
+```
+
+### Ações
+
+- salvar movimentação;
+- cancelar.
+
+---
+
+## Configurações
+
+Tela de listas auxiliares.
+
+### Estrutura
+
+```text
+Status de serviço
+Motivos de espera
+Categorias financeiras
+Formas de pagamento
+Tipos de equipamento
+Tipos de serviço
+Modelos de garantia
+```
+
+### Ações
+
+- adicionar;
+- editar;
+- desativar;
+- reordenar.
+
+---
+
 # Regra Semântica Principal
 
 ```text
