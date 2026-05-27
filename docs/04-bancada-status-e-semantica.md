@@ -29,7 +29,6 @@ Maria Oliveira
 Defeito: não carrega
 Status: Aguardando
 Motivo: Peça
-Próxima ação: confirmar chegada do conector
 ```
 
 ---
@@ -109,7 +108,6 @@ O serviço agrupa:
 - custos;
 - garantia;
 - status;
-- próxima ação;
 - histórico.
 
 Sempre que uma informação muda conforme o atendimento avança, ela pertence ao Serviço.
@@ -262,7 +260,6 @@ Exemplo:
 ```text
 Status: Aguardando
 Motivo de espera: Peça
-Próxima ação: confirmar chegada do conector
 ```
 
 Isso evita criar várias colunas como:
@@ -276,26 +273,6 @@ Aguardando terceiro
 ```
 
 A Bancada fica mais simples com uma única coluna “Aguardando”, enquanto o motivo aparece dentro do card.
-
----
-
-# Próxima Ação
-
-A primeira versão não terá sistema de lembretes automáticos.
-
-Para substituir isso de forma simples, o Serviço deve possuir um campo textual chamado **Próxima ação**.
-
-Exemplos:
-
-```text
-Comprar conector de carga
-Avisar cliente sobre orçamento
-Testar após troca da peça
-Cobrar sinal
-Aguardar retirada
-```
-
-Este campo não dispara notificação. Ele apenas ajuda o técnico a entender rapidamente o próximo passo do serviço.
 
 ---
 
@@ -344,7 +321,6 @@ Equipamento: Samsung A12
 Serviço: Troca de conector de carga
 Status: Aguardando
 Motivo de espera: Peça
-Próxima ação: confirmar chegada do conector
 ```
 
 Na Bancada:
@@ -364,7 +340,6 @@ Cliente: Carlos Souza
 Equipamento: Notebook Dell 3421
 Serviço: Diagnóstico de desligamento
 Status: Em avaliação
-Próxima ação: testar temperatura e fonte
 ```
 
 Na Bancada:
@@ -383,7 +358,6 @@ Cliente: Hamburgueria Norte
 Equipamento: Epson TM-T20X
 Serviço: Manutenção de impressão travando
 Status: Pronto
-Próxima ação: avisar cliente para retirada
 ```
 
 Na Bancada:
@@ -414,8 +388,7 @@ Cada card da Bancada deve exibir, no mínimo:
 - cliente;
 - defeito informado;
 - status;
-- motivo de espera, quando houver;
-- próxima ação.
+- motivo de espera, quando houver.
 
 ---
 
@@ -428,5 +401,4 @@ Cada card da Bancada deve exibir, no mínimo:
 - Equipamento é o objeto físico.
 - Serviço é o processo acontecendo sobre o equipamento.
 - Motivo de espera complementa o status Aguardando.
-- Próxima ação substitui lembretes automáticos na primeira versão.
 - Sistema de lembretes fica fora do escopo inicial.
