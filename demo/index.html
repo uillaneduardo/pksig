@@ -5,225 +5,358 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PKSIG Demo</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-      font-family: Inter, Arial, sans-serif;
+    :root {
+      --bg: #f7f8fb;
+      --surface: #ffffff;
+      --surface-soft: #f2f5f9;
+      --line: #e5e9f0;
+      --text: #172033;
+      --muted: #6b7280;
+      --brand: #2563eb;
+      --brand-soft: #eaf1ff;
+      --green: #16a34a;
+      --green-soft: #eaf8ef;
+      --orange: #f59e0b;
+      --orange-soft: #fff6e5;
+      --red: #dc2626;
+      --red-soft: #fff0f0;
+      --purple: #7c3aed;
+      --purple-soft: #f4efff;
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --shadow: 0 10px 30px rgba(15, 23, 42, .05);
+      --sidebar: 248px;
     }
 
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
     body {
-      background: #f5f6f8;
-      color: #1f2937;
-      display: flex;
       min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, Arial, sans-serif;
+      font-size: 14px;
+      display: flex;
     }
 
     aside {
-      width: 240px;
-      background: #111827;
-      color: white;
-      padding: 24px;
+      width: var(--sidebar);
+      min-height: 100vh;
+      background: var(--surface);
+      border-right: 1px solid var(--line);
+      padding: 24px 18px;
+      position: sticky;
+      top: 0;
     }
 
-    aside h1 {
-      font-size: 20px;
-      margin-bottom: 32px;
-    }
-
-    aside nav {
+    .logo {
       display: flex;
-      flex-direction: column;
-      gap: 12px;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 30px;
+      font-size: 19px;
+      font-weight: 800;
     }
 
-    aside nav a {
-      color: #d1d5db;
+    .logo-mark {
+      width: 30px;
+      height: 30px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      background: linear-gradient(135deg, var(--brand), #6d5dfc);
+      font-size: 14px;
+    }
+
+    nav { display: grid; gap: 6px; }
+
+    nav a {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text);
       text-decoration: none;
-      padding: 10px 12px;
-      border-radius: 8px;
-      transition: .2s;
+      padding: 11px 12px;
+      border-radius: var(--radius-sm);
+      font-weight: 650;
+      font-size: 14px;
+      cursor: pointer;
     }
 
-    aside nav a:hover,
-    aside nav a.active {
-      background: #1f2937;
-      color: white;
+    nav a span { width: 20px; color: var(--muted); }
+    nav a:hover, nav a.active { background: var(--brand-soft); color: var(--brand); }
+    nav a.active span { color: var(--brand); }
+
+    .user-box {
+      position: absolute;
+      left: 18px;
+      right: 18px;
+      bottom: 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      padding: 12px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      background: var(--surface);
     }
 
-    main {
-      flex: 1;
-      padding: 32px;
+    .avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--surface-soft);
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      color: var(--muted);
     }
 
-    .header {
+    main { flex: 1; padding: 26px 28px; max-width: 1480px; }
+
+    .topbar {
       display: flex;
       justify-content: space-between;
       align-items: center;
       margin-bottom: 24px;
+      gap: 16px;
     }
 
-    .header h2 {
-      font-size: 28px;
+    .title h1 { font-size: 25px; letter-spacing: -.5px; margin-bottom: 5px; }
+    .title p { color: var(--muted); }
+
+    .search {
+      width: 380px;
+      height: 42px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 14px;
+      color: var(--muted);
     }
 
-    button {
-      background: #111827;
-      color: white;
-      border: none;
-      border-radius: 8px;
-      padding: 12px 16px;
+    .btn {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--text);
+      border-radius: var(--radius-sm);
+      height: 38px;
+      padding: 0 14px;
+      font-weight: 750;
       cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
     }
 
-    .cards {
+    .btn.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+    .btn.ghost { background: transparent; }
+
+    .page { display: none; }
+    .page.active { display: block; }
+
+    .stats {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 16px;
-      margin-bottom: 24px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 18px;
     }
 
-    .card {
-      background: white;
-      padding: 20px;
-      border-radius: 12px;
-      border: 1px solid #e5e7eb;
+    .stat-card, .panel, .ds-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
     }
 
-    .card small {
-      color: #6b7280;
-    }
+    .stat-card { padding: 18px; display: flex; gap: 14px; align-items: center; }
 
-    .card h3 {
-      margin-top: 8px;
-      font-size: 24px;
-    }
-
-    .kanban {
+    .icon-bubble {
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 16px;
+      place-items: center;
+      font-weight: 900;
     }
 
-    .column {
-      background: #eef0f3;
-      padding: 12px;
-      border-radius: 12px;
+    .bubble-blue { background: var(--brand-soft); color: var(--brand); }
+    .bubble-green { background: var(--green-soft); color: var(--green); }
+    .bubble-orange { background: var(--orange-soft); color: var(--orange); }
+    .bubble-purple { background: var(--purple-soft); color: var(--purple); }
+
+    .stat-card strong { display: block; font-size: 25px; margin-bottom: 3px; }
+    .stat-card small { color: var(--muted); }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 310px;
+      gap: 18px;
     }
 
-    .column h4 {
-      margin-bottom: 12px;
-      font-size: 14px;
-      color: #374151;
+    .panel { padding: 18px; }
+    .panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .panel-head h2 { font-size: 17px; margin-bottom: 3px; }
+    .panel-head p { color: var(--muted); font-size: 13px; }
+
+    .kanban { display: grid; grid-template-columns: repeat(5, minmax(170px, 1fr)); gap: 12px; }
+    .column { background: var(--surface-soft); border-radius: var(--radius-md); padding: 12px; min-height: 330px; }
+    .column h3 { font-size: 14px; margin-bottom: 12px; display: flex; justify-content: space-between; }
+    .count { background: #e7ebf1; color: var(--muted); border-radius: 999px; padding: 2px 8px; font-size: 12px; }
+
+    .service-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      padding: 13px;
+      margin-bottom: 10px;
     }
 
-    .service {
-      background: white;
-      border-radius: 10px;
-      padding: 12px;
-      margin-bottom: 12px;
-      border: 1px solid #e5e7eb;
-    }
+    .service-card small { color: var(--muted); display: block; margin: 4px 0; }
+    .service-card strong { display: block; margin-bottom: 3px; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 5px; background: var(--brand); }
 
-    .service strong {
-      display: block;
-      margin-bottom: 6px;
-    }
+    .side-stack { display: grid; gap: 14px; }
+    .quick-row { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px; display: flex; justify-content: space-between; margin-top: 8px; background: var(--surface); }
 
-    .service small {
-      color: #6b7280;
-      display: block;
-      margin-top: 4px;
+    .ds-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+    .ds-card { padding: 18px; }
+    .ds-card h2 { font-size: 17px; margin-bottom: 6px; }
+    .ds-card p { color: var(--muted); line-height: 1.55; margin-bottom: 14px; }
+
+    .spec-list { display: grid; gap: 10px; }
+    .spec-item { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+    .spec-item:last-child { border-bottom: 0; padding-bottom: 0; }
+    .spec-item span { color: var(--muted); }
+    .spec-item strong { text-align: right; }
+
+    .color-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+    .swatch { height: 74px; border-radius: var(--radius-md); border: 1px solid var(--line); padding: 8px; display: flex; align-items: end; font-size: 11px; font-weight: 800; }
+
+    .component-preview { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .badge { border-radius: 999px; padding: 5px 9px; font-size: 12px; font-weight: 800; }
+    .badge.green { background: var(--green-soft); color: var(--green); }
+    .badge.orange { background: var(--orange-soft); color: var(--orange); }
+    .badge.blue { background: var(--brand-soft); color: var(--brand); }
+    .badge.red { background: var(--red-soft); color: var(--red); }
+
+    .field { display: grid; gap: 6px; margin-bottom: 12px; }
+    .field label { font-size: 13px; font-weight: 750; }
+    .input { height: 40px; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 0 12px; background: var(--surface); color: var(--muted); }
+
+    .type-scale h1 { font-size: 28px; letter-spacing: -.6px; margin-bottom: 8px; }
+    .type-scale h2 { font-size: 20px; margin-bottom: 8px; }
+    .type-scale h3 { font-size: 16px; margin-bottom: 8px; }
+    .type-scale p { color: var(--muted); line-height: 1.55; }
+
+    @media (max-width: 1100px) {
+      body { display: block; }
+      aside { width: 100%; min-height: auto; position: static; }
+      .user-box { position: static; margin-top: 22px; }
+      .layout, .stats, .ds-grid { grid-template-columns: 1fr; }
+      .kanban { grid-template-columns: 1fr; }
+      .search { width: 100%; }
+      .topbar { align-items: flex-start; flex-direction: column; }
     }
   </style>
 </head>
 <body>
   <aside>
-    <h1>PKSIG</h1>
-
+    <div class="logo"><span class="logo-mark">P</span> PKSIG</div>
     <nav>
-      <a class="active" href="#">Painel</a>
-      <a href="#">Bancada</a>
-      <a href="#">Serviços</a>
-      <a href="#">Clientes</a>
-      <a href="#">Equipamentos</a>
-      <a href="#">Financeiro</a>
-      <a href="#">Configurações</a>
+      <a class="active" data-page="painel"><span>⌂</span>Painel</a>
+      <a data-page="bancada"><span>▦</span>Bancada</a>
+      <a data-page="servicos"><span>⚙</span>Serviços</a>
+      <a data-page="clientes"><span>☷</span>Clientes</a>
+      <a data-page="equipamentos"><span>▱</span>Equipamentos</a>
+      <a data-page="financeiro"><span>$</span>Financeiro</a>
+      <a data-page="design"><span>◈</span>Design System</a>
+      <a data-page="config"><span>⚙</span>Configurações</a>
     </nav>
+    <div class="user-box"><span class="avatar">UL</span><div><strong>Uillan Lira</strong><br><small>Administrador</small></div></div>
   </aside>
 
   <main>
-    <div class="header">
-      <div>
-        <h2>Painel</h2>
-      </div>
-
-      <button>Novo Serviço</button>
+    <div class="topbar">
+      <div class="title"><h1 id="page-title">Painel</h1><p id="page-subtitle">Visão geral da operação</p></div>
+      <div class="search">⌕ Buscar serviços, clientes, equipamentos...</div>
     </div>
 
-    <section class="cards">
-      <div class="card">
-        <small>Serviços abertos</small>
-        <h3>18</h3>
+    <section class="page active" id="painel">
+      <div class="stats">
+        <div class="stat-card"><span class="icon-bubble bubble-blue">OS</span><div><strong>28</strong><small>Serviços em aberto</small></div></div>
+        <div class="stat-card"><span class="icon-bubble bubble-green">✓</span><div><strong>12</strong><small>Concluídos hoje</small></div></div>
+        <div class="stat-card"><span class="icon-bubble bubble-orange">!</span><div><strong>6</strong><small>Aguardando peças</small></div></div>
+        <div class="stat-card"><span class="icon-bubble bubble-purple">$</span><div><strong>R$ 14.250</strong><small>Entradas do mês</small></div></div>
       </div>
-
-      <div class="card">
-        <small>Aguardando</small>
-        <h3>5</h3>
-      </div>
-
-      <div class="card">
-        <small>Prontos</small>
-        <h3>3</h3>
-      </div>
-
-      <div class="card">
-        <small>Resultado do período</small>
-        <h3>R$ 3.240</h3>
-      </div>
-    </section>
-
-    <section class="kanban">
-      <div class="column">
-        <h4>Entrada</h4>
-
-        <div class="service">
-          <strong>Samsung A12</strong>
-          Maria Oliveira
-          <small>Não carrega</small>
+      <div class="layout">
+        <div class="panel">
+          <div class="panel-head"><div><h2>Bancada</h2><p>Serviços organizados por status</p></div><button class="btn primary">+ Novo Serviço</button></div>
+          <div class="kanban">
+            <div class="column"><h3>Entrada <span class="count">8</span></h3><div class="service-card"><strong>#OS00032</strong>Carlos Silva<small>iPhone 11</small><small><span class="dot"></span>24/05 09:15</small></div><div class="service-card"><strong>#OS00031</strong>Mariana Costa<small>Notebook Dell</small></div></div>
+            <div class="column"><h3>Em avaliação <span class="count">6</span></h3><div class="service-card"><strong>#OS00029</strong>Ana Paula<small>iPad Air</small></div><div class="service-card"><strong>#OS00028</strong>Bruno Lima<small>MacBook Air</small></div></div>
+            <div class="column"><h3>Em reparo <span class="count">7</span></h3><div class="service-card"><strong>#OS00026</strong>Rafael Oliveira<small>PlayStation 5</small><small>Técnico: Lucas</small></div></div>
+            <div class="column"><h3>Aguardando <span class="count">4</span></h3><div class="service-card"><strong>#OS00023</strong>Thiago Martins<small>iPhone 12</small><small>Motivo: peça</small></div></div>
+            <div class="column"><h3>Pronto <span class="count">12</span></h3><div class="service-card"><strong>#OS00021</strong>Viviane Rocha<small>iPhone SE</small></div></div>
+          </div>
         </div>
-      </div>
-
-      <div class="column">
-        <h4>Em avaliação</h4>
-
-        <div class="service">
-          <strong>Dell Inspiron</strong>
-          Carlos Souza
-          <small>Desliga sozinho</small>
-        </div>
-      </div>
-
-      <div class="column">
-        <h4>Aguardando</h4>
-
-        <div class="service">
-          <strong>Epson TM-T20X</strong>
-          Hamburgueria Norte
-          <small>Motivo: peça</small>
-        </div>
-      </div>
-
-      <div class="column">
-        <h4>Pronto</h4>
-
-        <div class="service">
-          <strong>iPhone XR</strong>
-          João Pedro
-          <small>Aguardando retirada</small>
+        <div class="side-stack">
+          <div class="panel"><div class="panel-head"><div><h2>Ações rápidas</h2><p>Atalhos principais</p></div></div><div class="quick-row">Novo Serviço <span>›</span></div><div class="quick-row">Novo Cliente <span>›</span></div><div class="quick-row">Nova Movimentação <span>›</span></div></div>
+          <div class="panel"><div class="panel-head"><div><h2>Resumo financeiro</h2><p>Este mês</p></div></div><div class="quick-row">Entradas <strong>R$ 14.250</strong></div><div class="quick-row">Saídas <strong>R$ 3.240</strong></div></div>
         </div>
       </div>
     </section>
+
+    <section class="page" id="design">
+      <div class="ds-grid">
+        <div class="ds-card"><h2>Fundação visual</h2><p>Interface minimalista, clara, com baixa densidade visual, cantos suaves e foco em leitura rápida.</p><div class="spec-list"><div class="spec-item"><span>Grid base</span><strong>12 colunas / gap 16px</strong></div><div class="spec-item"><span>Container</span><strong>padding 28px</strong></div><div class="spec-item"><span>Sidebar</span><strong>248px</strong></div><div class="spec-item"><span>Cards</span><strong>border 1px / radius 16px</strong></div></div></div>
+        <div class="ds-card"><h2>Tipografia</h2><p>Escala compacta para sistema operacional. Títulos fortes, textos auxiliares discretos.</p><div class="type-scale"><h1>Título H1 25–28px</h1><h2>Seção H2 17–20px</h2><h3>Label/Card 14–16px</h3><p>Texto auxiliar 13–14px com cor mutada e altura de linha confortável.</p></div></div>
+        <div class="ds-card"><h2>Espaçamentos</h2><p>Distância entre elementos baseada em múltiplos de 4px para manter consistência.</p><div class="spec-list"><div class="spec-item"><span>Entre cards</span><strong>14–18px</strong></div><div class="spec-item"><span>Padding card</span><strong>18px</strong></div><div class="spec-item"><span>Botão</span><strong>38px altura</strong></div><div class="spec-item"><span>Input</span><strong>40–42px altura</strong></div></div></div>
+        <div class="ds-card" style="grid-column: span 2;"><h2>Cores</h2><p>Paleta clara com azul como ação principal. Status usam cores suaves apenas como apoio visual.</p><div class="color-row"><div class="swatch" style="background:#2563eb;color:white">Brand<br>#2563EB</div><div class="swatch" style="background:#f7f8fb">Background<br>#F7F8FB</div><div class="swatch" style="background:#ffffff">Surface<br>#FFFFFF</div><div class="swatch" style="background:#16a34a;color:white">Success<br>#16A34A</div><div class="swatch" style="background:#f59e0b;color:white">Warning<br>#F59E0B</div></div></div>
+        <div class="ds-card"><h2>Componentes</h2><p>Componentes pequenos, objetivos e com hierarquia clara.</p><div class="component-preview"><button class="btn primary">+ Novo Serviço</button><button class="btn">Filtros</button><button class="btn ghost">Cancelar</button><span class="badge blue">Entrada</span><span class="badge orange">Aguardando</span><span class="badge green">Pronto</span><span class="badge red">Cancelado</span></div></div>
+        <div class="ds-card"><h2>Formulários</h2><p>Campos essenciais, poucos blocos por tela e ações finais claras.</p><div class="field"><label>Cliente</label><div class="input">Buscar cliente...</div></div><div class="field"><label>Defeito informado</label><div class="input">Descreva o defeito relatado</div></div><button class="btn primary">Salvar</button></div>
+        <div class="ds-card"><h2>Cards da Bancada</h2><p>Card deve mostrar apenas identificação, cliente, equipamento e motivo quando houver.</p><div class="service-card"><strong>#OS00023</strong>Thiago Martins<small>iPhone 12</small><small>Motivo: peça</small></div></div>
+        <div class="ds-card"><h2>Diretriz de densidade</h2><p>Mostrar somente o necessário para tomada de decisão. Detalhes completos ficam na tela do Serviço.</p><div class="spec-list"><div class="spec-item"><span>Card</span><strong>4 a 5 linhas máx.</strong></div><div class="spec-item"><span>Painel</span><strong>1 objetivo por bloco</strong></div><div class="spec-item"><span>Formulário</span><strong>campos mínimos</strong></div></div></div>
+      </div>
+    </section>
+
+    <section class="page" id="bancada"><div class="panel"><h2>Bancada</h2><p style="color:var(--muted);margin-top:6px">Visão operacional dos serviços ativos por status.</p></div></section>
+    <section class="page" id="servicos"><div class="panel"><h2>Serviços</h2><p style="color:var(--muted);margin-top:6px">Lista e detalhe dos serviços.</p></div></section>
+    <section class="page" id="clientes"><div class="panel"><h2>Clientes</h2><p style="color:var(--muted);margin-top:6px">Cadastro e consulta de clientes.</p></div></section>
+    <section class="page" id="equipamentos"><div class="panel"><h2>Equipamentos</h2><p style="color:var(--muted);margin-top:6px">Histórico técnico por equipamento.</p></div></section>
+    <section class="page" id="financeiro"><div class="panel"><h2>Financeiro</h2><p style="color:var(--muted);margin-top:6px">Entradas, saídas e movimentações.</p></div></section>
+    <section class="page" id="config"><div class="panel"><h2>Configurações</h2><p style="color:var(--muted);margin-top:6px">Listas auxiliares do sistema.</p></div></section>
   </main>
+
+  <script>
+    const pageInfo = {
+      painel: ['Painel', 'Visão geral da operação'],
+      bancada: ['Bancada', 'Serviços ativos organizados por status'],
+      servicos: ['Serviços', 'Consulta e acompanhamento dos serviços'],
+      clientes: ['Clientes', 'Cadastro e histórico de relacionamento'],
+      equipamentos: ['Equipamentos', 'Histórico técnico dos aparelhos'],
+      financeiro: ['Financeiro', 'Movimentações de entrada e saída'],
+      design: ['Design System', 'Especificações visuais e componentes do PKSIG'],
+      config: ['Configurações', 'Listas auxiliares e padrões do sistema']
+    };
+
+    document.querySelectorAll('nav a').forEach(link => {
+      link.addEventListener('click', () => {
+        const page = link.dataset.page;
+        document.querySelectorAll('nav a').forEach(item => item.classList.remove('active'));
+        document.querySelectorAll('.page').forEach(item => item.classList.remove('active'));
+        link.classList.add('active');
+        document.getElementById(page).classList.add('active');
+        document.getElementById('page-title').textContent = pageInfo[page][0];
+        document.getElementById('page-subtitle').textContent = pageInfo[page][1];
+      });
+    });
+  </script>
 </body>
 </html>
