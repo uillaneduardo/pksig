@@ -93,6 +93,18 @@ app.get("/api/status", async (req: any, res: any) => {
 
     // Check if an administrator exists
     const admins = await query("SELECT id, name, username FROM admins LIMIT 1");
+    let companyName = "PK SIG Assistência";
+    let tradeName = "";
+    try {
+      const company = await query("SELECT company_name, trade_name FROM company_settings LIMIT 1");
+      if (company && company.length > 0) {
+        companyName = company[0].company_name || "PK SIG Assistência";
+        tradeName = company[0].trade_name || "";
+      }
+    } catch (e) {
+      console.error("Error reading company settings in status endpoint:", e);
+    }
+
     return res.json({
       configured: true,
       connected: true,
@@ -100,7 +112,9 @@ app.get("/api/status", async (req: any, res: any) => {
       mode: config?.mode,
       host: config?.host,
       database: config?.database,
-      user: config?.user
+      user: config?.user,
+      companyName,
+      tradeName
     });
   } catch (err: any) {
     return res.json({ 

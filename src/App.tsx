@@ -32,6 +32,8 @@ export default function App() {
 
   // Global settings synced from backend Settings
   const [currency, setCurrency] = useState<string>("R$");
+  const [tradeName, setTradeName] = useState<string>("");
+  const [companyName, setCompanyName] = useState<string>("PK SIG Assistência");
 
   // Mobile menu sidebar toggle state
   const [showMobileSidebar, setShowMobileSidebar] = useState<boolean>(false);
@@ -46,6 +48,13 @@ export default function App() {
         setDbConnected(data.connected || false);
         setDbError(data.error || "");
         setHasAdmin(data.hasAdmin || false);
+
+        if (data.tradeName !== undefined) {
+          setTradeName(data.tradeName);
+        }
+        if (data.companyName !== undefined) {
+          setCompanyName(data.companyName);
+        }
 
         if (data.configured && data.connected && data.hasAdmin) {
           // Verify current login session
@@ -70,6 +79,15 @@ export default function App() {
   useEffect(() => {
     checkSystemStatus();
   }, []);
+
+  useEffect(() => {
+    const titleName = tradeName || companyName;
+    if (titleName) {
+      document.title = titleName;
+    } else {
+      document.title = "PK SIG";
+    }
+  }, [tradeName, companyName]);
 
   const handleLogout = async () => {
     if (!window.confirm("Deseja realmente sair do PK SIG?")) return;
@@ -222,7 +240,7 @@ export default function App() {
             >
               <Menu className="h-5 w-5" />
             </button>
-            <span className="text-gray-400 text-xs font-mono hidden md:inline">Ambiente Administrativo Monolítico</span>
+            <span className="text-gray-500 font-bold uppercase tracking-wider text-[11px] hidden md:inline">{tradeName || companyName || "Ambiente Administrativo"}</span>
           </div>
 
           {/* User information display */}
@@ -281,6 +299,7 @@ export default function App() {
             <Settings 
               onUpdateCurrency={setCurrency} 
               currency={currency} 
+              onCompanyUpdated={checkSystemStatus}
             />
           )}
 

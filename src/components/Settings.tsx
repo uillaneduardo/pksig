@@ -9,9 +9,43 @@ import {
 interface SettingsProps {
   onUpdateCurrency: (currency: string) => void;
   currency: string;
+  onCompanyUpdated?: () => void;
 }
 
-export default function Settings({ onUpdateCurrency, currency }: SettingsProps) {
+// Helpers for input masks
+const formatCpfCnpj = (value: string) => {
+  const digits = value.replace(/\D/g, "");
+  if (digits.length <= 11) {
+    return digits
+      .replace(/(\d{3})(\d)/, "$1.$2")
+      .replace(/(\d{3})(\d)/, "$1.$2")
+      .replace(/(\d{3})(\d{1,2})$/, "$1-$2");
+  } else {
+    return digits
+      .substring(0, 14)
+      .replace(/^(\d{2})(\d)/, "$1.$2")
+      .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
+      .replace(/^(\d{2})\.(\d{3})\.(\d{3})(\d)/, "$1.$2.$3/$4")
+      .replace(/\/(\d{4})(\d)/, "/$1-$2");
+  }
+};
+
+const formatPhone = (value: string) => {
+  const digits = value.replace(/\D/g, "");
+  if (digits.length <= 10) {
+    return digits
+      .substring(0, 10)
+      .replace(/^(\d{2})(\d)/, "($1) $2")
+      .replace(/(\d{4})(\d)/, "$1-$2");
+  } else {
+    return digits
+      .substring(0, 11)
+      .replace(/^(\d{2})(\d)/, "($1) $2")
+      .replace(/(\d{5})(\d)/, "$1-$2");
+  }
+};
+
+export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated }: SettingsProps) {
   const [activeSection, setActiveSection] = useState<"geral" | "categorias" | "pagamentos" | "garantias" | "acessorios" | "empresa">("geral");
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -68,9 +102,9 @@ export default function Settings({ onUpdateCurrency, currency }: SettingsProps) 
           setCompanyConfig({
             company_name: data.company.company_name || "PK SIG Assistência",
             trade_name: data.company.trade_name || "",
-            tax_id: data.company.tax_id || "",
-            phone: data.company.phone || "",
-            whatsapp: data.company.whatsapp || "",
+            tax_id: formatCpfCnpj(data.company.tax_id || ""),
+            phone: formatPhone(data.company.phone || ""),
+            whatsapp: formatPhone(data.company.whatsapp || ""),
             email: data.company.email || "",
             address_text: data.company.address_text || ""
           });
@@ -131,6 +165,9 @@ export default function Settings({ onUpdateCurrency, currency }: SettingsProps) 
       });
       if (res.ok) {
         setSuccessMsg("Informações da empresa salvas com sucesso!");
+        if (onCompanyUpdated) {
+          onCompanyUpdated();
+        }
         setTimeout(() => setSuccessMsg(""), 3000);
       } else {
         const data = await res.json().catch(() => ({}));
@@ -393,7 +430,7 @@ export default function Settings({ onUpdateCurrency, currency }: SettingsProps) 
                   <input
                     type="text"
                     value={companyConfig.tax_id}
-                    onChange={(e) => setCompanyConfig({ ...companyConfig, tax_id: e.target.value })}
+                    onChange={(e) => setCompanyConfig({ ...companyConfig, tax_id: formatCpfCnpj(e.target.value) })}
                     className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-semibold bg-white"
                     placeholder="00.000.000/0001-00"
                   />
@@ -416,7 +453,7 @@ export default function Settings({ onUpdateCurrency, currency }: SettingsProps) 
                   <input
                     type="text"
                     value={companyConfig.phone}
-                    onChange={(e) => setCompanyConfig({ ...companyConfig, phone: e.target.value })}
+                    onChange={(e) => setCompanyConfig({ ...companyConfig, phone: formatPhone(e.target.value) })}
                     className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-semibold bg-white"
                     placeholder="(00) 0000-0000"
                   />
@@ -426,7 +463,7 @@ export default function Settings({ onUpdateCurrency, currency }: SettingsProps) 
                   <input
                     type="text"
                     value={companyConfig.whatsapp}
-                    onChange={(e) => setCompanyConfig({ ...companyConfig, whatsapp: e.target.value })}
+                    onChange={(e) => setCompanyConfig({ ...companyConfig, whatsapp: formatPhone(e.target.value) })}
                     className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-semibold bg-white"
                     placeholder="(00) 90000-0000"
                   />
