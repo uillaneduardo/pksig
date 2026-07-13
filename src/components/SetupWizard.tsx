@@ -327,7 +327,7 @@ export default function SetupWizard({ onCompleted }: SetupWizardProps) {
                   <Server className="h-5 w-5 text-gray-600" />
                   <span>2. Modo de Armazenamento</span>
                 </h2>
-                <p className="text-gray-500 text-xs mt-1">Onde residirá o seu banco de dados MySQL?</p>
+                <p className="text-gray-500 text-xs mt-1">Onde residirá o seu banco de dados?</p>
               </div>
 
               <div className="space-y-3">
@@ -344,8 +344,8 @@ export default function SetupWizard({ onCompleted }: SetupWizardProps) {
                       className="text-indigo-600 focus:ring-indigo-500 h-4 w-4"
                     />
                     <div>
-                      <p className="text-sm font-bold text-gray-900">MySQL Local</p>
-                      <p className="text-xs text-gray-500 mt-0.5">O banco de dados está instalado no mesmo computador ou servidor onde o PK SIG está sendo executado.</p>
+                      <p className="text-sm font-bold text-gray-900">Local (SQLite - Sem Servidor)</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Armazenamento local em arquivo seguro. Sem necessidade de instalar ou configurar servidores adicionais (Ideal para instalações simples).</p>
                     </div>
                   </div>
                 </div>
@@ -363,7 +363,7 @@ export default function SetupWizard({ onCompleted }: SetupWizardProps) {
                       className="text-indigo-600 focus:ring-indigo-500 h-4 w-4"
                     />
                     <div>
-                      <p className="text-sm font-bold text-gray-900">MySQL Remoto</p>
+                      <p className="text-sm font-bold text-gray-900">Nuvem / Servidor Externo (MySQL)</p>
                       <p className="text-xs text-gray-500 mt-0.5">O banco de dados está em outra máquina, servidor de hospedagem externo (cPanel, HostGator, etc.) ou na nuvem.</p>
                     </div>
                   </div>
@@ -381,7 +381,7 @@ export default function SetupWizard({ onCompleted }: SetupWizardProps) {
                   onClick={nextStep}
                   className="w-2/3 py-2 bg-[#0e131f] hover:bg-[#1a2336] text-white rounded-md text-sm font-semibold transition"
                 >
-                  Configurar Conexão
+                  Avançar
                 </button>
               </div>
             </div>
@@ -393,89 +393,111 @@ export default function SetupWizard({ onCompleted }: SetupWizardProps) {
               <div className="border-b border-gray-100 pb-3 mb-4">
                 <h2 className="text-lg font-bold text-gray-900 flex items-center space-x-2">
                   <Database className="h-5 w-5 text-gray-600" />
-                  <span>3. Parâmetros de Conexão ({mode === "local" ? "Local" : "Remoto"})</span>
+                  <span>3. Inicialização do Banco de Dados ({mode === "local" ? "Local - SQLite" : "Remoto - MySQL"})</span>
                 </h2>
-                <p className="text-gray-500 text-xs mt-1">Configure os dados de acesso ao seu servidor MySQL.</p>
+                <p className="text-gray-500 text-xs mt-1">
+                  {mode === "local" 
+                    ? "O banco de dados SQLite local não necessita de servidores adicionais ou configurações de rede." 
+                    : "Configure os dados de acesso ao seu servidor MySQL."}
+                </p>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div className="col-span-2">
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Host / Servidor *</label>
-                  <input
-                    type="text"
-                    value={host}
-                    onChange={(e) => { setHost(e.target.value); setConnectionTested(false); }}
-                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                    placeholder="Ex: localhost ou 127.0.0.1"
-                  />
+              {mode === "local" ? (
+                <div className="bg-indigo-50 border border-indigo-100 p-5 rounded-md text-sm leading-relaxed text-indigo-950 space-y-3">
+                  <p className="font-bold text-indigo-900 flex items-center">
+                    <Database className="h-5 w-5 mr-2 text-indigo-600" />
+                    Tecnologia SQLite Selecionada
+                  </p>
+                  <p>
+                    O PK SIG irá criar um arquivo local seguro contendo todas as tabelas e dados na pasta 
+                    <span className="font-mono bg-indigo-100 px-1.5 py-0.5 rounded ml-1">storage/pksig.db</span>.
+                  </p>
+                  <p className="text-xs text-indigo-800">
+                    Clique no botão abaixo para verificar se o ambiente local possui as permissões necessárias e está pronto para inicializar.
+                  </p>
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Porta *</label>
-                  <input
-                    type="number"
-                    value={port}
-                    onChange={(e) => { setPort(e.target.value); setConnectionTested(false); }}
-                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Nome do Banco (Database) *</label>
-                  <input
-                    type="text"
-                    value={database}
-                    onChange={(e) => { setDatabase(e.target.value); setConnectionTested(false); }}
-                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Usuário *</label>
-                  <input
-                    type="text"
-                    value={user}
-                    onChange={(e) => { setUser(e.target.value); setConnectionTested(false); }}
-                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Senha</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => { setPassword(e.target.value); setConnectionTested(false); }}
-                  className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  placeholder="Deixe em branco se não houver"
-                />
-              </div>
-
-              {mode === "remoto" && (
-                <div className="space-y-2 pt-1">
-                  <label className="flex items-center space-x-2 text-xs font-semibold text-gray-700 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={ssl}
-                      onChange={(e) => { setSsl(e.target.checked); setConnectionTested(false); }}
-                      className="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4"
-                    />
-                    <span>Usar Conexão Segura (SSL)</span>
-                  </label>
-
-                  {ssl && (
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-700 mb-1">Certificado CA (Opcional)</label>
-                      <textarea
-                        value={certificate}
-                        onChange={(e) => { setCertificate(e.target.value); setConnectionTested(false); }}
-                        className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 h-20"
-                        placeholder="Cole o conteúdo do certificado PEM se exigido pela hospedagem"
+              ) : (
+                <>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="col-span-2">
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Host / Servidor *</label>
+                      <input
+                        type="text"
+                        value={host}
+                        onChange={(e) => { setHost(e.target.value); setConnectionTested(false); }}
+                        className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        placeholder="Ex: localhost ou 127.0.0.1"
                       />
                     </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Porta *</label>
+                      <input
+                        type="number"
+                        value={port}
+                        onChange={(e) => { setPort(e.target.value); setConnectionTested(false); }}
+                        className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Nome do Banco (Database) *</label>
+                      <input
+                        type="text"
+                        value={database}
+                        onChange={(e) => { setDatabase(e.target.value); setConnectionTested(false); }}
+                        className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Usuário *</label>
+                      <input
+                        type="text"
+                        value={user}
+                        onChange={(e) => { setUser(e.target.value); setConnectionTested(false); }}
+                        className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Senha</label>
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(e) => { setPassword(e.target.value); setConnectionTested(false); }}
+                      className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      placeholder="Deixe em branco se não houver"
+                    />
+                  </div>
+
+                  {ssl && (
+                    <div className="space-y-2 pt-1">
+                      <label className="flex items-center space-x-2 text-xs font-semibold text-gray-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={ssl}
+                          onChange={(e) => { setSsl(e.target.checked); setConnectionTested(false); }}
+                          className="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                        />
+                        <span>Usar Conexão Segura (SSL)</span>
+                      </label>
+
+                      {ssl && (
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-700 mb-1">Certificado CA (Opcional)</label>
+                          <textarea
+                            value={certificate}
+                            onChange={(e) => { setCertificate(e.target.value); setConnectionTested(false); }}
+                            className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 h-20"
+                            placeholder="Cole o conteúdo do certificado PEM se exigido pela hospedagem"
+                          />
+                        </div>
+                      )}
+                    </div>
                   )}
-                </div>
+                </>
               )}
 
               <div className="flex space-x-2 pt-2">
@@ -486,10 +508,10 @@ export default function SetupWizard({ onCompleted }: SetupWizardProps) {
                   className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-xs font-bold transition flex items-center justify-center space-x-2"
                 >
                   {loading && <Loader className="animate-spin h-4 w-4" />}
-                  <span>Testar Conexão</span>
+                  <span>{mode === "local" ? "Verificar Banco Local" : "Testar Conexão"}</span>
                 </button>
 
-                {dbMissing && (
+                {dbMissing && mode !== "local" && (
                   <button
                     type="button"
                     onClick={handleCreateDatabase}

@@ -3,7 +3,7 @@ import { EquipmentCategory, PaymentMethod, WarrantyRule } from "../types";
 import { 
   Settings as SettingsIcon, Save, Plus, Check, Trash2, 
   RefreshCw, DollarSign, Laptop, ShieldCheck, Tag, Loader, AlertCircle,
-  Building
+  Building, Edit
 } from "lucide-react";
 
 interface SettingsProps {
@@ -71,6 +71,7 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
   });
 
   const [categories, setCategories] = useState<EquipmentCategory[]>([]);
+  const [editingCategory, setEditingCategory] = useState<EquipmentCategory | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [warrantyRules, setWarrantyRules] = useState<WarrantyRule[]>([]);
   const [accessories, setAccessories] = useState<any[]>([]);
@@ -180,25 +181,47 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
     }
   };
 
-  // Add category
-  const handleAddCategory = async (e: React.FormEvent) => {
+  // Save (Add or Update) category
+  const handleSaveCategory = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCatName) return;
 
     try {
-      const res = await fetch("/api/settings/categories", {
-        method: "POST",
+      const isEditing = !!editingCategory;
+      const url = isEditing 
+        ? `/api/settings/categories/${editingCategory.id}` 
+        : "/api/settings/categories";
+      const method = isEditing ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newCatName, notes: newCatNotes })
       });
       if (res.ok) {
         setNewCatName("");
         setNewCatNotes("");
+        setEditingCategory(null);
         loadSettingsData();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        alert(d.error || `Erro ao ${isEditing ? "atualizar" : "adicionar"} categoria.`);
       }
     } catch (err) {
-      alert("Erro ao adicionar categoria.");
+      alert("Erro ao salvar categoria.");
     }
+  };
+
+  const handleEditCategoryClick = (cat: EquipmentCategory) => {
+    setEditingCategory(cat);
+    setNewCatName(cat.name);
+    setNewCatNotes(cat.notes || "");
+  };
+
+  const handleCancelEditCategory = () => {
+    setEditingCategory(null);
+    setNewCatName("");
+    setNewCatNotes("");
   };
 
   // Toggle active item status
@@ -496,8 +519,10 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
           {/* SECTION: CATEGORIAS DE EQUIPAMENTO */}
           {activeSection === "categorias" && (
             <div className="space-y-6">
-              <form onSubmit={handleAddCategory} className="space-y-3 bg-gray-50/50 p-4 border border-gray-200 rounded-md">
-                <h4 className="font-bold text-gray-950 uppercase tracking-wider text-[10px]">+ Adicionar Nova Categoria</h4>
+              <form onSubmit={handleSaveCategory} className="space-y-3 bg-gray-50/50 p-4 border border-gray-200 rounded-md">
+                <h4 className="font-bold text-gray-950 uppercase tracking-wider text-[10px]">
+                  {editingCategory ? "Editar Categoria de Equipamento" : "+ Adicionar Nova Categoria"}
+                </h4>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
@@ -523,12 +548,21 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
                   </div>
                 </div>
 
-                <div className="flex justify-end pt-1">
+                <div className="flex justify-end space-x-2 pt-1">
+                  {editingCategory && (
+                    <button
+                      type="button"
+                      onClick={handleCancelEditCategory}
+                      className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded cursor-pointer transition"
+                    >
+                      Cancelar
+                    </button>
+                  )}
                   <button
                     type="submit"
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded"
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded cursor-pointer transition"
                   >
-                    Salvar Categoria
+                    {editingCategory ? "Salvar Alterações" : "Salvar Categoria"}
                   </button>
                 </div>
               </form>
@@ -555,7 +589,16 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
                               {cat.active ? "Ativo" : "Inativo"}
                             </span>
                           </td>
-                          <td className="p-3 text-right">
+                          <td className="p-3 text-right space-x-2">
+                            <button
+                              type="button"
+                              onClick={() => handleEditCategoryClick(cat)}
+                              className="px-2 py-1 bg-white hover:bg-gray-50 text-gray-600 hover:text-indigo-600 font-bold border border-gray-200 rounded text-[10px] transition cursor-pointer"
+                              title="Editar Categoria"
+                            >
+                              <Edit className="h-3 w-3 inline mr-1" />
+                              Editar
+                            </button>
                             <button
                               onClick={() => handleToggleActive("equipment_categories", cat.id, cat.active)}
                               className={`px-2.5 py-1 rounded text-[10px] font-bold border transition cursor-pointer ${cat.active ? "border-red-200 text-red-600 hover:bg-red-50" : "border-green-200 text-green-600 hover:bg-green-50"}`}

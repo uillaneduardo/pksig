@@ -129,16 +129,16 @@ app.get("/api/status", async (req: any, res: any) => {
 // Test database connection
 app.post("/api/setup/test-connection", async (req: any, res: any) => {
   const { mode, host, port, database, user, password, ssl } = req.body;
-  if (!host || !port || !database || !user) {
+  if (mode !== "local" && (!host || !port || !database || !user)) {
     return res.status(400).json({ error: "Todos os campos de conexão são obrigatórios" });
   }
 
   const testResult = await testConnection({
     mode,
-    host,
-    port: parseInt(port),
-    database,
-    user,
+    host: mode === "local" ? "localhost" : host,
+    port: mode === "local" ? 0 : parseInt(port),
+    database: mode === "local" ? "pksig.db" : database,
+    user: mode === "local" ? "local" : user,
     password,
     ssl: !!ssl
   });
@@ -149,16 +149,16 @@ app.post("/api/setup/test-connection", async (req: any, res: any) => {
 // Create database automatically
 app.post("/api/setup/create-database", async (req: any, res: any) => {
   const { mode, host, port, database, user, password, ssl } = req.body;
-  if (!host || !port || !database || !user) {
+  if (mode !== "local" && (!host || !port || !database || !user)) {
     return res.status(400).json({ error: "Campos obrigatórios ausentes" });
   }
 
   const result = await createDatabaseAutomatically({
     mode,
-    host,
-    port: parseInt(port),
-    database,
-    user,
+    host: mode === "local" ? "localhost" : host,
+    port: mode === "local" ? 0 : parseInt(port),
+    database: mode === "local" ? "pksig.db" : database,
+    user: mode === "local" ? "local" : user,
     password,
     ssl: !!ssl
   });
@@ -177,12 +177,12 @@ app.post("/api/setup/install", async (req: any, res: any) => {
     // 1. Save Config First
     saveDatabaseConfig({
       mode: connection.mode,
-      host: connection.host,
-      port: parseInt(connection.port),
-      database: connection.database,
-      user: connection.user,
-      password: connection.password,
-      ssl: !!connection.ssl
+      host: connection.mode === "local" ? "localhost" : connection.host,
+      port: connection.mode === "local" ? 0 : parseInt(connection.port),
+      database: connection.mode === "local" ? "pksig.db" : connection.database,
+      user: connection.mode === "local" ? "local" : connection.user,
+      password: connection.mode === "local" ? "" : connection.password,
+      ssl: connection.mode === "local" ? false : !!connection.ssl
     });
 
     // 2. Install Schema
@@ -762,7 +762,8 @@ app.put("/api/service-orders/:id", requireAuth, async (req: any, res: any) => {
     technician_name, status_id, problem_reported,
     technical_defect, technical_diagnosis, technical_service_recommended, 
     technical_parts_needed, technical_estimated_hours, technical_notes,
-    reception_equipment_state, reception_notes, promise_date, completion_date
+    reception_equipment_state, reception_notes, promise_date, completion_date,
+    accessories
   } = req.body;
 
   try {
@@ -787,6 +788,16 @@ app.put("/api/service-orders/:id", requireAuth, async (req: any, res: any) => {
         reception_equipment_state || null, reception_notes || null, promiseVal, compDate, id
       ]
     );
+
+    // Save accessories
+    if (accessories && Array.isArray(accessories)) {
+      await execute("DELETE FROM service_order_accessories WHERE service_order_id = ?", [id]);
+      for (const acc of accessories) {
+        if (acc) {
+          await execute("INSERT INTO service_order_accessories (service_order_id, accessory_name) VALUES (?, ?)", [id, acc]);
+        }
+      }
+    }
 
     // If status is "Entregue", update equipment status to "Disponível"
     if (statusName === "Entregue") {
@@ -1624,6 +1635,24 @@ app.post("/api/settings/categories", requireAuth, async (req: any, res: any) => 
     return res.json({ success: true });
   } catch (err: any) {
     console.error("POST /api/settings/categories error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Settings: Update equipment category
+app.put("/api/settings/categories/:id", requireAuth, async (req: any, res: any) => {
+  const { id } = req.params;
+  const { name, notes } = req.body;
+  if (!name) return res.status(400).json({ error: "Nome obrigatório" });
+
+  try {
+    await execute(
+      "UPDATE equipment_categories SET name = ?, notes = ? WHERE id = ?",
+      [name, notes || null, id]
+    );
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error("PUT /api/settings/categories/:id error:", err);
     return res.status(500).json({ error: err.message });
   }
 });

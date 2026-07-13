@@ -179,6 +179,7 @@ export interface Warranty {
 export interface EquipmentCategory {
   id: number;
   name: string;
+  notes?: string;
   active: boolean;
   created_at: string;
 }

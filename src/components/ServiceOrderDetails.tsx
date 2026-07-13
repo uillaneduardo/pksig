@@ -38,6 +38,7 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
   const [newQty, setNewQty] = useState("1");
   const [newVal, setNewVal] = useState("0");
   const [editingBudgetItem, setEditingBudgetItem] = useState<BudgetItem | null>(null);
+  const [customAccessory, setCustomAccessory] = useState("");
 
   // Payment Guide Generation Form State
   const [expectedMethod, setExpectedMethod] = useState("");
@@ -246,7 +247,10 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
       const res = await fetch(`/api/service-orders/${osId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(order)
+        body: JSON.stringify({
+          ...order,
+          accessories
+        })
       });
       if (res.ok) {
         setSuccessMsg("Ordem de Serviço salva com sucesso.");
@@ -594,19 +598,99 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
             </div>
 
             <div>
-              <label className="block text-gray-600 mb-1 font-bold">Acessórios Entregues no Recebimento</label>
-              <div className="p-3 bg-gray-50 border border-gray-200 rounded-md flex flex-wrap gap-4 font-mono">
-                {accessories.length === 0 ? (
-                  <span className="text-gray-400">Nenhum acessório entregue.</span>
-                ) : (
-                  accessories.map((acc, i) => (
-                    <span key={i} className="px-2 py-1 bg-white border border-gray-200 rounded text-[10px] font-bold text-gray-700 flex items-center">
-                      <Check className="h-3.5 w-3.5 text-green-600 mr-1" />
-                      {acc}
-                    </span>
-                  ))
-                )}
+              <label className="block text-gray-600 mb-1.5 font-bold">Acessórios Entregues no Recebimento</label>
+              
+              {/* Checklist from master accessories */}
+              <div className="mb-3.5">
+                <p className="text-[10px] uppercase font-bold text-gray-400 mb-1.5">Checklist de Acessórios Cadastrados</p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-gray-50 p-3 border border-gray-200 rounded-md max-h-32 overflow-y-auto">
+                  {accessoriesMaster.map((acc) => (
+                    <label key={acc.id} className="flex items-center space-x-1.5 cursor-pointer font-semibold select-none text-gray-700 hover:text-gray-900">
+                      <input
+                        type="checkbox"
+                        checked={accessories.includes(acc.name)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setAccessories([...accessories, acc.name]);
+                          } else {
+                            setAccessories(accessories.filter((name) => name !== acc.name));
+                          }
+                        }}
+                        className="rounded text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
+                      />
+                      <span>{acc.name}</span>
+                    </label>
+                  ))}
+                  {accessoriesMaster.length === 0 && (
+                    <span className="text-gray-400 col-span-full">Nenhum acessório padrão cadastrado nas configurações.</span>
+                  )}
+                </div>
               </div>
+
+              {/* Custom Accessory Add Form */}
+              <div className="mb-3.5 flex items-center space-x-2">
+                <input
+                  type="text"
+                  placeholder="Digitar acessório personalizado..."
+                  value={customAccessory}
+                  onChange={(e) => setCustomAccessory(e.target.value)}
+                  className="flex-1 px-3 py-1.5 border border-gray-300 rounded-md focus:ring-1 focus:outline-none text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const trimmed = customAccessory.trim();
+                    if (!trimmed) return;
+                    if (accessories.includes(trimmed)) {
+                      alert("Este acessório já está na lista.");
+                      return;
+                    }
+                    setAccessories([...accessories, trimmed]);
+                    setCustomAccessory("");
+                  }}
+                  className="px-3 py-1.5 bg-[#0e131f] hover:bg-indigo-600 text-white font-bold rounded-md transition cursor-pointer text-xs shrink-0"
+                >
+                  + Adicionar
+                </button>
+              </div>
+
+              {/* Display currently selected/delivered accessories as interactive tags */}
+              <div className="mb-4">
+                <p className="text-[10px] uppercase font-bold text-gray-400 mb-1.5">Acessórios Selecionados para esta OS</p>
+                <div className="p-3 bg-gray-50 border border-gray-200 rounded-md flex flex-wrap gap-2 min-h-12 items-center">
+                  {accessories.length === 0 ? (
+                    <span className="text-gray-400">Nenhum acessório selecionado. Marque acima ou digite um novo.</span>
+                  ) : (
+                    accessories.map((acc, i) => (
+                      <span key={i} className="px-2.5 py-1 bg-white border border-gray-200 rounded-full text-[10px] font-bold text-gray-700 flex items-center shadow-xs">
+                        <Check className="h-3 w-3 text-green-600 mr-1" />
+                        <span className="mr-1.5">{acc}</span>
+                        <button
+                          type="button"
+                          onClick={() => setAccessories(accessories.filter((name) => name !== acc))}
+                          className="text-gray-400 hover:text-red-500 font-bold transition cursor-pointer"
+                          title="Remover acessório"
+                        >
+                          &times;
+                        </button>
+                      </span>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Local Save Changes Button */}
+            <div className="flex justify-end pt-3 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={handleSaveOS}
+                disabled={isSaving}
+                className="flex items-center space-x-1.5 px-4 py-2 bg-[#0e131f] hover:bg-indigo-600 text-white font-bold rounded-md transition cursor-pointer"
+              >
+                {isSaving ? <Loader className="animate-spin h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
+                <span>Salvar Informações da Recepção</span>
+              </button>
             </div>
           </div>
         </div>
