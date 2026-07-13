@@ -847,6 +847,31 @@ app.delete("/api/service-orders/:id/budget/:itemId", requireAuth, async (req: an
   }
 });
 
+// Update budget item
+app.put("/api/service-orders/:id/budget/:itemId", requireAuth, async (req: any, res: any) => {
+  const { id, itemId } = req.params;
+  const { description, type, quantity, unit_value } = req.body;
+
+  if (!description || !type || quantity === undefined || unit_value === undefined) {
+    return res.status(400).json({ error: "Descrição, tipo, quantidade e valor unitário são obrigatórios" });
+  }
+
+  try {
+    const guides = await query("SELECT * FROM payment_guides WHERE service_order_id = ?", [id]);
+    if (guides[0] && guides[0].paid_amount > 0) {
+      return res.status(400).json({ error: "Este orçamento não pode ser alterado pois já existem pagamentos registrados." });
+    }
+
+    await execute(
+      "UPDATE budget_items SET description = ?, type = ?, quantity = ?, unit_value = ? WHERE id = ? AND service_order_id = ?",
+      [description, type, parseFloat(quantity), parseFloat(unit_value), itemId, id]
+    );
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // Generate Payment Guide (Guia de Pagamento)
 app.post("/api/service-orders/:id/guide", requireAuth, async (req: any, res: any) => {
   const { id } = req.params;

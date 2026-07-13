@@ -37,6 +37,7 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
   const [newType, setNewType] = useState<"Serviço" | "Peça" | "Mão de obra">("Serviço");
   const [newQty, setNewQty] = useState("1");
   const [newVal, setNewVal] = useState("0");
+  const [editingBudgetItem, setEditingBudgetItem] = useState<BudgetItem | null>(null);
 
   // Payment Guide Generation Form State
   const [expectedMethod, setExpectedMethod] = useState("");
@@ -262,8 +263,8 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
     }
   };
 
-  // Add Budget Item
-  const handleAddBudgetItem = async (e: React.FormEvent) => {
+  // Save (Add or Update) Budget Item
+  const handleSaveBudgetItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDesc || parseFloat(newQty) <= 0 || parseFloat(newVal) < 0) {
       alert("Preencha todos os campos do item.");
@@ -271,8 +272,14 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
     }
 
     try {
-      const res = await fetch(`/api/service-orders/${osId}/budget`, {
-        method: "POST",
+      const isEditing = !!editingBudgetItem;
+      const url = isEditing 
+        ? `/api/service-orders/${osId}/budget/${editingBudgetItem.id}` 
+        : `/api/service-orders/${osId}/budget`;
+      const method = isEditing ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           description: newDesc,
@@ -285,14 +292,31 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
         setNewDesc("");
         setNewQty("1");
         setNewVal("0");
+        setEditingBudgetItem(null);
         loadOSDetails();
       } else {
         const d = await res.json();
-        alert(d.error || "Erro ao adicionar item.");
+        alert(d.error || `Erro ao ${isEditing ? "atualizar" : "adicionar"} item.`);
       }
     } catch (err) {
       alert("Erro ao conectar.");
     }
+  };
+
+  const handleEditBudgetItemClick = (item: BudgetItem) => {
+    setEditingBudgetItem(item);
+    setNewDesc(item.description);
+    setNewType(item.type);
+    setNewQty(item.quantity.toString());
+    setNewVal(item.unit_value.toString());
+  };
+
+  const handleCancelEditBudgetItem = () => {
+    setEditingBudgetItem(null);
+    setNewDesc("");
+    setNewType("Serviço");
+    setNewQty("1");
+    setNewVal("0");
   };
 
   // Remove Budget Item
@@ -685,8 +709,10 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
           
           {/* Add budget item form */}
           {(!guide || guide.paid_amount === 0) ? (
-            <form onSubmit={handleAddBudgetItem} className="bg-white border border-gray-200 rounded-md shadow-sm p-6 space-y-3">
-              <h4 className="font-bold text-gray-950 border-b border-gray-100 pb-1.5 uppercase tracking-wider text-[10px]">Adicionar Item ao Orçamento</h4>
+            <form onSubmit={handleSaveBudgetItem} className="bg-white border border-gray-200 rounded-md shadow-sm p-6 space-y-3">
+              <h4 className="font-bold text-gray-950 border-b border-gray-100 pb-1.5 uppercase tracking-wider text-[10px]">
+                {editingBudgetItem ? "Editar Item do Orçamento" : "Adicionar Item ao Orçamento"}
+              </h4>
               
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <div className="md:col-span-2">
@@ -739,12 +765,21 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
                 </div>
               </div>
 
-              <div className="flex justify-end pt-2">
+              <div className="flex justify-end space-x-2 pt-2">
+                {editingBudgetItem && (
+                  <button
+                    type="button"
+                    onClick={handleCancelEditBudgetItem}
+                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-md transition cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                )}
                 <button
                   type="submit"
                   className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-md transition cursor-pointer"
                 >
-                  + Inserir Item
+                  {editingBudgetItem ? "Salvar Alterações" : "+ Inserir Item"}
                 </button>
               </div>
             </form>
@@ -774,7 +809,7 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
                       <th className="py-3 px-4 text-center">Qtd</th>
                       <th className="py-3 px-4 text-right">Valor Unitário</th>
                       <th className="py-3 px-4 text-right">Valor Total</th>
-                      {(!guide || guide.paid_amount === 0) && <th className="py-3 px-4 text-right">Excluir</th>}
+                      {(!guide || guide.paid_amount === 0) && <th className="py-3 px-4 text-right">Ações</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 font-medium">
@@ -792,12 +827,22 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
                         <td className="py-3.5 px-4 text-right font-mono">{currency} {parseFloat(item.unit_value as any).toFixed(2)}</td>
                         <td className="py-3.5 px-4 text-right font-mono font-bold text-gray-900">{currency} {parseFloat(item.total_value as any).toFixed(2)}</td>
                         {(!guide || guide.paid_amount === 0) && (
-                          <td className="py-3.5 px-4 text-right">
+                          <td className="py-3.5 px-4 text-right space-x-1">
                             <button
-                              onClick={() => handleRemoveBudgetItem(item.id)}
-                              className="p-1 text-gray-400 hover:text-red-600 rounded transition"
+                              type="button"
+                              onClick={() => handleEditBudgetItemClick(item)}
+                              className="p-1 text-gray-400 hover:text-indigo-600 rounded transition cursor-pointer"
+                              title="Editar item"
                             >
-                              <Trash2 className="h-4 w-4" />
+                              <Edit className="h-4 w-4 inline" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveBudgetItem(item.id)}
+                              className="p-1 text-gray-400 hover:text-red-600 rounded transition cursor-pointer"
+                              title="Excluir item"
+                            >
+                              <Trash2 className="h-4 w-4 inline" />
                             </button>
                           </td>
                         )}
