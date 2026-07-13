@@ -2,7 +2,8 @@ import React, { useState, useEffect } from "react";
 import { EquipmentCategory, PaymentMethod, WarrantyRule } from "../types";
 import { 
   Settings as SettingsIcon, Save, Plus, Check, Trash2, 
-  RefreshCw, DollarSign, Laptop, ShieldCheck, Tag, Loader, AlertCircle 
+  RefreshCw, DollarSign, Laptop, ShieldCheck, Tag, Loader, AlertCircle,
+  Building
 } from "lucide-react";
 
 interface SettingsProps {
@@ -11,7 +12,7 @@ interface SettingsProps {
 }
 
 export default function Settings({ onUpdateCurrency, currency }: SettingsProps) {
-  const [activeSection, setActiveSection] = useState<"geral" | "categorias" | "pagamentos" | "garantias" | "acessorios">("geral");
+  const [activeSection, setActiveSection] = useState<"geral" | "categorias" | "pagamentos" | "garantias" | "acessorios" | "empresa">("geral");
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -23,6 +24,16 @@ export default function Settings({ onUpdateCurrency, currency }: SettingsProps) 
     currency: "R$",
     default_delay_alert_days: 5,
     default_tax_rate: 0
+  });
+
+  const [companyConfig, setCompanyConfig] = useState({
+    company_name: "PK SIG Assistência",
+    trade_name: "",
+    tax_id: "",
+    phone: "",
+    whatsapp: "",
+    email: "",
+    address_text: ""
   });
 
   const [categories, setCategories] = useState<EquipmentCategory[]>([]);
@@ -52,6 +63,17 @@ export default function Settings({ onUpdateCurrency, currency }: SettingsProps) 
         if (data.system) {
           setSystemConfig(data.system);
           onUpdateCurrency(data.system.currency);
+        }
+        if (data.company) {
+          setCompanyConfig({
+            company_name: data.company.company_name || "PK SIG Assistência",
+            trade_name: data.company.trade_name || "",
+            tax_id: data.company.tax_id || "",
+            phone: data.company.phone || "",
+            whatsapp: data.company.whatsapp || "",
+            email: data.company.email || "",
+            address_text: data.company.address_text || ""
+          });
         }
         setCategories(data.categories || []);
         setPaymentMethods(data.paymentMethods || []);
@@ -87,6 +109,32 @@ export default function Settings({ onUpdateCurrency, currency }: SettingsProps) 
         setTimeout(() => setSuccessMsg(""), 3000);
       } else {
         setErrorMsg("Erro ao salvar as configurações gerais.");
+      }
+    } catch (err) {
+      setErrorMsg("Falha de conexão com o servidor.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSaveCompany = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSaving(true);
+    setErrorMsg("");
+    setSuccessMsg("");
+
+    try {
+      const res = await fetch("/api/settings/company", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(companyConfig)
+      });
+      if (res.ok) {
+        setSuccessMsg("Informações da empresa salvas com sucesso!");
+        setTimeout(() => setSuccessMsg(""), 3000);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setErrorMsg(data.error || "Erro ao salvar as informações da empresa.");
       }
     } catch (err) {
       setErrorMsg("Falha de conexão com o servidor.");
@@ -239,6 +287,7 @@ export default function Settings({ onUpdateCurrency, currency }: SettingsProps) 
         <div className="md:col-span-1 space-y-1">
           {[
             { id: "geral", label: "Parâmetros Gerais", icon: SettingsIcon },
+            { id: "empresa", label: "Informações da Empresa", icon: Building },
             { id: "categorias", label: "Categorias de Equip.", icon: Laptop },
             { id: "pagamentos", label: "Formas de Pagamento", icon: DollarSign },
             { id: "garantias", label: "Termos de Garantia", icon: ShieldCheck },
@@ -301,6 +350,107 @@ export default function Settings({ onUpdateCurrency, currency }: SettingsProps) 
                 >
                   {isSaving ? <Loader className="animate-spin h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
                   <span>Salvar Preferências</span>
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* SECTION: INFORMAÇÕES DA EMPRESA */}
+          {activeSection === "empresa" && (
+            <form onSubmit={handleSaveCompany} className="space-y-4">
+              <div className="border-b border-gray-100 pb-2">
+                <h3 className="font-bold text-gray-900 text-sm">Informações da Empresa</h3>
+                <p className="text-gray-400 text-[10px]">Dados da sua assistência técnica utilizados para personalização de documentos e relatórios gerados.</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-gray-600 mb-1 font-semibold">Razão Social / Nome da Assistência *</label>
+                  <input
+                    type="text"
+                    required
+                    value={companyConfig.company_name}
+                    onChange={(e) => setCompanyConfig({ ...companyConfig, company_name: e.target.value })}
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-semibold bg-white"
+                    placeholder="Ex: PK SIG Assistência Técnica Ltda"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-600 mb-1 font-semibold">Nome Fantasia</label>
+                  <input
+                    type="text"
+                    value={companyConfig.trade_name}
+                    onChange={(e) => setCompanyConfig({ ...companyConfig, trade_name: e.target.value })}
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-semibold bg-white"
+                    placeholder="Ex: PK SIG Celulares"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-gray-600 mb-1 font-semibold">CNPJ / CPF</label>
+                  <input
+                    type="text"
+                    value={companyConfig.tax_id}
+                    onChange={(e) => setCompanyConfig({ ...companyConfig, tax_id: e.target.value })}
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-semibold bg-white"
+                    placeholder="00.000.000/0001-00"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-600 mb-1 font-semibold">E-mail de Contato</label>
+                  <input
+                    type="email"
+                    value={companyConfig.email}
+                    onChange={(e) => setCompanyConfig({ ...companyConfig, email: e.target.value })}
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-semibold bg-white"
+                    placeholder="contato@empresa.com"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-gray-600 mb-1 font-semibold">Telefone Fixo / Comercial</label>
+                  <input
+                    type="text"
+                    value={companyConfig.phone}
+                    onChange={(e) => setCompanyConfig({ ...companyConfig, phone: e.target.value })}
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-semibold bg-white"
+                    placeholder="(00) 0000-0000"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-600 mb-1 font-semibold">Whatsapp</label>
+                  <input
+                    type="text"
+                    value={companyConfig.whatsapp}
+                    onChange={(e) => setCompanyConfig({ ...companyConfig, whatsapp: e.target.value })}
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-semibold bg-white"
+                    placeholder="(00) 90000-0000"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-gray-600 mb-1 font-semibold">Endereço Completo</label>
+                <textarea
+                  value={companyConfig.address_text}
+                  onChange={(e) => setCompanyConfig({ ...companyConfig, address_text: e.target.value })}
+                  className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none h-20 bg-white"
+                  placeholder="Ex: Rua das Flores, 123, Centro, São Paulo - SP, CEP 00000-000"
+                />
+              </div>
+
+              <div className="pt-4 border-t border-gray-100 flex justify-end">
+                <button
+                  type="submit"
+                  disabled={isSaving}
+                  className="flex items-center space-x-1.5 px-4 py-2 bg-[#0e131f] hover:bg-[#1a2336] text-white rounded-md font-bold transition cursor-pointer"
+                >
+                  {isSaving ? <Loader className="animate-spin h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
+                  <span>Salvar Informações</span>
                 </button>
               </div>
             </form>

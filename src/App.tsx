@@ -165,7 +165,7 @@ export default function App() {
               className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-md font-semibold transition cursor-pointer ${activeTab === "clients" || activeTab === "client-detail" ? "bg-indigo-600 text-white font-bold" : "hover:bg-gray-800/50 hover:text-white"}`}
             >
               <Users className="h-4.5 w-4.5 shrink-0" />
-              <span>Clientes & Contatos</span>
+              <span>Clientes</span>
             </button>
 
             <button
@@ -181,7 +181,7 @@ export default function App() {
               className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-md font-semibold transition cursor-pointer ${activeTab === "settings" ? "bg-indigo-600 text-white font-bold" : "hover:bg-gray-800/50 hover:text-white"}`}
             >
               <SettingsIcon className="h-4.5 w-4.5 shrink-0" />
-              <span>Preferências / Tabelas</span>
+              <span>Preferências</span>
             </button>
           </nav>
         </div>
