@@ -1,0 +1,6 @@
+{
+  "name": "PK SIG",
+  "description": "Sistema de Gestão Integrada para assistência técnica com controle de clientes, equipamentos, ordens de serviço, orçamentos, faturamento e garantias.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
