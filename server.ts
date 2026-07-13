@@ -916,7 +916,7 @@ app.post("/api/payment-guides/:id/pay", requireAuth, async (req: any, res: any) 
     // 1. Log Payment
     await execute(`
       INSERT INTO payments (payment_guide_id, installment_id, amount, payment_date, method_id, method_name, notes) 
-      VALUES (?, ?, ?, CURRENT_DATE(), ?, ?, ?Current)`,
+      VALUES (?, ?, ?, CURRENT_DATE(), ?, ?, ?)`,
       [id, installment_id || null, paymentAmount, method_id, methodName, notes || null]
     );
 

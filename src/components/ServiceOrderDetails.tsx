@@ -51,6 +51,67 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
   // Attachment states
   const [isUploading, setIsUploading] = useState(false);
 
+  // Payment States
+  const [guideInstallments, setGuideInstallments] = useState<any[]>([]);
+  const [guidePayments, setGuidePayments] = useState<any[]>([]);
+  const [payAmount, setPayAmount] = useState("");
+  const [payMethodId, setPayMethodId] = useState("");
+  const [payNotes, setPayNotes] = useState("");
+  const [isRegisteringPayment, setIsRegisteringPayment] = useState(false);
+
+  useEffect(() => {
+    if (paymentMethods.length > 0 && !payMethodId) {
+      setPayMethodId(paymentMethods[0].id.toString());
+    }
+  }, [paymentMethods, payMethodId]);
+
+  const loadGuideDetails = async (guideId: number) => {
+    try {
+      const res = await fetch(`/api/payment-guides/${guideId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setGuide(data.guide);
+        setGuideInstallments(data.installments || []);
+        setGuidePayments(data.payments || []);
+        setPayAmount(data.guide.balance_amount.toString());
+      }
+    } catch (err) {
+      console.error("Error loading guide details:", err);
+    }
+  };
+
+  const handleRegisterPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!payAmount || !payMethodId || !guide) return;
+
+    setIsRegisteringPayment(true);
+    setErrorMsg("");
+    try {
+      const res = await fetch(`/api/payment-guides/${guide.id}/pay`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: parseFloat(payAmount),
+          method_id: parseInt(payMethodId),
+          notes: payNotes
+        })
+      });
+      if (res.ok) {
+        setPayNotes("");
+        setSuccessMsg("Pagamento registrado com sucesso!");
+        setTimeout(() => setSuccessMsg(""), 3000);
+        await loadGuideDetails(guide.id);
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setErrorMsg(d.error || "Erro ao registrar o pagamento.");
+      }
+    } catch (err) {
+      setErrorMsg("Erro de comunicação ao registrar pagamento.");
+    } finally {
+      setIsRegisteringPayment(false);
+    }
+  };
+
   const loadOSDetails = async () => {
     setLoading(true);
     try {
@@ -63,6 +124,23 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
         setGuide(data.guide);
         setWarranty(data.warranty);
         setAttachments(data.attachments || []);
+
+        if (data.guide) {
+          try {
+            const guideRes = await fetch(`/api/payment-guides/${data.guide.id}`);
+            if (guideRes.ok) {
+              const guideData = await guideRes.json();
+              setGuideInstallments(guideData.installments || []);
+              setGuidePayments(guideData.payments || []);
+              setPayAmount(guideData.guide.balance_amount.toString());
+            }
+          } catch (gErr) {
+            console.error("Error loading guide details:", gErr);
+          }
+        } else {
+          setGuideInstallments([]);
+          setGuidePayments([]);
+        }
       } else {
         setErrorMsg("Falha ao carregar ordem de serviço.");
       }
@@ -785,14 +863,121 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
                 </div>
               </div>
 
-              {/* Installments Table */}
-              <div>
-                <h5 className="font-bold text-gray-900 mb-3 text-[10px] uppercase tracking-wider">Histórico de Parcelas e Recebimentos</h5>
+              {/* Installments Table, Payments History and Payment Recording */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 
-                <div className="border border-gray-200 rounded-md bg-gray-50/30 p-4 text-center">
-                  <p className="text-gray-500 mb-2 font-medium">As cobranças de parcelamento são listadas na aba Financeiro da ficha do cliente.</p>
-                  <p className="text-xs text-gray-400">Vá até a ficha do cliente para liquidar ou amortizar esta guia de faturamento.</p>
+                {/* Left Side: Installments & Payments History */}
+                <div className="space-y-6">
+                  {/* Installments List */}
+                  <div className="space-y-2.5">
+                    <h5 className="font-bold text-gray-950 uppercase tracking-wider text-[10px] border-b border-gray-100 pb-1">Parcelas Previstas</h5>
+                    <div className="space-y-1.5 max-h-56 overflow-y-auto">
+                      {guideInstallments.length === 0 ? (
+                        <p className="text-gray-400 py-2">Nenhuma parcela gerada.</p>
+                      ) : (
+                        guideInstallments.map((inst: any) => (
+                          <div key={inst.id} className="flex justify-between items-center p-2.5 border border-gray-100 rounded bg-gray-50/50 font-mono text-[11px] hover:bg-gray-50 transition">
+                            <div>
+                              <span className="font-bold text-gray-800">Parcela #{inst.installment_number}</span> • Venc: {new Date(inst.due_date).toLocaleDateString("pt-BR")}
+                            </div>
+                            <div className="flex items-center space-x-3">
+                              <span className="font-bold text-gray-700">{currency} {parseFloat(inst.amount as any).toFixed(2)}</span>
+                              <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                inst.status === "Pago" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
+                              }`}>{inst.status}</span>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Payments History List */}
+                  {guidePayments.length > 0 && (
+                    <div className="space-y-2.5">
+                      <h5 className="font-bold text-gray-950 uppercase tracking-wider text-[10px] border-b border-gray-100 pb-1">Histórico de Recebimentos</h5>
+                      <div className="space-y-1.5 max-h-48 overflow-y-auto font-mono text-[10px]">
+                        {guidePayments.map((p: any) => (
+                          <div key={p.id} className="p-2.5 border border-gray-100 bg-white rounded flex justify-between hover:bg-gray-50 transition">
+                            <div>
+                              <span className="text-gray-400">{new Date(p.payment_date).toLocaleDateString("pt-BR")}</span> • <span className="font-semibold text-gray-800">{p.method_name}</span>
+                              {p.notes && <div className="text-[9px] text-gray-400 font-sans mt-0.5">Obs: {p.notes}</div>}
+                            </div>
+                            <span className="font-bold text-green-600">+{currency} {parseFloat(p.amount as any).toFixed(2)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
+
+                {/* Right Side: Register Payment Form */}
+                <div>
+                  {parseFloat(guide.balance_amount as any) > 0 ? (
+                    <form onSubmit={handleRegisterPayment} className="space-y-3 bg-indigo-50/30 p-5 border border-indigo-100 rounded-md">
+                      <h5 className="font-bold text-indigo-950 uppercase tracking-wider text-[10px] flex items-center space-x-1.5">
+                        <DollarSign className="h-4 w-4 text-indigo-600" />
+                        <span>Registrar Novo Pagamento</span>
+                      </h5>
+                      <p className="text-gray-400 text-[10px] mt-0.5">Informe os detalhes para liquidar ou amortizar o saldo devedor.</p>
+
+                      <div className="grid grid-cols-2 gap-3 pt-2">
+                        <div>
+                          <label className="block text-gray-600 mb-1 font-semibold">Valor do Recebimento *</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            required
+                            max={parseFloat(guide.balance_amount as any)}
+                            value={payAmount}
+                            onChange={(e) => setPayAmount(e.target.value)}
+                            className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none bg-white text-xs font-bold font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-gray-600 mb-1 font-semibold">Forma Utilizada *</label>
+                          <select
+                            required
+                            value={payMethodId}
+                            onChange={(e) => setPayMethodId(e.target.value)}
+                            className="w-full px-3 py-1.5 border border-gray-300 rounded-md bg-white focus:outline-none text-xs font-semibold"
+                          >
+                            {paymentMethods.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-gray-600 mb-1 font-semibold">Observações de Recebimento</label>
+                        <input
+                          type="text"
+                          value={payNotes}
+                          onChange={(e) => setPayNotes(e.target.value)}
+                          className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none bg-white text-xs"
+                          placeholder="Ex: Recebido em mãos, pix, transferência..."
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={isRegisteringPayment}
+                        className="w-full py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded font-bold text-xs transition cursor-pointer flex items-center justify-center space-x-2"
+                      >
+                        {isRegisteringPayment ? <Loader className="animate-spin h-3.5 w-3.5" /> : <CheckCircle className="h-4 w-4" />}
+                        <span>Confirmar e Liquidar Valor</span>
+                      </button>
+                    </form>
+                  ) : (
+                    <div className="bg-green-50 p-4 border border-green-200 text-green-800 text-xs text-center font-bold rounded-md flex flex-col items-center justify-center space-y-2">
+                      <CheckCircle className="h-8 w-8 text-green-600" />
+                      <div>
+                        <p className="text-sm">Faturamento Totalmente Quitado!</p>
+                        <p className="text-gray-500 font-medium text-[10px] mt-0.5">Não há saldos pendentes nesta guia de cobrança.</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
               </div>
 
             </div>
