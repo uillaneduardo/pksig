@@ -1274,6 +1274,130 @@ app.post("/api/settings/system", requireAuth, async (req: any, res: any) => {
   }
 });
 
+// Update General Settings (Parameters)
+app.put("/api/settings/general", requireAuth, async (req: any, res: any) => {
+  const { currency, default_delay_alert_days, default_tax_rate } = req.body;
+  try {
+    // Ensure columns exist dynamically
+    try {
+      await execute("ALTER TABLE system_settings ADD COLUMN default_delay_alert_days INT DEFAULT 5");
+    } catch (e) {}
+    try {
+      await execute("ALTER TABLE system_settings ADD COLUMN default_tax_rate DECIMAL(5,2) DEFAULT 0.00");
+    } catch (e) {}
+
+    await execute(`
+      INSERT INTO system_settings (id, currency, default_delay_alert_days, default_tax_rate)
+      VALUES (1, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE currency = ?, default_delay_alert_days = ?, default_tax_rate = ?
+    `, [
+      currency || "R$",
+      parseInt(default_delay_alert_days) !== undefined ? parseInt(default_delay_alert_days) : 5,
+      parseFloat(default_tax_rate) !== undefined ? parseFloat(default_tax_rate) : 0.0,
+      currency || "R$",
+      parseInt(default_delay_alert_days) !== undefined ? parseInt(default_delay_alert_days) : 5,
+      parseFloat(default_tax_rate) !== undefined ? parseFloat(default_tax_rate) : 0.0
+    ]);
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error("PUT /api/settings/general error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Settings: Add category (with notes support)
+app.post("/api/settings/categories", requireAuth, async (req: any, res: any) => {
+  const { name, notes } = req.body;
+  if (!name) return res.status(400).json({ error: "Nome obrigatório" });
+
+  try {
+    try {
+      await execute("ALTER TABLE equipment_categories ADD COLUMN notes TEXT");
+    } catch (e) {}
+
+    await execute(
+      "INSERT INTO equipment_categories (name, notes, active) VALUES (?, ?, 1) ON DUPLICATE KEY UPDATE notes = ?, active = 1",
+      [name, notes || null, notes || null]
+    );
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error("POST /api/settings/categories error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Settings: Add Payment Method
+app.post("/api/settings/payment-methods", requireAuth, async (req: any, res: any) => {
+  const { name, max_installments } = req.body;
+  if (!name) return res.status(400).json({ error: "Nome obrigatório" });
+
+  try {
+    const allows_installments = max_installments > 1 ? 1 : 0;
+    await execute(
+      "INSERT INTO payment_methods (name, allows_installments, max_installments, active) VALUES (?, ?, ?, 1) ON DUPLICATE KEY UPDATE active=1, allows_installments=?, max_installments=?",
+      [name, allows_installments, parseInt(max_installments) || 1, allows_installments, parseInt(max_installments) || 1]
+    );
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error("POST /api/settings/payment-methods error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Settings: Add Warranty Rule
+app.post("/api/settings/warranty-rules", requireAuth, async (req: any, res: any) => {
+  const { name, duration_days, terms_description } = req.body;
+  if (!name || !duration_days) return res.status(400).json({ error: "Nome e duração são obrigatórios" });
+
+  try {
+    try {
+      await execute("ALTER TABLE warranty_rules ADD COLUMN terms_description TEXT");
+    } catch (e) {}
+
+    await execute(
+      "INSERT INTO warranty_rules (name, duration_days, terms_description, active) VALUES (?, ?, ?, 1) ON DUPLICATE KEY UPDATE duration_days = ?, terms_description = ?, active = 1",
+      [name, parseInt(duration_days), terms_description || null, parseInt(duration_days), terms_description || null]
+    );
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error("POST /api/settings/warranty-rules error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Settings: Add Accessory
+app.post("/api/settings/accessories", requireAuth, async (req: any, res: any) => {
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: "Nome obrigatório" });
+
+  try {
+    await execute("INSERT INTO reception_accessories (name, active) VALUES (?, 1) ON DUPLICATE KEY UPDATE active=1", [name]);
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error("POST /api/settings/accessories error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Settings: Toggle Active Status Generic Endpoint
+app.put("/api/settings/toggle-active", requireAuth, async (req: any, res: any) => {
+  const { table, id, active } = req.body;
+  const allowedTables = ["equipment_categories", "payment_methods", "warranty_rules", "reception_accessories"];
+
+  if (!allowedTables.includes(table)) {
+    return res.status(400).json({ error: "Tabela inválida" });
+  }
+
+  try {
+    const activeVal = active ? 1 : 0;
+    await execute(`UPDATE ?? SET active = ? WHERE id = ?`, [table, activeVal, id]);
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error("PUT /api/settings/toggle-active error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // Settings: Add category
 app.post("/api/settings/equipment/categories", requireAuth, async (req: any, res: any) => {
   const { name } = req.body;

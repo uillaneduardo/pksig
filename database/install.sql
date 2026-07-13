@@ -72,6 +72,8 @@ CREATE TABLE system_settings (
     prefix_warranty VARCHAR(10) DEFAULT 'GAR',
     include_year_in_code TINYINT(1) DEFAULT 1,
     digits_count INT DEFAULT 6,
+    default_delay_alert_days INT DEFAULT 5,
+    default_tax_rate DECIMAL(5,2) DEFAULT 0.00,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT chk_system_id CHECK (id = 1)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -116,6 +118,7 @@ DROP TABLE IF EXISTS equipment_categories;
 CREATE TABLE equipment_categories (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL UNIQUE,
+    notes TEXT,
     active TINYINT(1) DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -353,6 +356,7 @@ CREATE TABLE warranty_rules (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL UNIQUE,
     duration_days INT NOT NULL,
+    terms_description TEXT,
     category_id INT, -- Optional category specific rule
     service_type VARCHAR(100), -- Type of service e.g. "Reparo de placa"
     active TINYINT(1) DEFAULT 1,
