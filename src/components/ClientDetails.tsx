@@ -39,6 +39,7 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
   const [showPaymentModal, setShowPaymentModal] = useState(false);
 
   // New Equipment Form state
+  const [editingEquipment, setEditingEquipment] = useState<Equipment | null>(null);
   const [eqCategory, setEqCategory] = useState("");
   const [eqBrand, setEqBrand] = useState("");
   const [eqModel, setEqModel] = useState("");
@@ -48,6 +49,7 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
   const [eqResponsible, setEqResponsible] = useState("");
   const [eqColor, setEqColor] = useState("");
   const [eqNotes, setEqNotes] = useState("");
+  const [eqStatus, setEqStatus] = useState<"Disponível" | "Em manutenção" | "Arquivado" | "Descartado">("Disponível");
 
   // New OS Form state
   const [osEquipId, setOsEquipId] = useState("");
@@ -131,8 +133,8 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
     }
   };
 
-  // Add Equipment logic
-  const handleAddEquipment = async (e: React.FormEvent) => {
+  // Save Equipment (Add or Edit) logic
+  const handleSaveEquipment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!eqCategory || !eqBrand || !eqModel) {
       alert("Por favor, selecione a categoria, marca e modelo.");
@@ -140,31 +142,82 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
     }
 
     try {
-      const res = await fetch("/api/equipment", {
-        method: "POST",
+      const isEditing = !!editingEquipment;
+      const url = isEditing ? `/api/equipment/${editingEquipment.id}` : "/api/equipment";
+      const method = isEditing ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           client_id: clientId,
           category_id: parseInt(eqCategory),
           brand: eqBrand,
           model: eqModel,
-          serial_number: eqSerial,
-          imei: eqImei,
-          asset_tag: eqAsset,
-          responsible: eqResponsible,
-          color: eqColor,
-          notes: eqNotes,
-          status: "Disponível"
+          serial_number: eqSerial || null,
+          imei: eqImei || null,
+          asset_tag: eqAsset || null,
+          responsible: eqResponsible || null,
+          color: eqColor || null,
+          notes: eqNotes || null,
+          status: isEditing ? eqStatus : "Disponível"
         })
       });
       if (res.ok) {
-        setShowAddEquip(false);
-        setEqBrand(""); setEqModel(""); setEqSerial(""); setEqImei(""); setEqAsset(""); setEqResponsible(""); setEqColor(""); setEqNotes("");
+        handleCloseEquipModal();
         loadClientDetails();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || "Erro ao salvar o equipamento");
       }
     } catch (err) {
-      alert("Erro ao adicionar equipamento");
+      alert("Erro ao conectar com o servidor");
     }
+  };
+
+  const handleEditEquipmentClick = (equip: Equipment) => {
+    setEditingEquipment(equip);
+    setEqCategory(equip.category_id.toString());
+    setEqBrand(equip.brand);
+    setEqModel(equip.model);
+    setEqSerial(equip.serial_number || "");
+    setEqImei(equip.imei || "");
+    setEqAsset(equip.asset_tag || "");
+    setEqResponsible(equip.responsible || "");
+    setEqColor(equip.color || "");
+    setEqNotes(equip.notes || "");
+    setEqStatus(equip.status);
+    setShowAddEquip(true);
+  };
+
+  const handleCloseEquipModal = () => {
+    setShowAddEquip(false);
+    setEditingEquipment(null);
+    setEqCategory("");
+    setEqBrand("");
+    setEqModel("");
+    setEqSerial("");
+    setEqImei("");
+    setEqAsset("");
+    setEqResponsible("");
+    setEqColor("");
+    setEqNotes("");
+    setEqStatus("Disponível");
+  };
+
+  const handleOpenAddEquip = () => {
+    setEditingEquipment(null);
+    setEqCategory("");
+    setEqBrand("");
+    setEqModel("");
+    setEqSerial("");
+    setEqImei("");
+    setEqAsset("");
+    setEqResponsible("");
+    setEqColor("");
+    setEqNotes("");
+    setEqStatus("Disponível");
+    setShowAddEquip(true);
   };
 
   // Add OS logic
@@ -322,7 +375,7 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
 
           {activeTab === "equipamentos" && (
             <button
-              onClick={() => setShowAddEquip(true)}
+              onClick={handleOpenAddEquip}
               className="flex items-center space-x-1 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-xs font-bold transition cursor-pointer"
             >
               <Plus className="h-3.5 w-3.5" />
@@ -577,8 +630,8 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
               <Laptop className="h-10 w-10 text-gray-300 mx-auto" />
               <p className="text-sm font-medium">Nenhum equipamento cadastrado para este cliente.</p>
               <button
-                onClick={() => setShowAddEquip(true)}
-                className="mt-2 text-xs text-indigo-600 font-bold hover:underline"
+                onClick={handleOpenAddEquip}
+                className="mt-2 text-xs text-indigo-600 font-bold hover:underline cursor-pointer"
               >
                 + Cadastrar Primeiro Equipamento
               </button>
@@ -611,10 +664,17 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
                   <div className="border-t border-gray-100 pt-3 flex justify-between items-center">
                     <button
                       onClick={() => handleOpenNewOSWithEquip(equip.id)}
-                      className="text-xs text-indigo-600 font-bold hover:underline flex items-center space-x-1"
+                      className="text-xs text-indigo-600 font-bold hover:underline flex items-center space-x-1 cursor-pointer"
                     >
                       <Plus className="h-3 w-3" />
                       <span>Abrir Ordem de Serviço</span>
+                    </button>
+                    <button
+                      onClick={() => handleEditEquipmentClick(equip)}
+                      className="text-xs text-gray-500 font-bold hover:text-indigo-600 transition flex items-center space-x-1 cursor-pointer"
+                    >
+                      <PenTool className="h-3.5 w-3.5" />
+                      <span>Editar</span>
                     </button>
                   </div>
                 </div>
@@ -833,16 +893,16 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
         </div>
       )}
 
-      {/* MODAL: CADASTRO DE EQUIPAMENTO */}
+      {/* MODAL: CADASTRO OU EDIÇÃO DE EQUIPAMENTO */}
       {showAddEquip && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex justify-center items-center z-50 p-4">
           <div className="w-full max-w-lg bg-white border border-gray-200 shadow-2xl rounded-lg overflow-hidden animate-zoom-in text-xs">
             <div className="bg-[#0e131f] p-4 text-white flex justify-between items-center">
-              <h3 className="font-bold">Cadastrar Novo Equipamento</h3>
-              <button onClick={() => setShowAddEquip(false)} className="text-gray-400 hover:text-white font-bold cursor-pointer">[X]</button>
+              <h3 className="font-bold">{editingEquipment ? "Editar Equipamento" : "Cadastrar Novo Equipamento"}</h3>
+              <button onClick={handleCloseEquipModal} className="text-gray-400 hover:text-white font-bold cursor-pointer">[X]</button>
             </div>
 
-            <form onSubmit={handleAddEquipment} className="p-6 space-y-4">
+            <form onSubmit={handleSaveEquipment} className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-gray-600 mb-1 font-semibold">Categoria *</label>
@@ -922,15 +982,33 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
                 </div>
               </div>
 
-              <div>
-                <label className="block text-gray-600 mb-1 font-semibold">Responsável / Usuário</label>
-                <input
-                  type="text"
-                  value={eqResponsible}
-                  onChange={(e) => setEqResponsible(e.target.value)}
-                  className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none"
-                  placeholder="Se diferente do cliente cadastrado"
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-gray-600 mb-1 font-semibold">Responsável / Usuário</label>
+                  <input
+                    type="text"
+                    value={eqResponsible}
+                    onChange={(e) => setEqResponsible(e.target.value)}
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none"
+                    placeholder="Se diferente do cliente cadastrado"
+                  />
+                </div>
+                {editingEquipment && (
+                  <div>
+                    <label className="block text-gray-600 mb-1 font-semibold">Situação *</label>
+                    <select
+                      required
+                      value={eqStatus}
+                      onChange={(e) => setEqStatus(e.target.value as any)}
+                      className="w-full px-3 py-1.5 border border-gray-300 rounded-md bg-white focus:outline-none font-bold text-gray-800"
+                    >
+                      <option value="Disponível">Disponível</option>
+                      <option value="Em manutenção">Em manutenção</option>
+                      <option value="Arquivado">Arquivado</option>
+                      <option value="Descartado">Descartado</option>
+                    </select>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -946,7 +1024,7 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
               <div className="flex space-x-3 pt-3 border-t border-gray-100">
                 <button
                   type="button"
-                  onClick={() => setShowAddEquip(false)}
+                  onClick={handleCloseEquipModal}
                   className="w-1/3 py-2 border border-gray-300 text-gray-700 rounded-md font-bold hover:bg-gray-50 transition cursor-pointer"
                 >
                   Cancelar
@@ -955,7 +1033,7 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
                   type="submit"
                   className="w-2/3 py-2 bg-[#0e131f] text-white rounded-md font-bold hover:bg-[#1a2336] transition cursor-pointer"
                 >
-                  Cadastrar Equipamento
+                  {editingEquipment ? "Salvar Alterações" : "Cadastrar Equipamento"}
                 </button>
               </div>
             </form>
