@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { ServiceOrder, BudgetItem, PaymentGuide, PaymentMethod, WarrantyRule, Warranty } from "../types";
 import { 
   ArrowLeft, Save, FileText, Check, Plus, Trash2, DollarSign, 
-  ShieldCheck, Upload, Download, Loader, CheckCircle, AlertCircle 
+  ShieldCheck, Upload, Download, Loader, CheckCircle, AlertCircle, Edit
 } from "lucide-react";
 
 interface ServiceOrderDetailsProps {
@@ -58,6 +58,7 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
   const [payMethodId, setPayMethodId] = useState("");
   const [payNotes, setPayNotes] = useState("");
   const [isRegisteringPayment, setIsRegisteringPayment] = useState(false);
+  const [editingPayment, setEditingPayment] = useState<any | null>(null);
 
   useEffect(() => {
     if (paymentMethods.length > 0 && !payMethodId) {
@@ -80,6 +81,50 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
     }
   };
 
+  const handleStartEditPayment = (p: any) => {
+    setEditingPayment(p);
+    setPayAmount(p.amount.toString());
+    setPayMethodId(p.method_id.toString());
+    setPayNotes(p.notes || "");
+  };
+
+  const handleCancelEdit = () => {
+    setEditingPayment(null);
+    if (guide) {
+      setPayAmount(guide.balance_amount.toString());
+      if (paymentMethods.length > 0) {
+        setPayMethodId(paymentMethods[0].id.toString());
+      }
+    } else {
+      setPayAmount("");
+    }
+    setPayNotes("");
+  };
+
+  const handleDeletePayment = async (paymentId: number) => {
+    if (!window.confirm("Tem certeza que deseja excluir este pagamento? Todos os parcelamentos serão recalculados.")) {
+      return;
+    }
+    setErrorMsg("");
+    try {
+      const res = await fetch(`/api/payments/${paymentId}`, {
+        method: "DELETE"
+      });
+      if (res.ok) {
+        setSuccessMsg("Pagamento excluído com sucesso!");
+        setTimeout(() => setSuccessMsg(""), 3000);
+        if (guide) {
+          await loadGuideDetails(guide.id);
+        }
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setErrorMsg(d.error || "Erro ao excluir pagamento.");
+      }
+    } catch (err) {
+      setErrorMsg("Erro de comunicação ao excluir pagamento.");
+    }
+  };
+
   const handleRegisterPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!payAmount || !payMethodId || !guide) return;
@@ -87,8 +132,13 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
     setIsRegisteringPayment(true);
     setErrorMsg("");
     try {
-      const res = await fetch(`/api/payment-guides/${guide.id}/pay`, {
-        method: "POST",
+      const url = editingPayment 
+        ? `/api/payments/${editingPayment.id}` 
+        : `/api/payment-guides/${guide.id}/pay`;
+      const method = editingPayment ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method: method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           amount: parseFloat(payAmount),
@@ -98,15 +148,16 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
       });
       if (res.ok) {
         setPayNotes("");
-        setSuccessMsg("Pagamento registrado com sucesso!");
+        setEditingPayment(null);
+        setSuccessMsg(editingPayment ? "Pagamento alterado com sucesso!" : "Pagamento registrado com sucesso!");
         setTimeout(() => setSuccessMsg(""), 3000);
         await loadGuideDetails(guide.id);
       } else {
         const d = await res.json().catch(() => ({}));
-        setErrorMsg(d.error || "Erro ao registrar o pagamento.");
+        setErrorMsg(d.error || "Erro ao processar o pagamento.");
       }
     } catch (err) {
-      setErrorMsg("Erro de comunicação ao registrar pagamento.");
+      setErrorMsg("Erro de comunicação ao processar pagamento.");
     } finally {
       setIsRegisteringPayment(false);
     }
@@ -898,12 +949,32 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
                       <h5 className="font-bold text-gray-950 uppercase tracking-wider text-[10px] border-b border-gray-100 pb-1">Histórico de Recebimentos</h5>
                       <div className="space-y-1.5 max-h-48 overflow-y-auto font-mono text-[10px]">
                         {guidePayments.map((p: any) => (
-                          <div key={p.id} className="p-2.5 border border-gray-100 bg-white rounded flex justify-between hover:bg-gray-50 transition">
-                            <div>
-                              <span className="text-gray-400">{new Date(p.payment_date).toLocaleDateString("pt-BR")}</span> • <span className="font-semibold text-gray-800">{p.method_name}</span>
-                              {p.notes && <div className="text-[9px] text-gray-400 font-sans mt-0.5">Obs: {p.notes}</div>}
+                          <div key={p.id} className="p-2.5 border border-gray-100 bg-white rounded flex justify-between items-center hover:bg-gray-50 transition">
+                            <div className="flex-1">
+                              <div>
+                                <span className="text-gray-400">{new Date(p.payment_date).toLocaleDateString("pt-BR")}</span> • <span className="font-semibold text-gray-800">{p.method_name}</span>
+                                {p.notes && <div className="text-[9px] text-gray-400 font-sans mt-0.5">Obs: {p.notes}</div>}
+                              </div>
+                              <span className="font-bold text-green-600">+{currency} {parseFloat(p.amount as any).toFixed(2)}</span>
                             </div>
-                            <span className="font-bold text-green-600">+{currency} {parseFloat(p.amount as any).toFixed(2)}</span>
+                            <div className="flex items-center space-x-1.5 ml-2">
+                              <button
+                                type="button"
+                                title="Editar"
+                                onClick={() => handleStartEditPayment(p)}
+                                className="p-1 hover:bg-gray-100 rounded text-blue-600 transition cursor-pointer"
+                              >
+                                <Edit className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                title="Excluir"
+                                onClick={() => handleDeletePayment(p.id)}
+                                className="p-1 hover:bg-red-50 rounded text-red-600 transition cursor-pointer"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -913,13 +984,17 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
 
                 {/* Right Side: Register Payment Form */}
                 <div>
-                  {parseFloat(guide.balance_amount as any) > 0 ? (
+                  {(parseFloat(guide.balance_amount as any) > 0 || editingPayment) ? (
                     <form onSubmit={handleRegisterPayment} className="space-y-3 bg-indigo-50/30 p-5 border border-indigo-100 rounded-md">
                       <h5 className="font-bold text-indigo-950 uppercase tracking-wider text-[10px] flex items-center space-x-1.5">
                         <DollarSign className="h-4 w-4 text-indigo-600" />
-                        <span>Registrar Novo Pagamento</span>
+                        <span>{editingPayment ? "Editar Registro de Pagamento" : "Registrar Novo Pagamento"}</span>
                       </h5>
-                      <p className="text-gray-400 text-[10px] mt-0.5">Informe os detalhes para liquidar ou amortizar o saldo devedor.</p>
+                      <p className="text-gray-400 text-[10px] mt-0.5">
+                        {editingPayment 
+                          ? "Altere os valores ou observações do pagamento selecionado."
+                          : "Informe os detalhes para liquidar ou amortizar o saldo devedor."}
+                      </p>
 
                       <div className="grid grid-cols-2 gap-3 pt-2">
                         <div>
@@ -928,7 +1003,7 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
                             type="number"
                             step="0.01"
                             required
-                            max={parseFloat(guide.balance_amount as any)}
+                            max={editingPayment ? undefined : parseFloat(guide.balance_amount as any)}
                             value={payAmount}
                             onChange={(e) => setPayAmount(e.target.value)}
                             className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none bg-white text-xs font-bold font-mono"
@@ -958,14 +1033,25 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
                         />
                       </div>
 
-                      <button
-                        type="submit"
-                        disabled={isRegisteringPayment}
-                        className="w-full py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded font-bold text-xs transition cursor-pointer flex items-center justify-center space-x-2"
-                      >
-                        {isRegisteringPayment ? <Loader className="animate-spin h-3.5 w-3.5" /> : <CheckCircle className="h-4 w-4" />}
-                        <span>Confirmar e Liquidar Valor</span>
-                      </button>
+                      <div className="flex space-x-2 pt-1">
+                        {editingPayment && (
+                          <button
+                            type="button"
+                            onClick={handleCancelEdit}
+                            className="w-1/3 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded font-bold text-xs transition cursor-pointer"
+                          >
+                            Cancelar
+                          </button>
+                        )}
+                        <button
+                          type="submit"
+                          disabled={isRegisteringPayment}
+                          className={`${editingPayment ? "w-2/3" : "w-full"} py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded font-bold text-xs transition cursor-pointer flex items-center justify-center space-x-2`}
+                        >
+                          {isRegisteringPayment ? <Loader className="animate-spin h-3.5 w-3.5" /> : <CheckCircle className="h-4 w-4" />}
+                          <span>{editingPayment ? "Salvar Alterações" : "Confirmar e Liquidar Valor"}</span>
+                        </button>
+                      </div>
                     </form>
                   ) : (
                     <div className="bg-green-50 p-4 border border-green-200 text-green-800 text-xs text-center font-bold rounded-md flex flex-col items-center justify-center space-y-2">

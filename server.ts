@@ -922,6 +922,78 @@ app.post("/api/service-orders/:id/guide", requireAuth, async (req: any, res: any
 // 6. PAYMENTS & FINANCES ENDPOINTS
 // ==========================================
 
+async function recalculateGuidePayments(guideId: number) {
+  // 1. Get the guide
+  const guides = await query("SELECT * FROM payment_guides WHERE id = ?", [guideId]);
+  const guide = guides[0];
+  if (!guide) return;
+
+  // 2. Get all payments for this guide in chronological/insert order
+  const payments = await query("SELECT * FROM payments WHERE payment_guide_id = ? ORDER BY id ASC", [guideId]);
+
+  // 3. Reset all installments of this guide
+  await execute(
+    "UPDATE payment_installments SET paid_amount = 0, paid_date = NULL, status = 'Pendente' WHERE payment_guide_id = ?",
+    [guideId]
+  );
+
+  // 4. Reset installments list in memory so we can update them
+  const installments = await query("SELECT * FROM payment_installments WHERE payment_guide_id = ? ORDER BY installment_number ASC", [guideId]);
+
+  // 5. Distribute payments over installments
+  for (const payment of payments) {
+    let remainingPayment = parseFloat(payment.amount) || 0;
+
+    if (payment.installment_id) {
+      // Direct payment to a specific installment
+      const inst = installments.find(i => i.id === payment.installment_id);
+      if (inst) {
+        const instAmount = parseFloat(inst.amount) || 0;
+        const instPaidAmount = parseFloat(inst.paid_amount) || 0;
+        const needed = instAmount - instPaidAmount;
+        const paying = Math.min(remainingPayment, needed);
+        inst.paid_amount = +(instPaidAmount + paying).toFixed(2);
+        inst.status = inst.paid_amount >= instAmount ? "Pago" : "Pendente";
+        inst.paid_date = payment.payment_date || new Date().toISOString().slice(0, 10);
+      }
+    } else {
+      // Auto-distribute sequentially
+      for (const inst of installments) {
+        if (remainingPayment <= 0) break;
+        const instAmount = parseFloat(inst.amount) || 0;
+        const instPaidAmount = parseFloat(inst.paid_amount) || 0;
+        if (instPaidAmount >= instAmount) continue;
+
+        const needed = instAmount - instPaidAmount;
+        const paying = Math.min(remainingPayment, needed);
+        inst.paid_amount = +(instPaidAmount + paying).toFixed(2);
+        inst.status = inst.paid_amount >= instAmount ? "Pago" : "Pendente";
+        inst.paid_date = payment.payment_date || new Date().toISOString().slice(0, 10);
+        remainingPayment = +(remainingPayment - paying).toFixed(2);
+      }
+    }
+  }
+
+  // 6. Save updated installments back to DB
+  for (const inst of installments) {
+    await execute(
+      "UPDATE payment_installments SET paid_amount = ?, paid_date = ?, status = ? WHERE id = ?",
+      [inst.paid_amount, inst.paid_date || null, inst.status, inst.id]
+    );
+  }
+
+  // 7. Calculate new total paid, balance, and status for the guide
+  const totalPaid = payments.reduce((sum: number, p: any) => sum + (parseFloat(p.amount) || 0), 0);
+  const guideTotalAmount = parseFloat(guide.total_amount) || 0;
+  const newBalance = Math.max(0, +(guideTotalAmount - totalPaid).toFixed(2));
+  const newStatus = newBalance <= 0 ? "Quitada" : (totalPaid > 0 ? "Parcial" : "Pendente");
+
+  await execute(
+    "UPDATE payment_guides SET paid_amount = ?, balance_amount = ?, status = ? WHERE id = ?",
+    [totalPaid, newBalance, newStatus, guideId]
+  );
+}
+
 // Register payment against a guide
 app.post("/api/payment-guides/:id/pay", requireAuth, async (req: any, res: any) => {
   const { id } = req.params;
@@ -943,8 +1015,8 @@ app.post("/api/payment-guides/:id/pay", requireAuth, async (req: any, res: any) 
       return res.status(404).json({ error: "Guia de pagamento não encontrada" });
     }
 
-    if (guide.status === "Quitada" || guide.status === "Cancelada") {
-      return res.status(400).json({ error: "Esta guia já está quitada ou foi cancelada" });
+    if (guide.status === "Cancelada") {
+      return res.status(400).json({ error: "Esta guia foi cancelada" });
     }
 
     const methods = await query("SELECT name FROM payment_methods WHERE id = ?", [method_id]);
@@ -957,51 +1029,105 @@ app.post("/api/payment-guides/:id/pay", requireAuth, async (req: any, res: any) 
       [id, installment_id || null, paymentAmount, method_id, methodName, notes || null]
     );
 
-    // 2. Distribute payment amount over installments
-    let remainingPayment = paymentAmount;
+    // 2. Recalculate
+    await recalculateGuidePayments(parseInt(id));
 
-    if (installment_id) {
-      // Direct payment to specific installment
-      const targetInsts = await query("SELECT * FROM payment_installments WHERE id = ?", [installment_id]);
-      const inst = targetInsts[0];
-      if (inst && inst.status !== "Pago") {
-        const instAmount = parseFloat(inst.amount) || 0;
-        const instPaidAmount = parseFloat(inst.paid_amount) || 0;
-        const needed = instAmount - instPaidAmount;
-        const paying = Math.min(remainingPayment, needed);
-        const newPaid = +(instPaidAmount + paying).toFixed(2);
-        const status = newPaid >= instAmount ? "Pago" : "Pendente";
-        await execute("UPDATE payment_installments SET paid_amount = ?, paid_date = CURRENT_DATE(), status = ? WHERE id = ?", [newPaid, status, inst.id]);
-      }
-    } else {
-      // Auto-distribute over pending installments sequentially
-      const insts = await query("SELECT * FROM payment_installments WHERE payment_guide_id = ? AND status != 'Pago' ORDER BY installment_number ASC", [id]);
-      for (const inst of insts) {
-        if (remainingPayment <= 0) break;
-        const instAmount = parseFloat(inst.amount) || 0;
-        const instPaidAmount = parseFloat(inst.paid_amount) || 0;
-        const needed = instAmount - instPaidAmount;
-        const paying = Math.min(remainingPayment, needed);
-        const newPaid = +(instPaidAmount + paying).toFixed(2);
-        const status = newPaid >= instAmount ? "Pago" : "Pendente";
-        
-        await execute("UPDATE payment_installments SET paid_amount = ?, paid_date = CURRENT_DATE(), status = ? WHERE id = ?", [newPaid, status, inst.id]);
-        remainingPayment = +(remainingPayment - paying).toFixed(2);
-      }
-    }
+    // Get updated info
+    const updatedGuides = await query("SELECT * FROM payment_guides WHERE id = ?", [id]);
+    const updatedGuide = updatedGuides[0];
 
-    // 3. Update total guide stats
-    const guidePaidAmount = parseFloat(guide.paid_amount) || 0;
-    const guideTotalAmount = parseFloat(guide.total_amount) || 0;
-    const totalPaid = +(guidePaidAmount + paymentAmount).toFixed(2);
-    const newBalance = Math.max(0, +(guideTotalAmount - totalPaid).toFixed(2));
-    const newStatus = newBalance <= 0 ? "Quitada" : "Parcial";
-
-    await execute("UPDATE payment_guides SET paid_amount = ?, balance_amount = ?, status = ? WHERE id = ?", [totalPaid, newBalance, newStatus, id]);
-
-    return res.json({ success: true, paidAmount: totalPaid, balanceAmount: newBalance, status: newStatus });
+    return res.json({ 
+      success: true, 
+      paidAmount: parseFloat(updatedGuide.paid_amount), 
+      balanceAmount: parseFloat(updatedGuide.balance_amount), 
+      status: updatedGuide.status 
+    });
   } catch (err: any) {
     console.error("Register payment error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Edit a payment
+app.put("/api/payments/:id", requireAuth, async (req: any, res: any) => {
+  const { id } = req.params;
+  const { amount, method_id, notes, payment_date } = req.body;
+
+  if (!amount || !method_id) {
+    return res.status(400).json({ error: "Valor e forma de pagamento são obrigatórios" });
+  }
+
+  const paymentAmount = parseFloat(amount);
+  if (paymentAmount <= 0) {
+    return res.status(400).json({ error: "Valor do pagamento deve ser maior que zero" });
+  }
+
+  try {
+    const payments = await query("SELECT * FROM payments WHERE id = ?", [id]);
+    const payment = payments[0];
+    if (!payment) {
+      return res.status(404).json({ error: "Pagamento não encontrado" });
+    }
+
+    const guides = await query("SELECT * FROM payment_guides WHERE id = ?", [payment.payment_guide_id]);
+    const guide = guides[0];
+    if (!guide) {
+      return res.status(404).json({ error: "Guia de faturamento não encontrada" });
+    }
+
+    if (guide.status === "Cancelada") {
+      return res.status(400).json({ error: "Esta guia de faturamento está cancelada" });
+    }
+
+    const methods = await query("SELECT name FROM payment_methods WHERE id = ?", [method_id]);
+    const methodName = methods[0]?.name || "Outro";
+
+    // Update payment record
+    await execute(
+      "UPDATE payments SET amount = ?, method_id = ?, method_name = ?, notes = ?, payment_date = COALESCE(?, payment_date) WHERE id = ?",
+      [paymentAmount, method_id, methodName, notes || null, payment_date || null, id]
+    );
+
+    // Recalculate
+    await recalculateGuidePayments(payment.payment_guide_id);
+
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error("Edit payment error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete a payment
+app.delete("/api/payments/:id", requireAuth, async (req: any, res: any) => {
+  const { id } = req.params;
+
+  try {
+    const payments = await query("SELECT * FROM payments WHERE id = ?", [id]);
+    const payment = payments[0];
+    if (!payment) {
+      return res.status(404).json({ error: "Pagamento não encontrado" });
+    }
+
+    const guides = await query("SELECT * FROM payment_guides WHERE id = ?", [payment.payment_guide_id]);
+    const guide = guides[0];
+    if (!guide) {
+      return res.status(404).json({ error: "Guia de faturamento não encontrada" });
+    }
+
+    if (guide.status === "Cancelada") {
+      return res.status(400).json({ error: "Esta guia de faturamento está cancelada" });
+    }
+
+    // Delete payment record
+    await execute("DELETE FROM payments WHERE id = ?", [id]);
+
+    // Recalculate
+    await recalculateGuidePayments(payment.payment_guide_id);
+
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error("Delete payment error:", err);
     return res.status(500).json({ error: err.message });
   }
 });
