@@ -702,3 +702,109 @@ export async function cloneDatabase(
     }
   }
 }
+
+export async function verifyDatabaseCompatibility(config: DatabaseConfig): Promise<{
+  success: boolean;
+  message: string;
+  hasCompatibleTables: boolean;
+  existingTables: string[];
+  existingAdmins: string[];
+}> {
+  const coreTables = ["admins", "clients", "service_orders", "company_settings"];
+  let foundTables: string[] = [];
+  let adminsList: { username: string; name: string }[] = [];
+
+  if (config.mode === "local") {
+    try {
+      const db = getSqliteDb();
+      const sqliteTables: any[] = await new Promise((resolve, reject) => {
+        db.all("SELECT name FROM sqlite_master WHERE type='table'", [], (err: any, rows: any[]) => {
+          if (err) reject(err);
+          else resolve(rows || []);
+        });
+      });
+      foundTables = sqliteTables.map((r: any) => r.name);
+      
+      const hasAdminsTable = foundTables.includes("admins");
+      if (hasAdminsTable) {
+        const sqliteAdmins: any[] = await new Promise((resolve) => {
+          db.all("SELECT username, name FROM admins", [], (err, rows) => {
+            if (err) resolve([]);
+            else resolve(rows || []);
+          });
+        });
+        adminsList = sqliteAdmins;
+      }
+    } catch (err: any) {
+      return {
+        success: false,
+        message: `Erro ao verificar banco de dados SQLite local: ${err.message}`,
+        hasCompatibleTables: false,
+        existingTables: [],
+        existingAdmins: []
+      };
+    }
+  } else {
+    let tempPool: mysql.Pool | null = null;
+    try {
+      const connectionOptions: mysql.PoolOptions = {
+        host: config.host,
+        port: config.port,
+        user: config.user,
+        password: config.password && config.password.includes(":") ? decrypt(config.password) : config.password,
+        database: config.database,
+        connectTimeout: 8000,
+        ssl: config.ssl ? (config.certificate ? { ca: config.certificate } : { rejectUnauthorized: false }) : undefined,
+      };
+
+      tempPool = mysql.createPool(connectionOptions);
+      const [rows] = await tempPool.query("SHOW TABLES");
+      foundTables = (rows as any[]).map(r => Object.values(r)[0] as string);
+
+      const hasAdminsTable = foundTables.includes("admins");
+      if (hasAdminsTable) {
+        try {
+          const [adminRows] = await tempPool.query("SELECT username, name FROM admins");
+          adminsList = adminRows as any[];
+        } catch (adminErr) {
+          console.warn("Could not query admins table:", adminErr);
+        }
+      }
+    } catch (err: any) {
+      return {
+        success: false,
+        message: `Erro ao conectar e verificar banco MySQL remoto: ${err.message}`,
+        hasCompatibleTables: false,
+        existingTables: [],
+        existingAdmins: []
+      };
+    } finally {
+      if (tempPool) {
+        await tempPool.end().catch(console.error);
+      }
+    }
+  }
+
+  // Check if core tables are present
+  const matchingCoreTables = coreTables.filter(t => foundTables.includes(t));
+  const hasCompatibleTables = matchingCoreTables.length === coreTables.length;
+
+  const existingAdmins = adminsList.map(a => `${a.name} (${a.username})`);
+
+  let message = "";
+  if (hasCompatibleTables) {
+    message = `Banco de dados compatível detectado! Encontramos todas as tabelas principais (${matchingCoreTables.join(", ")}).`;
+  } else if (matchingCoreTables.length > 0) {
+    message = `Banco de dados parcialmente compatível detectado. Encontramos algumas tabelas: ${matchingCoreTables.join(", ")}.`;
+  } else {
+    message = "O banco de dados está vazio ou não possui tabelas compatíveis.";
+  }
+
+  return {
+    success: true,
+    message,
+    hasCompatibleTables,
+    existingTables: foundTables,
+    existingAdmins
+  };
+}

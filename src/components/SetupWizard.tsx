@@ -25,6 +25,12 @@ export default function SetupWizard({ onCompleted }: SetupWizardProps) {
   const [connectionTested, setConnectionTested] = useState(false);
   const [dbMissing, setDbMissing] = useState(false);
 
+  // Compatibility fields
+  const [hasCompatibleDb, setHasCompatibleDb] = useState(false);
+  const [existingAdmins, setExistingAdmins] = useState<string[]>([]);
+  const [useExistingDb, setUseExistingDb] = useState(false);
+  const [checkingCompatibility, setCheckingCompatibility] = useState(false);
+
   // Admin fields
   const [adminName, setAdminName] = useState("");
   const [adminUser, setAdminUser] = useState("");
@@ -46,6 +52,8 @@ export default function SetupWizard({ onCompleted }: SetupWizardProps) {
     setErrorMsg("");
     setSuccessMsg("");
     setDbMissing(false);
+    setHasCompatibleDb(false);
+    setExistingAdmins([]);
 
     try {
       const res = await fetch("/api/setup/test-connection", {
@@ -57,6 +65,31 @@ export default function SetupWizard({ onCompleted }: SetupWizardProps) {
       if (data.success) {
         setSuccessMsg(data.message);
         setConnectionTested(true);
+
+        // Immediately check compatibility
+        setCheckingCompatibility(true);
+        try {
+          const compRes = await fetch("/api/setup/verify-compatibility", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode, host, port, database, user, password, ssl, certificate })
+          });
+          const compData = await compRes.json();
+          if (compData.success) {
+            if (compData.hasCompatibleTables) {
+              setHasCompatibleDb(true);
+              setExistingAdmins(compData.existingAdmins || []);
+              setUseExistingDb(true); // default to preserving data
+              setSuccessMsg(data.message + " " + compData.message);
+            } else {
+              setUseExistingDb(false);
+            }
+          }
+        } catch (compErr) {
+          console.error("Erro ao verificar compatibilidade do banco:", compErr);
+        } finally {
+          setCheckingCompatibility(false);
+        }
       } else {
         setErrorMsg(data.message);
         setConnectionTested(false);
@@ -115,7 +148,8 @@ export default function SetupWizard({ onCompleted }: SetupWizardProps) {
           email: companyEmail,
           address: companyAddress,
           notes: companyNotes
-        }
+        },
+        useExistingDb
       };
 
       const res = await fetch("/api/setup/install", {
@@ -523,6 +557,60 @@ export default function SetupWizard({ onCompleted }: SetupWizardProps) {
                 )}
               </div>
 
+              {connectionTested && hasCompatibleDb && (
+                <div className="bg-amber-50 border border-amber-200 p-4 rounded-md text-xs space-y-3 mt-4 text-amber-900">
+                  <div className="flex items-center space-x-2 font-bold text-amber-800">
+                    <AlertCircle className="h-4 w-4" />
+                    <span>Base de Dados Existente com Dados Compatíveis Detectada!</span>
+                  </div>
+                  <p>
+                    O banco de dados selecionado já possui as tabelas principais estruturadas e dados compatíveis do PK SIG.
+                  </p>
+                  {existingAdmins.length > 0 && (
+                    <div className="bg-amber-100/50 p-2 rounded border border-amber-200">
+                      <p className="font-semibold mb-1 text-amber-950">Contas administradoras existentes encontradas:</p>
+                      <ul className="list-disc list-inside space-y-0.5 font-mono text-[11px] text-amber-900">
+                        {existingAdmins.map((admin, idx) => (
+                          <li key={idx}>{admin}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  
+                  <div className="space-y-2 pt-1 border-t border-amber-200/50">
+                    <p className="font-semibold text-amber-950">Como deseja prosseguir com a instalação?</p>
+                    <div className="flex flex-col space-y-2">
+                      <label className="flex items-start space-x-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="use_existing_db"
+                          checked={useExistingDb}
+                          onChange={() => setUseExistingDb(true)}
+                          className="mt-0.5 text-amber-600 focus:ring-amber-500 h-3.5 w-3.5"
+                        />
+                        <div>
+                          <span className="font-bold text-amber-950">Preservar e utilizar base de dados existente (Recomendado)</span>
+                          <p className="text-[11px] text-amber-800 mt-0.5">Mantém todos os seus dados atuais (clientes, ordens de serviço, etc.) intactos. Cria o novo administrador apenas se a conta ainda não existir.</p>
+                        </div>
+                      </label>
+                      <label className="flex items-start space-x-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="use_existing_db"
+                          checked={!useExistingDb}
+                          onChange={() => setUseExistingDb(false)}
+                          className="mt-0.5 text-red-600 focus:ring-red-500 h-3.5 w-3.5"
+                        />
+                        <div>
+                          <span className="font-bold text-red-700">Formatar banco e reinstalar do zero (Apaga todos os dados!)</span>
+                          <p className="text-[11px] text-red-600 mt-0.5">⚠️ ATENÇÃO: Todas as tabelas existentes serão excluídas e criadas novamente. Todos os dados atuais da base serão PERDIDOS permanentemente.</p>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="flex space-x-3 pt-4 border-t border-gray-100 mt-6">
                 <button
                   onClick={prevStep}
@@ -548,16 +636,33 @@ export default function SetupWizard({ onCompleted }: SetupWizardProps) {
                 <Database className="h-6 w-6 text-green-600" />
               </div>
               <div className="space-y-2">
-                <h2 className="text-xl font-bold text-gray-900">4. Estruturando o Banco de Dados</h2>
+                <h2 className="text-xl font-bold text-gray-900">
+                  {useExistingDb ? "4. Conectando à Base de Dados Existente" : "4. Estruturando o Banco de Dados"}
+                </h2>
                 <p className="text-sm text-gray-500">
-                  O PK SIG agora criará as tabelas do sistema, carregará categorias padrão, status das ordens de serviço, acessórios e registrará o usuário administrador.
+                  {useExistingDb 
+                    ? "O PK SIG irá conectar-se à base de dados existente, preservar todos os dados e cadastrar o novo administrador se o usuário não existir."
+                    : "O PK SIG agora criará as tabelas do sistema, carregará categorias padrão, status das ordens de serviço, acessórios e registrará o usuário administrador."}
                 </p>
               </div>
 
               <div className="bg-gray-50 p-4 border border-gray-200 rounded-md text-left text-xs font-mono text-gray-600 space-y-1">
-                <div className="flex justify-between"><span>Criar Tabelas de Cadastro:</span> <span className="text-green-600 font-bold">Pendente</span></div>
-                <div className="flex justify-between"><span>Registrar Administrador:</span> <span className="text-green-600 font-bold">Pendente</span></div>
-                <div className="flex justify-between"><span>Criar Categorias e Status:</span> <span className="text-green-600 font-bold">Pendente</span></div>
+                <div className="flex justify-between">
+                  <span>{useExistingDb ? "Preservar tabelas existentes:" : "Criar Tabelas de Cadastro:"}</span> 
+                  <span className={useExistingDb ? "text-indigo-600 font-bold" : "text-green-600 font-bold"}>
+                    {useExistingDb ? "Ativo" : "Pendente"}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Registrar/Verificar Administrador:</span> 
+                  <span className="text-green-600 font-bold">Pendente</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>{useExistingDb ? "Preservar dados existentes:" : "Criar Categorias e Status:"}</span> 
+                  <span className={useExistingDb ? "text-indigo-600 font-bold" : "text-green-600 font-bold"}>
+                    {useExistingDb ? "Ativo" : "Pendente"}
+                  </span>
+                </div>
                 <div className="flex justify-between"><span>Gravar arquivo de configuração:</span> <span className="text-green-600 font-bold">Pendente</span></div>
               </div>
 

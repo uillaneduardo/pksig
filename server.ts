@@ -12,7 +12,8 @@ import {
   executeInstallSql, 
   query, 
   execute,
-  cloneDatabase
+  cloneDatabase,
+  verifyDatabaseCompatibility
 } from "./src/lib/database.js";
 import { 
   createSession, 
@@ -167,9 +168,30 @@ app.post("/api/setup/create-database", async (req: any, res: any) => {
   return res.json(result);
 });
 
+// Verify database compatibility
+app.post("/api/setup/verify-compatibility", async (req: any, res: any) => {
+  const { mode, host, port, database, user, password, ssl, certificate } = req.body;
+  if (mode !== "local" && (!host || !port || !database || !user)) {
+    return res.status(400).json({ error: "Todos os campos de conexão são obrigatórios" });
+  }
+
+  const result = await verifyDatabaseCompatibility({
+    mode,
+    host: mode === "local" ? "localhost" : host,
+    port: mode === "local" ? 0 : parseInt(port),
+    database: mode === "local" ? "pksig.db" : database,
+    user: mode === "local" ? "local" : user,
+    password,
+    ssl: !!ssl,
+    certificate
+  });
+
+  return res.json(result);
+});
+
 // Install schema & setup administrator
 app.post("/api/setup/install", async (req: any, res: any) => {
-  const { connection, admin, company } = req.body;
+  const { connection, admin, company, useExistingDb } = req.body;
   if (!connection || !admin) {
     return res.status(400).json({ error: "Configurações de conexão e administrador são obrigatórias" });
   }
@@ -186,19 +208,41 @@ app.post("/api/setup/install", async (req: any, res: any) => {
       ssl: connection.mode === "local" ? false : !!connection.ssl
     });
 
-    // 2. Install Schema
-    const installResult = await executeInstallSql();
-    if (!installResult.success) {
-      return res.status(500).json({ error: installResult.message });
+    // 2. Install Schema (Skip if using existing compatible database)
+    if (!useExistingDb) {
+      const installResult = await executeInstallSql();
+      if (!installResult.success) {
+        return res.status(500).json({ error: installResult.message });
+      }
     }
 
     // 3. Create Admin
     const salt = bcrypt.genSaltSync(10);
     const passwordHash = bcrypt.hashSync(admin.password, salt);
-    await execute(
-      "INSERT INTO admins (name, username, password_hash) VALUES (?, ?, ?)",
-      [admin.name, admin.username, passwordHash]
-    );
+    
+    let adminCreated = false;
+    if (useExistingDb) {
+      try {
+        const existingAdmins = await query("SELECT * FROM admins WHERE username = ?", [admin.username]);
+        if (!existingAdmins || existingAdmins.length === 0) {
+          await execute(
+            "INSERT INTO admins (name, username, password_hash) VALUES (?, ?, ?)",
+            [admin.name, admin.username, passwordHash]
+          );
+          adminCreated = true;
+        } else {
+          console.log(`Admin user ${admin.username} already exists in existing database.`);
+        }
+      } catch (err) {
+        console.error("Failed to query/insert admin in existing database:", err);
+      }
+    } else {
+      await execute(
+        "INSERT INTO admins (name, username, password_hash) VALUES (?, ?, ?)",
+        [admin.name, admin.username, passwordHash]
+      );
+      adminCreated = true;
+    }
 
     // 4. Set Company Settings (if provided)
     if (company && company.name) {
@@ -213,14 +257,18 @@ app.post("/api/setup/install", async (req: any, res: any) => {
           company.whatsapp || null, company.email || null, company.address || null, company.notes || null
         ]
       );
-    } else {
+    } else if (!useExistingDb) {
       // Default company settings placeholder
       await execute(
         "INSERT INTO company_settings (id, company_name) VALUES (1, 'Minha Assistência Técnica') ON DUPLICATE KEY UPDATE company_name='Minha Assistência Técnica'"
       );
     }
 
-    return res.json({ success: true, message: "Sistema PK SIG inicializado com sucesso!" });
+    return res.json({ 
+      success: true, 
+      message: "Sistema PK SIG inicializado com sucesso!",
+      adminCreated 
+    });
   } catch (err: any) {
     console.error("Setup error:", err);
     return res.status(500).json({ error: err.message || "Falha ao inicializar o sistema" });
