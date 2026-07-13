@@ -18,6 +18,7 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+  const [osError, setOsError] = useState("");
 
   // Data loaded from backend
   const [client, setClient] = useState<Client | null>(null);
@@ -169,8 +170,9 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
   // Add OS logic
   const handleAddOS = async (e: React.FormEvent) => {
     e.preventDefault();
+    setOsError("");
     if (!osEquipId || !osProblem) {
-      alert("Selecione um equipamento e descreva o problema informado.");
+      setOsError("Por favor, selecione um equipamento e descreva o defeito relatado.");
       return;
     }
 
@@ -193,9 +195,12 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
         setShowAddOS(false);
         setOsEquipId(""); setOsProblem(""); setOsEquipState(""); setOsNotes(""); setOsAccessories([]);
         onOpenOS(data.osId);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setOsError(data.error || "Erro ao abrir ordem de serviço. Verifique se os dados estão corretos.");
       }
-    } catch (err) {
-      alert("Erro ao abrir ordem de serviço.");
+    } catch (err: any) {
+      setOsError(err?.message || "Falha ao conectar com o servidor para abrir ordem de serviço.");
     }
   };
 
@@ -259,6 +264,7 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
   };
 
   const handleOpenNewOSWithEquip = (equipId: number) => {
+    setOsError("");
     setOsEquipId(equipId.toString());
     setShowAddOS(true);
     setActiveTab("os");
@@ -326,7 +332,10 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
 
           {activeTab === "os" && (
             <button
-              onClick={() => setShowAddOS(true)}
+              onClick={() => {
+                setOsError("");
+                setShowAddOS(true);
+              }}
               className="flex items-center space-x-1 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-xs font-bold transition cursor-pointer"
             >
               <Plus className="h-3.5 w-3.5" />
@@ -964,6 +973,12 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
             </div>
 
             <form onSubmit={handleAddOS} className="p-6 space-y-4">
+              {osError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-md text-red-700 text-xs flex items-center space-x-2">
+                  <AlertCircle className="h-4 w-4 text-red-500 shrink-0" />
+                  <span>{osError}</span>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-gray-600 mb-1 font-semibold">Equipamento Vinculado *</label>
