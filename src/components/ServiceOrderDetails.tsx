@@ -78,7 +78,7 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
       const res = await fetch("/api/settings");
       if (res.ok) {
         const data = await res.json();
-        setStatuses(data.system ? [
+        setStatuses(data.statuses && data.statuses.length > 0 ? data.statuses : [
           { id: 1, name: "Recebida" },
           { id: 2, name: "Em análise" },
           { id: 3, name: "Aguardando aprovação" },
@@ -87,7 +87,7 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
           { id: 6, name: "Pronta" },
           { id: 7, name: "Entregue" },
           { id: 8, name: "Cancelada" }
-        ] : []);
+        ]);
         setPaymentMethods(data.paymentMethods.filter((p: any) => p.active));
         setWarrantyRules(data.warrantyRules.filter((w: any) => w.active));
         setAccessoriesMaster(data.accessories.filter((a: any) => a.active));
@@ -122,7 +122,8 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
         setTimeout(() => setSuccessMsg(""), 3000);
         loadOSDetails();
       } else {
-        setErrorMsg("Erro ao salvar ordem de serviço.");
+        const errorData = await res.json().catch(() => ({}));
+        setErrorMsg(errorData.error || "Erro ao salvar ordem de serviço.");
       }
     } catch (err) {
       setErrorMsg("Falha ao conectar com o servidor.");

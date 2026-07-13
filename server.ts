@@ -611,12 +611,28 @@ app.post("/api/service-orders", requireAuth, async (req: any, res: any) => {
   try {
     const code = await generateNextCode("os");
     
-    // Insert order in 'Recebida' status (ID 1 as default master)
+    // Dynamically resolve status_id for 'Recebida' to prevent FK failures
+    const statuses = await query("SELECT id, name FROM service_order_statuses WHERE name = 'Recebida'");
+    let targetStatusId = statuses[0]?.id;
+    let targetStatusName = statuses[0]?.name || "Recebida";
+
+    if (!targetStatusId) {
+      const anyStatus = await query("SELECT id, name FROM service_order_statuses ORDER BY position ASC, id ASC LIMIT 1");
+      if (anyStatus[0]) {
+        targetStatusId = anyStatus[0].id;
+        targetStatusName = anyStatus[0].name;
+      } else {
+        const insStatus = await execute("INSERT INTO service_order_statuses (name, position, is_system) VALUES ('Recebida', 1, 1)");
+        targetStatusId = insStatus.insertId;
+        targetStatusName = "Recebida";
+      }
+    }
+
     const result = await execute(`
       INSERT INTO service_orders 
         (client_id, equipment_id, code, technician_name, status_id, status_name, problem_reported, reception_equipment_state, reception_notes) 
-      VALUES (?, ?, ?, ?, 1, 'Recebida', ?, ?, ?)`,
-      [client_id, equipment_id, code, technician_name || "Suporte TI (Administrador)", problem_reported, reception_equipment_state || null, reception_notes || null]
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [client_id, equipment_id, code, technician_name || "Suporte TI (Administrador)", targetStatusId, targetStatusName, problem_reported, reception_equipment_state || null, reception_notes || null]
     );
 
     const osId = result.insertId;
@@ -1117,7 +1133,7 @@ app.get("/api/dashboard", requireAuth, async (req: any, res: any) => {
       SELECT COUNT(*) as count 
       FROM service_orders 
       WHERE promise_date < NOW() 
-        AND status_id NOT IN (6, 7, 8)
+        AND status_name NOT IN ('Pronta', 'Entregue', 'Cancelada')
     `);
     const delayedCount = delayedResult[0]?.count || 0;
 
@@ -1201,6 +1217,7 @@ app.get("/api/settings", requireAuth, async (req: any, res: any) => {
     const accessories = await query("SELECT * FROM reception_accessories ORDER BY name ASC");
     const paymentMethods = await query("SELECT * FROM payment_methods ORDER BY id ASC");
     const warrantyRules = await query("SELECT * FROM warranty_rules ORDER BY id ASC");
+    const statuses = await query("SELECT * FROM service_order_statuses ORDER BY position ASC, id ASC");
     const dbConfig = getDatabaseConfig();
 
     return res.json({
@@ -1210,6 +1227,7 @@ app.get("/api/settings", requireAuth, async (req: any, res: any) => {
       accessories,
       paymentMethods,
       warrantyRules,
+      statuses,
       storage: {
         mode: dbConfig?.mode,
         host: dbConfig?.host,
