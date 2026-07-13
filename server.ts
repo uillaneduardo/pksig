@@ -928,10 +928,12 @@ app.post("/api/payment-guides/:id/pay", requireAuth, async (req: any, res: any) 
       const targetInsts = await query("SELECT * FROM payment_installments WHERE id = ?", [installment_id]);
       const inst = targetInsts[0];
       if (inst && inst.status !== "Pago") {
-        const needed = inst.amount - inst.paid_amount;
+        const instAmount = parseFloat(inst.amount) || 0;
+        const instPaidAmount = parseFloat(inst.paid_amount) || 0;
+        const needed = instAmount - instPaidAmount;
         const paying = Math.min(remainingPayment, needed);
-        const newPaid = +(inst.paid_amount + paying).toFixed(2);
-        const status = newPaid >= inst.amount ? "Pago" : "Pendente";
+        const newPaid = +(instPaidAmount + paying).toFixed(2);
+        const status = newPaid >= instAmount ? "Pago" : "Pendente";
         await execute("UPDATE payment_installments SET paid_amount = ?, paid_date = CURRENT_DATE(), status = ? WHERE id = ?", [newPaid, status, inst.id]);
       }
     } else {
@@ -939,10 +941,12 @@ app.post("/api/payment-guides/:id/pay", requireAuth, async (req: any, res: any) 
       const insts = await query("SELECT * FROM payment_installments WHERE payment_guide_id = ? AND status != 'Pago' ORDER BY installment_number ASC", [id]);
       for (const inst of insts) {
         if (remainingPayment <= 0) break;
-        const needed = inst.amount - inst.paid_amount;
+        const instAmount = parseFloat(inst.amount) || 0;
+        const instPaidAmount = parseFloat(inst.paid_amount) || 0;
+        const needed = instAmount - instPaidAmount;
         const paying = Math.min(remainingPayment, needed);
-        const newPaid = +(inst.paid_amount + paying).toFixed(2);
-        const status = newPaid >= inst.amount ? "Pago" : "Pendente";
+        const newPaid = +(instPaidAmount + paying).toFixed(2);
+        const status = newPaid >= instAmount ? "Pago" : "Pendente";
         
         await execute("UPDATE payment_installments SET paid_amount = ?, paid_date = CURRENT_DATE(), status = ? WHERE id = ?", [newPaid, status, inst.id]);
         remainingPayment = +(remainingPayment - paying).toFixed(2);
@@ -950,8 +954,10 @@ app.post("/api/payment-guides/:id/pay", requireAuth, async (req: any, res: any) 
     }
 
     // 3. Update total guide stats
-    const totalPaid = +(guide.paid_amount + paymentAmount).toFixed(2);
-    const newBalance = Math.max(0, +(guide.total_amount - totalPaid).toFixed(2));
+    const guidePaidAmount = parseFloat(guide.paid_amount) || 0;
+    const guideTotalAmount = parseFloat(guide.total_amount) || 0;
+    const totalPaid = +(guidePaidAmount + paymentAmount).toFixed(2);
+    const newBalance = Math.max(0, +(guideTotalAmount - totalPaid).toFixed(2));
     const newStatus = newBalance <= 0 ? "Quitada" : "Parcial";
 
     await execute("UPDATE payment_guides SET paid_amount = ?, balance_amount = ?, status = ? WHERE id = ?", [totalPaid, newBalance, newStatus, id]);
