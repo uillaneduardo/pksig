@@ -600,6 +600,43 @@ app.put("/api/equipment/:id", requireAuth, async (req: any, res: any) => {
 // 5. SERVICE ORDER (OS) ENDPOINTS
 // ==========================================
 
+// List & Search service orders
+app.get("/api/service-orders", requireAuth, async (req: any, res: any) => {
+  const { q, status } = req.query;
+
+  try {
+    let sql = `
+      SELECT o.*, 
+             c.name as client_name, c.code as client_code,
+             e.brand as brand, e.model as model, e.serial_number as serial_number,
+             (SELECT COALESCE(SUM(total_value), 0) FROM budget_items WHERE service_order_id = o.id) as total_value
+      FROM service_orders o
+      JOIN clients c ON o.client_id = c.id
+      JOIN equipments e ON o.equipment_id = e.id
+      WHERE 1=1
+    `;
+    const params: any[] = [];
+
+    if (q) {
+      sql += " AND (o.code LIKE ? OR c.name LIKE ? OR e.serial_number LIKE ? OR e.brand LIKE ? OR e.model LIKE ?)";
+      const searchWild = `%${q}%`;
+      params.push(searchWild, searchWild, searchWild, searchWild, searchWild);
+    }
+
+    if (status) {
+      sql += " AND o.status_name = ?";
+      params.push(status);
+    }
+
+    sql += " ORDER BY o.id DESC";
+    const ordersList = await query(sql, params);
+    return res.json(ordersList);
+  } catch (err: any) {
+    console.error("List service orders error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // Create Service Order
 app.post("/api/service-orders", requireAuth, async (req: any, res: any) => {
   const { client_id, equipment_id, technician_name, problem_reported, reception_equipment_state, reception_notes, accessories } = req.body;
@@ -1214,6 +1251,32 @@ app.get("/api/dashboard", requireAuth, async (req: any, res: any) => {
 // 9. SETTINGS ENDPOINTS
 // ==========================================
 
+async function ensureDefaultStatuses() {
+  try {
+    const existing = await query("SELECT * FROM service_order_statuses");
+    const defaults = [
+      { name: "Recebida", position: 1 },
+      { name: "Em análise", position: 2 },
+      { name: "Aguardando aprovação", position: 3 },
+      { name: "Aguardando peça", position: 4 },
+      { name: "Em manutenção", position: 5 },
+      { name: "Pronta", position: 6 },
+      { name: "Entregue", position: 7 },
+      { name: "Cancelada", position: 8 }
+    ];
+    if (existing.length < defaults.length) {
+      for (const def of defaults) {
+        const found = existing.find(e => e.name.toLowerCase() === def.name.toLowerCase());
+        if (!found) {
+          await execute("INSERT INTO service_order_statuses (name, position, is_system) VALUES (?, ?, 1)", [def.name, def.position]);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error ensuring default statuses:", err);
+  }
+}
+
 // Get all settings
 app.get("/api/settings", requireAuth, async (req: any, res: any) => {
   try {
@@ -1223,6 +1286,9 @@ app.get("/api/settings", requireAuth, async (req: any, res: any) => {
     const accessories = await query("SELECT * FROM reception_accessories ORDER BY name ASC");
     const paymentMethods = await query("SELECT * FROM payment_methods ORDER BY id ASC");
     const warrantyRules = await query("SELECT * FROM warranty_rules ORDER BY id ASC");
+    
+    await ensureDefaultStatuses();
+    
     const statuses = await query("SELECT * FROM service_order_statuses ORDER BY position ASC, id ASC");
     const dbConfig = getDatabaseConfig();
 
