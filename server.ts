@@ -725,7 +725,7 @@ app.get("/api/service-orders/:id", requireAuth, async (req: any, res: any) => {
     const warranties = await query("SELECT * FROM warranties WHERE service_order_id = ?", [id]);
 
     // Load attachments
-    const attachmentRecords = await query("SELECT id, filename, file_size, mime_type, uploaded_at FROM attachments WHERE service_order_id = ? ORDER BY id DESC", [id]);
+    const attachmentRecords = await query("SELECT id, filename, file_size, mime_type, description, uploaded_at FROM attachments WHERE service_order_id = ? ORDER BY id DESC", [id]);
 
     return res.json({
       order,
@@ -1221,7 +1221,7 @@ app.post("/api/service-orders/:id/warranty", requireAuth, async (req: any, res: 
 
 app.post("/api/service-orders/:id/attachments", requireAuth, async (req: any, res: any) => {
   const { id } = req.params;
-  const { filename, fileBase64, mimeType } = req.body;
+  const { filename, fileBase64, mimeType, description } = req.body;
 
   if (!filename || !fileBase64 || !mimeType) {
     return res.status(400).json({ error: "Dados do anexo incompletos" });
@@ -1239,9 +1239,9 @@ app.post("/api/service-orders/:id/attachments", requireAuth, async (req: any, re
 
     // Save to DB
     const result = await execute(`
-      INSERT INTO attachments (service_order_id, filename, file_path, file_size, mime_type) 
-      VALUES (?, ?, ?, ?, ?)`,
-      [id, filename, `storage/attachments/${uniqueFilename}`, buffer.length, mimeType]
+      INSERT INTO attachments (service_order_id, filename, file_path, file_size, mime_type, description) 
+      VALUES (?, ?, ?, ?, ?, ?)`,
+      [id, filename, `storage/attachments/${uniqueFilename}`, buffer.length, mimeType, description || null]
     );
 
     return res.json({ 
@@ -1251,11 +1251,58 @@ app.post("/api/service-orders/:id/attachments", requireAuth, async (req: any, re
         filename,
         file_size: buffer.length,
         mime_type: mimeType,
+        description: description || null,
         uploaded_at: new Date()
       } 
     });
   } catch (err: any) {
     console.error("Upload attachment error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Update attachment (e.g. caption / description)
+app.put("/api/attachments/:id", requireAuth, async (req: any, res: any) => {
+  const { id } = req.params;
+  const { description } = req.body;
+
+  try {
+    const records = await query("SELECT * FROM attachments WHERE id = ?", [id]);
+    if (records.length === 0) {
+      return res.status(404).json({ error: "Anexo não encontrado" });
+    }
+
+    await execute("UPDATE attachments SET description = ? WHERE id = ?", [description !== undefined ? description : null, id]);
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error("Update attachment error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete attachment
+app.delete("/api/attachments/:id", requireAuth, async (req: any, res: any) => {
+  const { id } = req.params;
+
+  try {
+    const records = await query("SELECT * FROM attachments WHERE id = ?", [id]);
+    const record = records[0];
+    if (!record) {
+      return res.status(404).json({ error: "Anexo não encontrado" });
+    }
+
+    // Delete physical file
+    const absolutePath = path.join(process.cwd(), record.file_path);
+    if (fs.existsSync(absolutePath)) {
+      fs.unlinkSync(absolutePath);
+    }
+
+    // Delete from DB
+    await execute("DELETE FROM attachments WHERE id = ?", [id]);
+
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error("Delete attachment error:", err);
     return res.status(500).json({ error: err.message });
   }
 });
@@ -1795,7 +1842,23 @@ app.get("/api/settings/security/logs", requireAuth, async (req: any, res: any) =
 // ==========================================
 // VITE & FRONTEND BOOTSTRAP
 // ==========================================
+async function ensureAttachmentsDescriptionColumn() {
+  try {
+    if (!isDatabaseConfigured()) return;
+    const columns = await query("SHOW COLUMNS FROM attachments LIKE 'description'");
+    if (columns && columns.length === 0) {
+      await execute("ALTER TABLE attachments ADD COLUMN description TEXT NULL");
+      console.log("Added description column to attachments table");
+    }
+  } catch (err) {
+    console.error("Error checking or adding description column to attachments:", err);
+  }
+}
+
 async function startServer() {
+  // Ensure table migration
+  await ensureAttachmentsDescriptionColumn();
+
   // Vite integration
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

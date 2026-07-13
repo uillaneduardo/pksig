@@ -400,6 +400,7 @@ CREATE TABLE attachments (
     file_path VARCHAR(255) NOT NULL,
     file_size INT NOT NULL,
     mime_type VARCHAR(100) NOT NULL,
+    description TEXT NULL,
     uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (service_order_id) REFERENCES service_orders(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

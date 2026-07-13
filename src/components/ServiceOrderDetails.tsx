@@ -50,6 +50,7 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
 
   // Attachment states
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState("");
 
   // Payment States
   const [guideInstallments, setGuideInstallments] = useState<any[]>([]);
@@ -376,16 +377,27 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
     }
   };
 
-  // Handle Attachment File Upload
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // Handle Attachment File Upload (Supports multiple files and videos)
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
     setIsUploading(true);
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const base64 = reader.result as string;
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      setUploadProgress(`Enviando ${i + 1} de ${files.length}: ${file.name}...`);
+      
       try {
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = (err) => reject(err);
+          reader.readAsDataURL(file);
+        });
+
         const res = await fetch(`/api/service-orders/${osId}/attachments`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -395,18 +407,29 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
             mimeType: file.type
           })
         });
+
         if (res.ok) {
-          loadOSDetails();
+          successCount++;
         } else {
-          alert("Erro ao enviar arquivo.");
+          failCount++;
         }
       } catch (err) {
-        alert("Erro de comunicação ao enviar arquivo.");
-      } finally {
-        setIsUploading(false);
+        console.error("Error uploading file", file.name, err);
+        failCount++;
       }
-    };
-    reader.readAsDataURL(file);
+    }
+
+    setIsUploading(false);
+    setUploadProgress("");
+    
+    // Reset file input value so the same files can be uploaded again
+    e.target.value = "";
+
+    loadOSDetails();
+
+    if (failCount > 0) {
+      alert(`${successCount} arquivo(s) enviado(s) com sucesso. ${failCount} falhou(aram).`);
+    }
   };
 
   if (loading) {
@@ -1185,20 +1208,22 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
               <Upload className="h-4 w-4 text-gray-600" />
               <span>Anexos, Laudos e Fotos Físicas</span>
             </h4>
-            <p className="text-gray-400 text-[10px] mt-0.5">Armazene fotos físicas do aparelho ou laudos técnicos anexados a esta ordem de serviço.</p>
+            <p className="text-gray-400 text-[10px] mt-0.5">Armazene fotos físicas do aparelho, vídeos de testes ou laudos técnicos anexados a esta ordem de serviço.</p>
           </div>
 
           {/* Simple Upload input */}
           <div className="border-2 border-dashed border-gray-200 hover:border-gray-300 transition rounded-md p-8 text-center bg-gray-50/50 space-y-3">
             <Upload className="h-8 w-8 text-gray-400 mx-auto" />
             <div className="space-y-1">
-              <span className="font-bold text-gray-800">Clique para selecionar e enviar arquivo físico</span>
-              <p className="text-gray-400 text-[10px]">Arquivos JPG, PNG, PDF ou DOC até 50MB</p>
+              <span className="font-bold text-gray-800">Clique para selecionar e enviar arquivos</span>
+              <p className="text-gray-400 text-[10px]">Imagens, Vídeos (MP4, etc), PDF ou DOC</p>
             </div>
             <input
               type="file"
               onChange={handleFileUpload}
               disabled={isUploading}
+              multiple
+              accept="image/*,video/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
               className="hidden"
               id="file_upload_input"
             />
@@ -1206,36 +1231,137 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
               htmlFor="file_upload_input"
               className="inline-block px-4 py-1.5 bg-[#0e131f] hover:bg-[#1f2937] text-white rounded font-bold text-[11px] transition cursor-pointer"
             >
-              {isUploading ? "Enviando arquivo..." : "Selecionar Arquivo"}
+              {isUploading ? "Enviando arquivo(s)..." : "Selecionar Arquivos"}
             </label>
+            {isUploading && uploadProgress && (
+              <p className="text-indigo-600 font-semibold animate-pulse text-[10px] mt-2">{uploadProgress}</p>
+            )}
           </div>
 
           {/* List attachments */}
-          <div className="space-y-2">
+          <div className="space-y-3">
             <h5 className="font-bold text-gray-900 uppercase text-[10px] tracking-wider">Arquivos Salvos ({attachments.length})</h5>
             
             {attachments.length === 0 ? (
               <p className="text-gray-400 py-4 text-center">Nenhum anexo salvo para esta ordem de serviço.</p>
             ) : (
-              <div className="divide-y divide-gray-100 font-mono text-[11px] text-gray-600">
-                {attachments.map((file) => (
-                  <div key={file.id} className="py-2 flex justify-between items-center bg-gray-50/30 px-3 rounded hover:bg-gray-50 transition border border-gray-100/50 mb-1.5">
-                    <div>
-                      <div className="font-semibold text-gray-900">{file.filename}</div>
-                      <div className="text-[10px] text-gray-400 mt-0.5">Tamanho: {(file.file_size / 1024).toFixed(1)} KB • Enviado: {new Date(file.uploaded_at).toLocaleString("pt-BR")}</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {attachments.map((file) => {
+                  const isImage = file.mime_type?.startsWith("image/");
+                  const isVideo = file.mime_type?.startsWith("video/");
+
+                  return (
+                    <div key={file.id} className="p-3 border border-gray-200 bg-gray-50/30 rounded-md flex space-x-3 hover:bg-gray-50 transition">
+                      {/* Thumbnail Container */}
+                      <div className="w-16 h-16 flex-shrink-0 bg-gray-100 rounded border border-gray-200 overflow-hidden flex items-center justify-center relative group">
+                        {isImage ? (
+                          <img
+                            src={`/api/attachments/${file.id}`}
+                            referrerPolicy="no-referrer"
+                            className="w-full h-full object-cover cursor-zoom-in"
+                            alt={file.filename}
+                            onClick={() => window.open(`/api/attachments/${file.id}`, "_blank")}
+                          />
+                        ) : isVideo ? (
+                          <video
+                            src={`/api/attachments/${file.id}`}
+                            className="w-full h-full object-cover cursor-pointer"
+                            muted
+                            preload="metadata"
+                            onClick={() => window.open(`/api/attachments/${file.id}`, "_blank")}
+                          />
+                        ) : (
+                          <FileText className="h-8 w-8 text-gray-400" />
+                        )}
+                        
+                        {/* Overlay Type badge */}
+                        <span className="absolute bottom-0 right-0 bg-black/60 text-white text-[8px] font-bold px-1 rounded-tl-sm uppercase tracking-wider scale-90">
+                          {isImage ? "Foto" : isVideo ? "Vídeo" : (file.filename.split(".").pop() || "doc")}
+                        </span>
+                      </div>
+
+                      {/* Info, Caption, and Actions */}
+                      <div className="flex-1 min-w-0 flex flex-col justify-between">
+                        <div>
+                          <div className="font-semibold text-gray-900 truncate font-mono text-[11px]" title={file.filename}>
+                            {file.filename}
+                          </div>
+                          <div className="text-[9px] text-gray-400">
+                            {(file.file_size / 1024).toFixed(1)} KB • {new Date(file.uploaded_at).toLocaleString("pt-BR")}
+                          </div>
+                          
+                          {/* Caption Input */}
+                          <div className="mt-1.5 flex items-center space-x-1">
+                            <input
+                              type="text"
+                              placeholder="Adicionar legenda..."
+                              defaultValue={file.description || ""}
+                              onKeyDown={async (e) => {
+                                if (e.key === "Enter") {
+                                  e.currentTarget.blur();
+                                }
+                              }}
+                              onBlur={async (e) => {
+                                const newDesc = e.target.value;
+                                if (newDesc === (file.description || "")) return;
+                                try {
+                                  const res = await fetch(`/api/attachments/${file.id}`, {
+                                    method: "PUT",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ description: newDesc })
+                                  });
+                                  if (res.ok) {
+                                    loadOSDetails();
+                                  }
+                                } catch (err) {
+                                  console.error("Error saving caption", err);
+                                }
+                              }}
+                              className="px-2 py-0.5 border border-gray-200 rounded text-[10px] w-full focus:outline-none focus:border-indigo-500 font-sans bg-white text-gray-800"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Action buttons */}
+                        <div className="flex items-center space-x-2 mt-2 pt-1.5 border-t border-gray-100/50">
+                          <a
+                            href={`/api/attachments/${file.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-1.5 py-0.5 border border-gray-200 rounded hover:bg-gray-100 transition text-gray-600 flex items-center space-x-1 font-sans text-[10px]"
+                          >
+                            <Download className="h-3 w-3" />
+                            <span>Baixar</span>
+                          </a>
+                          
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!window.confirm("Tem certeza que deseja remover este anexo?")) return;
+                              try {
+                                const res = await fetch(`/api/attachments/${file.id}`, {
+                                  method: "DELETE"
+                                });
+                                if (res.ok) {
+                                  loadOSDetails();
+                                } else {
+                                  alert("Erro ao excluir anexo.");
+                                }
+                              } catch (err) {
+                                alert("Erro de comunicação ao excluir anexo.");
+                              }
+                            }}
+                            className="p-1 hover:bg-red-50 rounded text-red-600 transition cursor-pointer flex items-center space-x-1 text-[10px] ml-auto border border-transparent hover:border-red-100"
+                            title="Excluir anexo"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            <span className="font-sans">Excluir</span>
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                    
-                    <a
-                      href={`/api/attachments/${file.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-1.5 border border-gray-200 rounded hover:bg-gray-100 transition text-gray-600 flex items-center space-x-1 font-sans text-[10px]"
-                    >
-                      <Download className="h-3.5 w-3.5" />
-                      <span>Baixar</span>
-                    </a>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
