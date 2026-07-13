@@ -11,7 +11,8 @@ import {
   createDatabaseAutomatically, 
   executeInstallSql, 
   query, 
-  execute 
+  execute,
+  cloneDatabase
 } from "./src/lib/database.js";
 import { 
   createSession, 
@@ -224,6 +225,37 @@ app.post("/api/setup/install", async (req: any, res: any) => {
     console.error("Setup error:", err);
     return res.status(500).json({ error: err.message || "Falha ao inicializar o sistema" });
   }
+});
+
+// Clone database endpoint (online <-> local)
+app.post("/api/database/clone", requireAuth, async (req: any, res: any) => {
+  const { direction, customRemoteConfig } = req.body;
+  if (!direction || (direction !== "remote-to-local" && direction !== "local-to-remote")) {
+    return res.status(400).json({ error: "Direção de clonagem inválida" });
+  }
+
+  try {
+    const result = await cloneDatabase(direction, customRemoteConfig);
+    if (result.success) {
+      return res.json(result);
+    } else {
+      return res.status(500).json({ error: result.message });
+    }
+  } catch (err: any) {
+    console.error("Database clone error:", err);
+    return res.status(500).json({ error: err.message || "Erro interno ao clonar" });
+  }
+});
+
+// Get database configuration
+app.get("/api/database/config", requireAuth, (req: any, res: any) => {
+  const config = getDatabaseConfig();
+  if (!config) {
+    return res.status(404).json({ error: "Banco de dados não configurado" });
+  }
+  const responseConfig = { ...config };
+  delete responseConfig.password;
+  return res.json(responseConfig);
 });
 
 // ==========================================

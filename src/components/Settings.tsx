@@ -3,7 +3,7 @@ import { EquipmentCategory, PaymentMethod, WarrantyRule } from "../types";
 import { 
   Settings as SettingsIcon, Save, Plus, Check, Trash2, 
   RefreshCw, DollarSign, Laptop, ShieldCheck, Tag, Loader, AlertCircle,
-  Building, Edit
+  Building, Edit, Database, Server, ArrowLeftRight, Download, Upload
 } from "lucide-react";
 
 interface SettingsProps {
@@ -46,7 +46,7 @@ const formatPhone = (value: string) => {
 };
 
 export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated }: SettingsProps) {
-  const [activeSection, setActiveSection] = useState<"geral" | "categorias" | "pagamentos" | "garantias" | "acessorios" | "empresa">("geral");
+  const [activeSection, setActiveSection] = useState<"geral" | "categorias" | "pagamentos" | "garantias" | "acessorios" | "empresa" | "armazenamento">("geral");
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -89,6 +89,107 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
 
   const [newAccName, setNewAccName] = useState("");
 
+  // Database configuration & cloning states
+  const [dbConfig, setDbConfig] = useState<any>(null);
+  const [remoteForm, setRemoteForm] = useState({
+    host: "",
+    port: "3306",
+    database: "pksig",
+    user: "root",
+    password: "",
+    ssl: false,
+    certificate: ""
+  });
+  const [cloneLoading, setCloneLoading] = useState(false);
+  const [cloneSuccess, setCloneSuccess] = useState("");
+  const [cloneError, setCloneError] = useState("");
+  const [testSuccess, setTestSuccess] = useState("");
+  const [testError, setTestError] = useState("");
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState<"remote-to-local" | "local-to-remote" | null>(null);
+
+  const fetchDbConfig = async () => {
+    try {
+      const res = await fetch("/api/database/config");
+      if (res.ok) {
+        const data = await res.json();
+        setDbConfig(data);
+        if (data.mode === "remoto") {
+          setRemoteForm({
+            host: data.host || "",
+            port: String(data.port || "3306"),
+            database: data.database || "pksig",
+            user: data.user || "root",
+            password: "",
+            ssl: !!data.ssl,
+            certificate: data.certificate || ""
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load database config:", err);
+    }
+  };
+
+  const handleTestRemoteConnection = async () => {
+    setTestingConnection(true);
+    setTestSuccess("");
+    setTestError("");
+    try {
+      const res = await fetch("/api/setup/test-connection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "remoto",
+          ...remoteForm
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTestSuccess("Conexão com o banco de dados remoto testada com sucesso!");
+      } else {
+        setTestError(data.error || data.message || "Erro de conexão com o MySQL remoto.");
+      }
+    } catch (err: any) {
+      setTestError("Falha de rede ao testar conexão.");
+    } finally {
+      setTestingConnection(false);
+    }
+  };
+
+  const handleClone = async (direction: "remote-to-local" | "local-to-remote") => {
+    setCloneLoading(true);
+    setCloneSuccess("");
+    setCloneError("");
+    setShowConfirmModal(null);
+    try {
+      const res = await fetch("/api/database/clone", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          direction,
+          customRemoteConfig: dbConfig?.mode === "local" ? {
+            mode: "remoto",
+            ...remoteForm
+          } : undefined
+        })
+      });
+      const data = await res.json();
+      if (res.ok && !data.error) {
+        setCloneSuccess(data.message || "Clonagem realizada com sucesso!");
+        if (direction === "remote-to-local") {
+          loadSettingsData();
+        }
+      } else {
+        setCloneError(data.error || data.message || "Falha ao executar clonagem.");
+      }
+    } catch (err: any) {
+      setCloneError("Erro ao enviar comando de clonagem para o servidor.");
+    } finally {
+      setCloneLoading(false);
+    }
+  };
+
   const loadSettingsData = async () => {
     setLoading(true);
     try {
@@ -125,6 +226,12 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
   useEffect(() => {
     loadSettingsData();
   }, []);
+
+  useEffect(() => {
+    if (activeSection === "armazenamento") {
+      fetchDbConfig();
+    }
+  }, [activeSection]);
 
   const handleSaveGeneral = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -351,7 +458,8 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
             { id: "categorias", label: "Categorias de Equip.", icon: Laptop },
             { id: "pagamentos", label: "Formas de Pagamento", icon: DollarSign },
             { id: "garantias", label: "Termos de Garantia", icon: ShieldCheck },
-            { id: "acessorios", label: "Acessórios Checklist", icon: Tag }
+            { id: "acessorios", label: "Acessórios Checklist", icon: Tag },
+            { id: "armazenamento", label: "Armazenamento", icon: Database }
           ].map((sec) => {
             const IconComp = sec.icon;
             return (
@@ -848,6 +956,336 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
                   </table>
                 </div>
               </div>
+            </div>
+          )}
+
+          {activeSection === "armazenamento" && (
+            <div className="space-y-6">
+              <div className="border-b border-gray-100 pb-2">
+                <h3 className="font-bold text-gray-900 text-sm flex items-center">
+                  <Database className="h-5 w-5 mr-1.5 text-gray-700" />
+                  Gerenciamento de Armazenamento e Clonagem
+                </h3>
+                <p className="text-gray-400 text-[10px]">
+                  Gerencie a sincronização e clonagem completa dos dados entre o servidor online (MySQL) e o armazenamento local (SQLite).
+                </p>
+              </div>
+
+              {/* Status Banner */}
+              <div className="bg-gray-50 border border-gray-200 rounded-md p-4 flex items-start space-x-3 text-xs">
+                <Server className="h-5 w-5 text-indigo-600 mt-0.5 shrink-0" />
+                <div className="space-y-1">
+                  <p className="font-bold text-gray-900 text-xs">Banco de Dados Ativo Atualmente</p>
+                  <p className="text-gray-500 text-[11px]">
+                    O PK SIG está executando no modo:{" "}
+                    <span className="font-bold text-indigo-600 uppercase bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded text-[10px]">
+                      {dbConfig?.mode === "local" ? "Local (SQLite)" : "Remoto (MySQL)"}
+                    </span>
+                  </p>
+                  {dbConfig?.mode === "local" ? (
+                    <p className="text-gray-400 text-[10px]">
+                      Arquivo local: <span className="font-mono bg-gray-100 px-1 rounded">storage/pksig.db</span>
+                    </p>
+                  ) : (
+                    <p className="text-gray-400 text-[10px]">
+                      Conectado ao servidor MySQL: <span className="font-mono bg-gray-100 px-1 rounded">{dbConfig?.host}</span> | Banco: <span className="font-mono bg-gray-100 px-1 rounded">{dbConfig?.database}</span>
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Success / Error Alerts */}
+              {cloneSuccess && (
+                <div className="p-3.5 bg-green-50 border border-green-200 text-green-800 text-xs rounded-md flex items-start space-x-2.5">
+                  <Check className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="font-bold">Sucesso!</p>
+                    <p className="text-[11px] mt-0.5">{cloneSuccess}</p>
+                  </div>
+                </div>
+              )}
+
+              {cloneError && (
+                <div className="p-3.5 bg-red-50 border border-red-200 text-red-800 text-xs rounded-md flex items-start space-x-2.5">
+                  <AlertCircle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="font-bold">Falha na Clonagem</p>
+                    <p className="text-[11px] mt-0.5">{cloneError}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* CLONE PANEL */}
+              {cloneLoading ? (
+                <div className="bg-indigo-50/50 border border-indigo-100 rounded-md p-10 flex flex-col items-center justify-center space-y-4 text-center">
+                  <Loader className="animate-spin h-8 w-8 text-indigo-600" />
+                  <div className="space-y-1">
+                    <p className="font-bold text-indigo-900 text-xs">Clonando base de dados...</p>
+                    <p className="text-indigo-700 text-[10px] max-w-md">
+                      Isso pode levar alguns segundos dependendo do volume de dados. Por favor, mantenha esta janela aberta e não interrompa a operação.
+                    </p>
+                  </div>
+                </div>
+              ) : showConfirmModal ? (
+                <div className="bg-amber-50 border border-amber-200 rounded-md p-5 space-y-4 text-xs">
+                  <div className="flex items-start space-x-3">
+                    <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
+                    <div className="space-y-1">
+                      <p className="font-bold text-amber-950 text-xs">
+                        ⚠️ Atenção: Ação Altamente Destrutiva
+                      </p>
+                      <p className="text-amber-800 text-[11px]">
+                        Você selecionou clonar a base de dados na direção:{" "}
+                        <span className="font-bold underline uppercase text-amber-950">
+                          {showConfirmModal === "remote-to-local"
+                            ? "Nuvem (MySQL) para Local (SQLite)"
+                            : "Local (SQLite) para Nuvem (MySQL)"}
+                        </span>.
+                      </p>
+                      <p className="text-amber-800 text-[11px] mt-2">
+                        {showConfirmModal === "remote-to-local"
+                          ? "Isso irá SUBSTITUIR COMPLETAMENTE todas as informações atuais do seu banco de dados local pelos dados vindos do MySQL online. Os dados locais existentes serão permanentemente apagados."
+                          : "Isso irá SUBSTITUIR COMPLETAMENTE todas as informações atuais da sua base de dados MySQL na nuvem pelos registros locais do SQLite. Os dados remotos existentes serão permanentemente apagados."}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex justify-end space-x-2.5 pt-1 text-[11px]">
+                    <button
+                      onClick={() => setShowConfirmModal(null)}
+                      className="px-3.5 py-1.5 bg-white border border-amber-200 text-amber-900 rounded font-semibold hover:bg-amber-100 transition cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={() => handleClone(showConfirmModal)}
+                      className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded font-bold transition cursor-pointer flex items-center space-x-1"
+                    >
+                      <span>Sim, Clonar e Substituir Tudo</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {dbConfig?.mode === "local" ? (
+                    <div className="space-y-5 text-xs">
+                      <div className="bg-amber-50/50 border border-amber-200/60 rounded-md p-4 text-[11px] text-amber-900 leading-relaxed">
+                        <p className="font-semibold flex items-center mb-1">
+                          <AlertCircle className="h-4 w-4 text-amber-600 mr-1 shrink-0" />
+                          Ambiente de Sincronização Local (SQLite)
+                        </p>
+                        <p>
+                          Como o sistema está rodando em modo SQLite Local, você precisa preencher abaixo as credenciais de acesso do seu servidor **MySQL Remoto** para onde ou de onde deseja clonar os dados.
+                        </p>
+                      </div>
+
+                      {/* Remote Form Inputs */}
+                      <div className="bg-white border border-gray-100 rounded-md p-4 space-y-4 text-xs">
+                        <h4 className="font-bold text-gray-900 text-xs border-b border-gray-100 pb-1.5">Conectar ao MySQL Remoto para Clonagem</h4>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <div className="md:col-span-2">
+                            <label className="block text-gray-600 mb-0.5 font-semibold text-[10px]">Host / Servidor MySQL</label>
+                            <input
+                              type="text"
+                              value={remoteForm.host}
+                              onChange={(e) => setRemoteForm({ ...remoteForm, host: e.target.value })}
+                              className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-xs bg-white focus:outline-none"
+                              placeholder="Ex: sql.provedor.com ou IP"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-gray-600 mb-0.5 font-semibold text-[10px]">Porta</label>
+                            <input
+                              type="number"
+                              value={remoteForm.port}
+                              onChange={(e) => setRemoteForm({ ...remoteForm, port: e.target.value })}
+                              className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-xs bg-white focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-gray-600 mb-0.5 font-semibold text-[10px]">Nome do Banco (Database)</label>
+                            <input
+                              type="text"
+                              value={remoteForm.database}
+                              onChange={(e) => setRemoteForm({ ...remoteForm, database: e.target.value })}
+                              className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-xs bg-white focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-gray-600 mb-0.5 font-semibold text-[10px]">Usuário</label>
+                            <input
+                              type="text"
+                              value={remoteForm.user}
+                              onChange={(e) => setRemoteForm({ ...remoteForm, user: e.target.value })}
+                              className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-xs bg-white focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-gray-600 mb-0.5 font-semibold text-[10px]">Senha do Servidor Remoto</label>
+                          <input
+                            type="password"
+                            value={remoteForm.password}
+                            onChange={(e) => setRemoteForm({ ...remoteForm, password: e.target.value })}
+                            className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-xs bg-white focus:outline-none"
+                            placeholder="Insira a senha do banco"
+                          />
+                        </div>
+
+                        <div className="space-y-2 pt-1 text-xs">
+                          <label className="flex items-center space-x-2 text-[10px] font-semibold text-gray-700 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={remoteForm.ssl}
+                              onChange={(e) => setRemoteForm({ ...remoteForm, ssl: e.target.checked })}
+                              className="rounded text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5"
+                            />
+                            <span>Usar Conexão Segura (SSL)</span>
+                          </label>
+
+                          {remoteForm.ssl && (
+                            <div>
+                              <label className="block text-gray-600 mb-0.5 font-semibold text-[10px]">Certificado CA (Opcional)</label>
+                              <textarea
+                                value={remoteForm.certificate}
+                                onChange={(e) => setRemoteForm({ ...remoteForm, certificate: e.target.value })}
+                                className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-[10px] font-mono bg-white focus:outline-none h-16"
+                                placeholder="Cole o conteúdo do certificado PEM se necessário"
+                              />
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Connection Test Response */}
+                        {testSuccess && (
+                          <p className="text-[11px] text-green-700 bg-green-50 px-2.5 py-1.5 rounded border border-green-200 flex items-center font-semibold">
+                            <Check className="h-3.5 w-3.5 mr-1 shrink-0" /> {testSuccess}
+                          </p>
+                        )}
+                        {testError && (
+                          <p className="text-[11px] text-red-700 bg-red-50 px-2.5 py-1.5 rounded border border-red-200 flex items-center font-semibold">
+                            <AlertCircle className="h-3.5 w-3.5 mr-1 shrink-0" /> {testError}
+                          </p>
+                        )}
+
+                        <div className="pt-2 border-t border-gray-100 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={handleTestRemoteConnection}
+                            disabled={testingConnection}
+                            className="px-4 py-2 bg-gray-800 hover:bg-gray-900 text-white rounded text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer"
+                          >
+                            {testingConnection && <Loader className="animate-spin h-3 w-3" />}
+                            <span>Testar Conexão Remota</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Direction Selection Cards */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Nuvem -> Local */}
+                        <div className="bg-white border border-gray-200 rounded-md p-4 space-y-3 flex flex-col justify-between hover:border-indigo-200 transition text-xs">
+                          <div className="space-y-1.5">
+                            <div className="flex items-center space-x-2 text-indigo-600 font-bold text-xs">
+                              <Download className="h-4 w-4" />
+                              <span>Clonar Online para Local</span>
+                            </div>
+                            <p className="text-gray-500 text-[11px] leading-relaxed">
+                              Baixa todas as tabelas e registros do servidor MySQL informado acima e **apaga/substitui** a base local SQLite por esses dados.
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => setShowConfirmModal("remote-to-local")}
+                            className="w-full mt-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-bold transition cursor-pointer flex items-center justify-center space-x-1"
+                          >
+                            <ArrowLeftRight className="h-3.5 w-3.5" />
+                            <span>Baixar Sincronismo Online</span>
+                          </button>
+                        </div>
+
+                        {/* Local -> Nuvem */}
+                        <div className="bg-white border border-gray-200 rounded-md p-4 space-y-3 flex flex-col justify-between hover:border-green-200 transition text-xs">
+                          <div className="space-y-1.5">
+                            <div className="flex items-center space-x-2 text-green-600 font-bold text-xs">
+                              <Upload className="h-4 w-4" />
+                              <span>Clonar Local para Online</span>
+                            </div>
+                            <p className="text-gray-500 text-[11px] leading-relaxed">
+                              Envia todos os registros salvos nesta instância local SQLite e **sobrescreve completamente** o banco de dados MySQL remoto acima.
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => setShowConfirmModal("local-to-remote")}
+                            className="w-full mt-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-bold transition cursor-pointer flex items-center justify-center space-x-1"
+                          >
+                            <ArrowLeftRight className="h-3.5 w-3.5" />
+                            <span>Enviar Sincronismo Local</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-5 text-xs">
+                      <div className="bg-indigo-50/50 border border-indigo-100 rounded-md p-4 text-[11px] text-indigo-900 leading-relaxed">
+                        <p className="font-semibold flex items-center mb-1">
+                          <Check className="h-4 w-4 text-indigo-600 mr-1 shrink-0" />
+                          Ambiente de Sincronização Remota Ativo (MySQL)
+                        </p>
+                        <p>
+                          Excelente! O sistema já está conectado à sua base de dados MySQL. Como a base de dados SQLite local está sempre disponível em arquivo seguro, você pode alternar ou clonar dados entre ambas as bases diretamente.
+                        </p>
+                      </div>
+
+                      {/* Cloning Cards */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Nuvem -> Local */}
+                        <div className="bg-white border border-gray-200 rounded-md p-5 space-y-3 flex flex-col justify-between hover:border-indigo-200 transition text-xs">
+                          <div className="space-y-1.5">
+                            <div className="flex items-center space-x-2 text-indigo-600 font-bold text-xs">
+                              <Download className="h-4 w-4" />
+                              <span>Clonar Nuvem para Local (SQLite)</span>
+                            </div>
+                            <p className="text-gray-500 text-[11px] leading-relaxed">
+                              Realiza uma cópia idêntica de todas as tabelas e registros do seu MySQL ativo na nuvem e substitui o arquivo local SQLite. Útil para criar cópias de backup locais de sua nuvem.
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => setShowConfirmModal("remote-to-local")}
+                            className="w-full mt-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-bold transition cursor-pointer flex items-center justify-center space-x-1.5"
+                          >
+                            <ArrowLeftRight className="h-3.5 w-3.5" />
+                            <span>Clonar para SQLite Local</span>
+                          </button>
+                        </div>
+
+                        {/* Local -> Nuvem */}
+                        <div className="bg-white border border-gray-200 rounded-md p-5 space-y-3 flex flex-col justify-between hover:border-green-200 transition text-xs">
+                          <div className="space-y-1.5">
+                            <div className="flex items-center space-x-2 text-green-600 font-bold text-xs">
+                              <Upload className="h-4 w-4" />
+                              <span>Clonar Local (SQLite) para Nuvem</span>
+                            </div>
+                            <p className="text-gray-500 text-[11px] leading-relaxed">
+                              Substitui por completo todas as informações do seu servidor MySQL na nuvem pelos dados contidos atualmente no arquivo SQLite local. Ideal para subir dados de uma instalação offline anterior.
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => setShowConfirmModal("local-to-remote")}
+                            className="w-full mt-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-bold transition cursor-pointer flex items-center justify-center space-x-1.5"
+                          >
+                            <ArrowLeftRight className="h-3.5 w-3.5" />
+                            <span>Clonar para MySQL Nuvem</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
 

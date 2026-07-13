@@ -437,3 +437,268 @@ export async function execute(sql: string, params?: any[]): Promise<any> {
   const [result] = await activePool.execute(sql, params);
   return result;
 }
+
+function sanitizeValue(val: any): any {
+  if (val === null || val === undefined) return null;
+  if (val instanceof Date) {
+    return val.toISOString().slice(0, 19).replace('T', ' ');
+  }
+  if (typeof val === "boolean") {
+    return val ? 1 : 0;
+  }
+  return val;
+}
+
+function readAllFromSqlite(table: string): Promise<any[]> {
+  const db = getSqliteDb();
+  return new Promise((resolve, reject) => {
+    db.all(`SELECT * FROM \`${table}\``, [], (err: any, rows: any[]) => {
+      if (err) {
+        if (err.message.includes("no such table")) {
+          resolve([]);
+        } else {
+          reject(err);
+        }
+      } else {
+        resolve(rows || []);
+      }
+    });
+  });
+}
+
+function writeToSqlite(table: string, rows: any[]): Promise<void> {
+  const db = getSqliteDb();
+  return new Promise((resolve, reject) => {
+    db.serialize(() => {
+      db.run("PRAGMA foreign_keys = OFF");
+      db.run(`DELETE FROM \`${table}\``, (err: any) => {
+        if (err) {
+          // ignore or log
+        }
+      });
+
+      if (rows.length === 0) {
+        db.run("PRAGMA foreign_keys = ON", (err2: any) => {
+          if (err2) reject(err2);
+          else resolve();
+        });
+        return;
+      }
+
+      const firstRow = rows[0];
+      const keys = Object.keys(firstRow);
+      const columns = keys.map(k => `\`${k}\``).join(", ");
+      const placeholders = keys.map(() => "?").join(", ");
+      const sql = `INSERT INTO \`${table}\` (${columns}) VALUES (${placeholders})`;
+
+      const stmt = db.prepare(sql, (err: any) => {
+        if (err) {
+          db.run("PRAGMA foreign_keys = ON");
+          reject(err);
+          return;
+        }
+      });
+
+      for (const row of rows) {
+        const values = keys.map(k => sanitizeValue(row[k]));
+        stmt.run(values, (err: any) => {
+          if (err) {
+            console.error(`Error inserting into SQLite table ${table}:`, err, "Row:", row);
+          }
+        });
+      }
+
+      stmt.finalize((err: any) => {
+        db.run("PRAGMA foreign_keys = ON");
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  });
+}
+
+async function writeToMysql(pool: mysql.Pool, table: string, rows: any[]) {
+  const connection = await pool.getConnection();
+  try {
+    await connection.query("SET FOREIGN_KEY_CHECKS = 0");
+    await connection.query(`DELETE FROM \`${table}\``);
+    
+    if (rows.length === 0) {
+      await connection.query("SET FOREIGN_KEY_CHECKS = 1");
+      return;
+    }
+
+    for (const row of rows) {
+      const keys = Object.keys(row);
+      const columns = keys.map(k => `\`${k}\``).join(", ");
+      const placeholders = keys.map(() => "?").join(", ");
+      const values = keys.map(k => {
+        const val = row[k];
+        if (typeof val === "boolean") return val ? 1 : 0;
+        if (val instanceof Date) return val.toISOString().slice(0, 19).replace('T', ' ');
+        return val;
+      });
+      await connection.query(`INSERT INTO \`${table}\` (${columns}) VALUES (${placeholders})`, values);
+    }
+    await connection.query("SET FOREIGN_KEY_CHECKS = 1");
+  } finally {
+    connection.release();
+  }
+}
+
+export async function cloneDatabase(
+  direction: "remote-to-local" | "local-to-remote",
+  customRemoteConfig?: DatabaseConfig
+): Promise<{ success: boolean; message: string }> {
+  const tables = [
+    "app_meta",
+    "admins",
+    "login_attempts",
+    "company_settings",
+    "system_settings",
+    "clients",
+    "equipment_categories",
+    "reception_accessories",
+    "equipment_category_accessories",
+    "equipments",
+    "service_order_statuses",
+    "service_orders",
+    "service_order_accessories",
+    "budget_items",
+    "payment_methods",
+    "payment_guides",
+    "payment_installments",
+    "payments",
+    "warranty_rules",
+    "warranties",
+    "attachments"
+  ];
+
+  let remotePool: mysql.Pool | null = null;
+  let customCreated = false;
+  
+  try {
+    if (customRemoteConfig) {
+      const decrytedPassword = customRemoteConfig.password && customRemoteConfig.password.includes(":") 
+        ? decrypt(customRemoteConfig.password) 
+        : customRemoteConfig.password;
+      remotePool = mysql.createPool({
+        host: customRemoteConfig.host,
+        port: customRemoteConfig.port,
+        user: customRemoteConfig.user,
+        password: decrytedPassword,
+        database: customRemoteConfig.database,
+        ssl: customRemoteConfig.ssl ? (customRemoteConfig.certificate ? { ca: customRemoteConfig.certificate } : { rejectUnauthorized: false }) : undefined,
+        connectionLimit: 5,
+        waitForConnections: true,
+        queueLimit: 0
+      });
+      customCreated = true;
+    } else {
+      const config = getDatabaseConfig();
+      if (!config || config.mode !== "remoto") {
+        return { success: false, message: "O banco de dados remoto (MySQL) não está configurado." };
+      }
+      remotePool = await getPool();
+    }
+
+    if (direction === "remote-to-local") {
+      const sqliteDb = getSqliteDb();
+      const sqlPath = path.join(process.cwd(), "database", "install.sql");
+      if (!fs.existsSync(sqlPath)) {
+        return { success: false, message: "Arquivo install.sql não encontrado." };
+      }
+      const rawSql = fs.readFileSync(sqlPath, "utf8");
+      const statements = rawSql
+        .split(/;(?=(?:[^'"`]*['"`][^'"`]*['"`])*[^'"`]*$)/g)
+        .map((stmt) => stmt.trim())
+        .filter((stmt) => stmt.length > 0);
+
+      await new Promise<void>((resolve, reject) => {
+        sqliteDb.serialize(() => {
+          sqliteDb.run("BEGIN TRANSACTION");
+          sqliteDb.run("PRAGMA foreign_keys = OFF");
+          for (const statement of statements) {
+            if (!statement || statement.startsWith("--") || statement.startsWith("/*")) {
+              continue;
+            }
+            const translated = translateSqlForSqlite(statement);
+            if (!translated.trim()) continue;
+            const subStatements = translated.split(";").map(s => s.trim()).filter(s => s.length > 0);
+            for (const subStmt of subStatements) {
+              sqliteDb.run(subStmt, (err: any) => {
+                if (err && !subStmt.toUpperCase().startsWith("DROP TABLE")) {
+                  console.warn("SQLite restore step warning:", err.message, "SQL:", subStmt);
+                }
+              });
+            }
+          }
+          sqliteDb.run("PRAGMA foreign_keys = ON");
+          sqliteDb.run("COMMIT", (err: any) => {
+            if (err) reject(err);
+            else resolve();
+          });
+        });
+      });
+
+      for (const table of tables) {
+        let rows: any[] = [];
+        try {
+          const [remoteRows] = await remotePool.query(`SELECT * FROM \`${table}\``);
+          rows = remoteRows as any[];
+        } catch (err: any) {
+          console.warn(`Could not read from remote table ${table}, it might not exist yet:`, err.message);
+          continue;
+        }
+        await writeToSqlite(table, rows);
+      }
+
+      return { success: true, message: "Base de dados online clonada para a base local com sucesso!" };
+
+    } else {
+      const sqlPath = path.join(process.cwd(), "database", "install.sql");
+      if (!fs.existsSync(sqlPath)) {
+        return { success: false, message: "Arquivo install.sql não encontrado." };
+      }
+      const rawSql = fs.readFileSync(sqlPath, "utf8");
+      const statements = rawSql
+        .split(/;(?=(?:[^'"`]*['"`][^'"`]*['"`])*[^'"`]*$)/g)
+        .map((stmt) => stmt.trim())
+        .filter((stmt) => stmt.length > 0);
+
+      const conn = await remotePool.getConnection();
+      try {
+        await conn.query("SET FOREIGN_KEY_CHECKS = 0");
+        for (const statement of statements) {
+          if (!statement || statement.startsWith("--") || statement.startsWith("/*")) {
+            continue;
+          }
+          try {
+            await conn.query(statement);
+          } catch (err: any) {
+            if (!statement.toUpperCase().startsWith("DROP TABLE")) {
+              console.warn("MySQL restore step warning:", err.message);
+            }
+          }
+        }
+        await conn.query("SET FOREIGN_KEY_CHECKS = 1");
+      } finally {
+        conn.release();
+      }
+
+      for (const table of tables) {
+        const rows = await readAllFromSqlite(table);
+        await writeToMysql(remotePool, table, rows);
+      }
+
+      return { success: true, message: "Base de dados local clonada para a base online com sucesso!" };
+    }
+  } catch (err: any) {
+    console.error("Cloning database failed:", err);
+    return { success: false, message: `Erro ao clonar banco de dados: ${err.message}` };
+  } finally {
+    if (customCreated && remotePool) {
+      await remotePool.end().catch(console.error);
+    }
+  }
+}
