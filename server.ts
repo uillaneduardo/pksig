@@ -306,6 +306,69 @@ app.get("/api/database/config", requireAuth, (req: any, res: any) => {
   return res.json(responseConfig);
 });
 
+// Update active database mode or configuration
+app.post("/api/database/config", requireAuth, async (req: any, res: any) => {
+  const { mode, host, port, database, user, password, ssl, certificate } = req.body;
+  if (!mode || (mode !== "local" && mode !== "remoto")) {
+    return res.status(400).json({ error: "Modo de banco de dados inválido. Escolha 'local' ou 'remoto'." });
+  }
+
+  try {
+    const currentConfig = getDatabaseConfig() || {
+      mode: "local",
+      host: "localhost",
+      port: 0,
+      database: "pksig.db",
+      user: "local",
+      ssl: false
+    };
+
+    if (mode === "local") {
+      saveDatabaseConfig({
+        ...currentConfig,
+        mode: "local"
+      });
+    } else {
+      const newConfig: any = {
+        ...currentConfig,
+        mode: "remoto"
+      };
+      if (host !== undefined) newConfig.host = host;
+      if (port !== undefined) newConfig.port = parseInt(port);
+      if (database !== undefined) newConfig.database = database;
+      if (user !== undefined) newConfig.user = user;
+      if (password) {
+        newConfig.password = password; // Plain text here, will be encrypted by saveDatabaseConfig
+      }
+      if (ssl !== undefined) newConfig.ssl = !!ssl;
+      if (certificate !== undefined) newConfig.certificate = certificate;
+      
+      saveDatabaseConfig(newConfig);
+    }
+
+    return res.json({ success: true, message: `Banco de dados configurado para o modo ${mode === "local" ? "Local (SQLite)" : "Remoto (MySQL)"} com sucesso!` });
+  } catch (err: any) {
+    console.error("Failed to save database config:", err);
+    return res.status(500).json({ error: err.message || "Erro ao salvar configurações do banco de dados" });
+  }
+});
+
+// Verify the integrity and compatibility of the active database
+app.get("/api/database/verify", requireAuth, async (req: any, res: any) => {
+  const config = getDatabaseConfig();
+  if (!config) {
+    return res.status(404).json({ error: "Banco de dados não configurado" });
+  }
+
+  try {
+    const result = await verifyDatabaseCompatibility(config);
+    return res.json(result);
+  } catch (err: any) {
+    console.error("Failed to verify active database:", err);
+    return res.status(500).json({ error: err.message || "Erro ao verificar o banco de dados ativo" });
+  }
+});
+
 // ==========================================
 // 2. AUTHENTICATION ENDPOINTS
 // ==========================================

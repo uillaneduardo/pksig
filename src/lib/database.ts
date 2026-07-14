@@ -486,7 +486,7 @@ function writeToSqlite(table: string, rows: any[]): Promise<void> {
       }
 
       const firstRow = rows[0];
-      const keys = Object.keys(firstRow);
+      const keys = Object.keys(firstRow).filter(k => k.toLowerCase() !== "total_value");
       const columns = keys.map(k => `\`${k}\``).join(", ");
       const placeholders = keys.map(() => "?").join(", ");
       const sql = `INSERT INTO \`${table}\` (${columns}) VALUES (${placeholders})`;
@@ -529,7 +529,7 @@ async function writeToMysql(pool: mysql.Pool, table: string, rows: any[]) {
     }
 
     for (const row of rows) {
-      const keys = Object.keys(row);
+      const keys = Object.keys(row).filter(k => k.toLowerCase() !== "total_value");
       const columns = keys.map(k => `\`${k}\``).join(", ");
       const placeholders = keys.map(() => "?").join(", ");
       const values = keys.map(k => {

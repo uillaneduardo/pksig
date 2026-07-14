@@ -115,6 +115,77 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
   const [testError, setTestError] = useState("");
   const [testingConnection, setTestingConnection] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState<"remote-to-local" | "local-to-remote" | null>(null);
+  const [switchingMode, setSwitchingMode] = useState(false);
+
+  const [dbIntegrity, setDbIntegrity] = useState<any>(null);
+  const [verifyingDb, setVerifyingDb] = useState(false);
+  const [integrityError, setIntegrityError] = useState("");
+
+  const handleVerifyDbIntegrity = async () => {
+    setVerifyingDb(true);
+    setIntegrityError("");
+    setDbIntegrity(null);
+    try {
+      const res = await fetch("/api/database/verify");
+      const data = await res.json();
+      if (res.ok && !data.error) {
+        setDbIntegrity(data);
+      } else {
+        setIntegrityError(data.error || "Erro ao verificar integridade do banco de dados.");
+      }
+    } catch (err) {
+      setIntegrityError("Erro de comunicação ao verificar integridade do banco de dados.");
+    } finally {
+      setVerifyingDb(false);
+    }
+  };
+
+  const handleToggleDbMode = async (targetMode: "local" | "remoto") => {
+    if (dbConfig?.mode === targetMode) return;
+
+    if (targetMode === "remoto" && !remoteForm.host) {
+      setCloneError("Para ativar o modo Remoto, preencha as credenciais do MySQL abaixo e teste a conexão primeiro.");
+      return;
+    }
+
+    setSwitchingMode(true);
+    setCloneSuccess("");
+    setCloneError("");
+    try {
+      const payload: any = { mode: targetMode };
+      if (targetMode === "remoto") {
+        payload.host = remoteForm.host;
+        payload.port = parseInt(remoteForm.port || "3306");
+        payload.database = remoteForm.database;
+        payload.user = remoteForm.user;
+        if (remoteForm.password) {
+          payload.password = remoteForm.password;
+        }
+        payload.ssl = remoteForm.ssl;
+        payload.certificate = remoteForm.certificate;
+      }
+
+      const res = await fetch("/api/database/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (res.ok && !data.error) {
+        setCloneSuccess(data.message || `Banco de dados alterado para ${targetMode === "local" ? "Local" : "Remoto"}!`);
+        await fetchDbConfig();
+        setTimeout(() => {
+          window.location.reload();
+        }, 1500);
+      } else {
+        setCloneError(data.error || data.message || "Falha ao alterar o banco de dados.");
+      }
+    } catch (err) {
+      setCloneError("Falha de rede ao alterar o modo do banco de dados.");
+    } finally {
+      setSwitchingMode(false);
+    }
+  };
 
   const fetchDbConfig = async () => {
     try {
@@ -247,6 +318,7 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
   useEffect(() => {
     if (activeSection === "armazenamento") {
       fetchDbConfig();
+      handleVerifyDbIntegrity();
     }
   }, [activeSection]);
 
@@ -1064,6 +1136,172 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
                     </p>
                   )}
                 </div>
+              </div>
+
+              {/* Diagnóstico de Integridade e Compatibilidade */}
+              <div className="bg-white border border-gray-200 rounded-md p-4 space-y-3 shadow-sm">
+                <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                  <h4 className="font-bold text-gray-800 text-xs flex items-center">
+                    <ShieldCheck className="h-4.5 w-4.5 mr-1.5 text-emerald-600" />
+                    Diagnóstico em Tempo Real de Integridade e Estrutura
+                  </h4>
+                  <button
+                    onClick={handleVerifyDbIntegrity}
+                    disabled={verifyingDb}
+                    className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold flex items-center space-x-1 cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className={`h-3 w-3 ${verifyingDb ? "animate-spin" : ""}`} />
+                    <span>Reavaliar Estrutura</span>
+                  </button>
+                </div>
+
+                {verifyingDb ? (
+                  <div className="flex items-center space-x-2 py-2 text-gray-500 text-[11px]">
+                    <Loader className="animate-spin h-3.5 w-3.5 text-indigo-600" />
+                    <span>Analisando tabelas, registros, administradores e integridade estrutural do banco...</span>
+                  </div>
+                ) : integrityError ? (
+                  <div className="bg-red-50 border border-red-200 text-red-800 rounded p-3 text-[11px] space-y-1">
+                    <p className="font-bold flex items-center">
+                      <AlertCircle className="h-4 w-4 mr-1 text-red-600 shrink-0" />
+                      Falha na Conexão / Estrutura
+                    </p>
+                    <p>{integrityError}</p>
+                    <p className="text-[10px] text-red-600 mt-1">Verifique suas credenciais de acesso ou realize uma clonagem de dados para restaurar as tabelas corretamente.</p>
+                  </div>
+                ) : dbIntegrity ? (
+                  <div className="space-y-3 text-[11px]">
+                    {/* Status Alert */}
+                    {dbIntegrity.hasCompatibleTables ? (
+                      <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded p-2.5 flex items-start space-x-2">
+                        <Check className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" />
+                        <div>
+                          <p className="font-bold text-xs">Banco de Dados Ativo com Estrutura Íntegra e Compatível!</p>
+                          <p className="text-[10px] text-emerald-700/90 mt-0.5">{dbIntegrity.message}</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded p-2.5 flex items-start space-x-2">
+                        <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                        <div>
+                          <p className="font-bold text-xs">Estrutura Parcial ou Incompatível Detectada</p>
+                          <p className="text-[10px] text-amber-700 mt-0.5">{dbIntegrity.message}</p>
+                          <p className="text-[9px] text-amber-600 mt-1">Dica: Use as opções de clonagem abaixo para restaurar e sincronizar todas as tabelas e dados.</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Stats Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px] pt-1">
+                      <div className="bg-gray-50 border border-gray-150 rounded p-2 flex flex-col justify-between">
+                        <span className="text-gray-400 font-semibold">Tabelas Criadas</span>
+                        <div className="mt-1 flex items-baseline space-x-1">
+                          <span className="text-sm font-bold text-gray-800">{dbIntegrity.existingTables?.length || 0}</span>
+                          <span className="text-gray-400 text-[9px]">/ 22 tabelas necessárias</span>
+                        </div>
+                      </div>
+
+                      <div className="bg-gray-50 border border-gray-150 rounded p-2 flex flex-col justify-between">
+                        <span className="text-gray-400 font-semibold">Usuários Administradores</span>
+                        <div className="mt-1 flex items-baseline space-x-1">
+                          <span className="text-sm font-bold text-gray-800">{dbIntegrity.existingAdmins?.length || 0}</span>
+                          <span className="text-gray-400 text-[9px]">usuário(s) na base</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {dbIntegrity.existingAdmins && dbIntegrity.existingAdmins.length > 0 && (
+                      <div className="text-[9px] text-gray-400 bg-gray-50 rounded p-2 font-mono">
+                        <span className="font-bold block text-[10px] text-gray-500 mb-1 font-sans">Administradores encontrados na base ativa:</span>
+                        {dbIntegrity.existingAdmins.join(", ")}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-gray-400 text-[11px] italic">Clique em "Reavaliar Estrutura" para gerar o relatório de integridade.</div>
+                )}
+              </div>
+
+              {/* SELEÇÃO DO MODO DE BANCO DE DADOS ATIVO */}
+              <div className="bg-white border border-gray-200 rounded-md p-4 space-y-4 shadow-sm">
+                <div className="border-b border-gray-50 pb-2">
+                  <h4 className="font-bold text-gray-800 text-xs flex items-center">
+                    <Server className="h-4 w-4 mr-2 text-indigo-600" />
+                    Selecione qual Base de Dados Deseja Ativar
+                  </h4>
+                  <p className="text-gray-400 text-[10px] mt-0.5">
+                    Selecione se o sistema deve ler e salvar dados localmente ou diretamente no servidor MySQL remoto na nuvem.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Card Local */}
+                  <div 
+                    onClick={() => !switchingMode && handleToggleDbMode("local")}
+                    className={`p-4 rounded-md border-2 text-xs cursor-pointer transition-all duration-200 flex flex-col justify-between hover:shadow-sm ${
+                      dbConfig?.mode === "local" 
+                        ? "border-indigo-600 bg-indigo-50/25 ring-2 ring-indigo-600/10" 
+                        : "border-gray-100 bg-white hover:border-gray-200"
+                    }`}
+                  >
+                    <div className="space-y-1.5">
+                      <div className="flex items-center space-x-2">
+                        <input 
+                          type="radio" 
+                          name="db_mode" 
+                          checked={dbConfig?.mode === "local"} 
+                          onChange={() => {}}
+                          disabled={switchingMode}
+                          className="h-3.5 w-3.5 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        />
+                        <span className="font-bold text-gray-900 text-xs">Local (SQLite)</span>
+                        {dbConfig?.mode === "local" && (
+                          <span className="text-[9px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.2 rounded">Ativo</span>
+                        )}
+                      </div>
+                      <p className="text-gray-400 text-[10px] leading-relaxed">
+                        Extremamente veloz e independente de internet. Ideal se você roda o sistema de forma local offline ou quer velocidade instantânea.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Card Remoto */}
+                  <div 
+                    onClick={() => !switchingMode && handleToggleDbMode("remoto")}
+                    className={`p-4 rounded-md border-2 text-xs cursor-pointer transition-all duration-200 flex flex-col justify-between hover:shadow-sm ${
+                      dbConfig?.mode === "remoto" 
+                        ? "border-indigo-600 bg-indigo-50/25 ring-2 ring-indigo-600/10" 
+                        : "border-gray-100 bg-white hover:border-gray-200"
+                    }`}
+                  >
+                    <div className="space-y-1.5">
+                      <div className="flex items-center space-x-2">
+                        <input 
+                          type="radio" 
+                          name="db_mode" 
+                          checked={dbConfig?.mode === "remoto"} 
+                          onChange={() => {}}
+                          disabled={switchingMode}
+                          className="h-3.5 w-3.5 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        />
+                        <span className="font-bold text-gray-900 text-xs">Online / Remoto (MySQL)</span>
+                        {dbConfig?.mode === "remoto" && (
+                          <span className="text-[9px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.2 rounded">Ativo</span>
+                        )}
+                      </div>
+                      <p className="text-gray-400 text-[10px] leading-relaxed">
+                        Conecta com o servidor MySQL remoto na nuvem. Perfeito para uso multiusuário, equipes externas ou acesso centralizado de qualquer lugar.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {switchingMode && (
+                  <div className="flex items-center space-x-2 text-indigo-600 text-[10px] font-bold">
+                    <Loader className="animate-spin h-3.5 w-3.5" />
+                    <span>Alterando modo do banco de dados e reiniciando conexões...</span>
+                  </div>
+                )}
               </div>
 
               {/* Success / Error Alerts */}
