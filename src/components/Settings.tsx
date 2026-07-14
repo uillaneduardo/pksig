@@ -121,6 +121,45 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
   const [verifyingDb, setVerifyingDb] = useState(false);
   const [integrityError, setIntegrityError] = useState("");
 
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState("");
+  const [resetError, setResetError] = useState("");
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [confirmResetWord, setConfirmResetWord] = useState("");
+
+  const handleResetDatabase = async () => {
+    if (confirmResetWord.trim().toUpperCase() !== "REDEFINIR") {
+      setResetError("Digite a palavra REDEFINIR para confirmar que deseja apagar os dados.");
+      return;
+    }
+
+    setResetLoading(true);
+    setResetSuccess("");
+    setResetError("");
+    try {
+      const res = await fetch("/api/database/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      const data = await res.json();
+      if (res.ok && !data.error) {
+        setResetSuccess(data.message || "Banco de dados redefinido com sucesso!");
+        setShowResetConfirm(false);
+        setConfirmResetWord("");
+        await handleVerifyDbIntegrity();
+        setTimeout(() => {
+          window.location.reload();
+        }, 2000);
+      } else {
+        setResetError(data.error || "Erro ao redefinir o banco de dados.");
+      }
+    } catch (err) {
+      setResetError("Erro de comunicação ao redefinir o banco de dados.");
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
   const handleVerifyDbIntegrity = async () => {
     setVerifyingDb(true);
     setIntegrityError("");
@@ -1596,6 +1635,96 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
                   )}
                 </>
               )}
+
+              {/* REDEFINIÇÃO E RESTAURAÇÃO DE FÁBRICA */}
+              <div className="bg-white border border-red-200 rounded-md p-4 space-y-4 shadow-sm">
+                <div className="border-b border-red-50 pb-2">
+                  <h4 className="font-bold text-red-700 text-xs flex items-center">
+                    <Trash2 className="h-4 w-4 mr-2 text-red-600" />
+                    Redefinição e Restauração de Fábrica (Reset Geral)
+                  </h4>
+                  <p className="text-gray-400 text-[10px] mt-0.5">
+                    Esta ação apaga todas as tabelas, clientes, ordens de serviço e históricos do banco de dados ativo atualmente (seja Local ou Remoto), recriando as tabelas limpas e inserindo as configurações padrão do sistema.
+                  </p>
+                </div>
+
+                {resetSuccess && (
+                  <div className="p-3 bg-green-50 border border-green-200 text-green-800 text-xs rounded-md flex items-start space-x-2">
+                    <Check className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-bold">Sucesso!</p>
+                      <p className="text-[10px] mt-0.5">{resetSuccess}</p>
+                    </div>
+                  </div>
+                )}
+
+                {resetError && (
+                  <div className="p-3 bg-red-50 border border-red-200 text-red-800 text-xs rounded-md flex items-start space-x-2">
+                    <AlertCircle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-bold">Falha no Reset</p>
+                      <p className="text-[10px] mt-0.5">{resetError}</p>
+                    </div>
+                  </div>
+                )}
+
+                {showResetConfirm ? (
+                  <div className="bg-red-50 border border-red-100 rounded p-3.5 space-y-3 text-[11px]">
+                    <p className="font-bold text-red-800 flex items-center">
+                      <AlertCircle className="h-4 w-4 mr-1 text-red-600 animate-pulse" />
+                      CONFIRMAÇÃO CRÍTICA EXIGIDA:
+                    </p>
+                    <p className="text-red-700">
+                      Você está prestes a <strong>APAGAR TODOS OS DADOS</strong> e redefinir o sistema. Seu usuário administrador atual e perfil de empresa serão preservados com as mesmas senhas por segurança, mas todo o restante será limpo.
+                    </p>
+                    <div>
+                      <label className="block text-red-800 font-bold mb-1 text-[10px]">
+                        Para confirmar, digite a palavra <span className="bg-red-100 px-1 py-0.2 rounded font-mono select-all text-red-950 uppercase border border-red-200">REDEFINIR</span> no campo abaixo:
+                      </label>
+                      <input
+                        type="text"
+                        value={confirmResetWord}
+                        onChange={(e) => setConfirmResetWord(e.target.value)}
+                        placeholder="Digite REDEFINIR aqui"
+                        className="w-full max-w-xs px-2.5 py-1.5 border border-red-300 rounded text-xs bg-white text-red-900 font-bold placeholder-red-300 focus:outline-none focus:ring-1 focus:ring-red-500 uppercase"
+                      />
+                    </div>
+                    <div className="flex space-x-2 pt-1">
+                      <button
+                        onClick={() => {
+                          setShowResetConfirm(false);
+                          setConfirmResetWord("");
+                          setResetError("");
+                        }}
+                        className="px-3.5 py-1.5 bg-white border border-gray-300 text-gray-700 rounded font-semibold hover:bg-gray-50 transition text-xs cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        onClick={handleResetDatabase}
+                        disabled={resetLoading || confirmResetWord.trim().toUpperCase() !== "REDEFINIR"}
+                        className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded font-bold transition text-xs cursor-pointer flex items-center space-x-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {resetLoading && <Loader className="animate-spin h-3.5 w-3.5" />}
+                        <span>Sim, Apagar e Redefinir Banco</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-gray-50 p-3 rounded border border-gray-150 gap-3">
+                    <div className="text-[10px] text-gray-500 max-w-md">
+                      <strong>Nota:</strong> Suas credenciais de login e dados de perfil corporativo são salvos temporariamente em memória durante o reset e restaurados automaticamente na nova tabela, evitando que você seja deslogado ou perca o acesso administrativo.
+                    </div>
+                    <button
+                      onClick={() => setShowResetConfirm(true)}
+                      className="px-3.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded text-xs font-bold transition cursor-pointer flex items-center space-x-1 shrink-0"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      <span>Redefinir Base de Dados</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

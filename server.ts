@@ -369,6 +369,94 @@ app.get("/api/database/verify", requireAuth, async (req: any, res: any) => {
   }
 });
 
+// Reset and regenerate default system database
+app.post("/api/database/reset", requireAuth, async (req: any, res: any) => {
+  const config = getDatabaseConfig();
+  if (!config) {
+    return res.status(404).json({ error: "Banco de dados não configurado" });
+  }
+
+  try {
+    // 1. Fetch current admin details to preserve credentials
+    let currentUser: any = null;
+    if (req.session && req.session.username) {
+      try {
+        const userRows = await query("SELECT name, username, password_hash FROM admins WHERE username = ?", [req.session.username]);
+        if (userRows && userRows.length > 0) {
+          currentUser = userRows[0];
+        }
+      } catch (err) {
+        console.warn("Could not retrieve current admin details to preserve:", err);
+      }
+    }
+
+    // 2. Fetch current company settings to preserve if possible
+    let currentCompany: any = null;
+    try {
+      const companyRows = await query("SELECT * FROM company_settings LIMIT 1");
+      if (companyRows && companyRows.length > 0) {
+        currentCompany = companyRows[0];
+      }
+    } catch (err) {
+      console.warn("Could not retrieve current company settings to preserve:", err);
+    }
+
+    // 3. Execute installation SQL to drop and recreate tables and insert default values
+    const installResult = await executeInstallSql();
+    if (!installResult.success) {
+      return res.status(500).json({ error: installResult.message || "Erro ao gerar as tabelas do sistema" });
+    }
+
+    // 4. Restore preserved admin user
+    if (currentUser) {
+      await execute(
+        "INSERT INTO admins (name, username, password_hash) VALUES (?, ?, ?)",
+        [currentUser.name, currentUser.username, currentUser.password_hash]
+      );
+    } else {
+      // Fallback default admin
+      const salt = bcrypt.genSaltSync(10);
+      const passwordHash = bcrypt.hashSync("admin", salt);
+      await execute(
+        "INSERT INTO admins (name, username, password_hash) VALUES (?, ?, ?)",
+        ["Administrador", "admin", passwordHash]
+      );
+    }
+
+    // 5. Restore preserved company settings
+    if (currentCompany) {
+      await execute(
+        `INSERT INTO company_settings (id, company_name, trade_name, tax_id, phone, whatsapp, email, address_text, notes)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          currentCompany.company_name,
+          currentCompany.trade_name,
+          currentCompany.tax_id,
+          currentCompany.phone,
+          currentCompany.whatsapp,
+          currentCompany.email,
+          currentCompany.address_text,
+          currentCompany.notes
+        ]
+      );
+    } else {
+      // Default placeholder if none existed
+      await execute(
+        `INSERT INTO company_settings (id, company_name) VALUES (1, ?)`,
+        ["PK SIG Informática"]
+      );
+    }
+
+    return res.json({
+      success: true,
+      message: "Todas as tabelas e dados padrão foram redefinidos com sucesso! Seu usuário e senha de acesso foram mantidos por segurança."
+    });
+  } catch (err: any) {
+    console.error("Failed to reset database:", err);
+    return res.status(500).json({ error: err.message || "Erro interno ao redefinir banco de dados" });
+  }
+});
+
 // ==========================================
 // 2. AUTHENTICATION ENDPOINTS
 // ==========================================
