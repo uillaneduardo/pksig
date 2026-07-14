@@ -437,6 +437,7 @@ CREATE TABLE financial_transactions (
     transaction_date DATE NOT NULL,
     category_id INT,
     os_id INT NULL,
+    payment_id INT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (category_id) REFERENCES financial_categories(id) ON DELETE SET NULL,

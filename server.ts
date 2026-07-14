@@ -1304,11 +1304,39 @@ app.post("/api/payment-guides/:id/pay", requireAuth, async (req: any, res: any) 
     const methodName = methods[0]?.name || "Outro";
 
     // 1. Log Payment
-    await execute(`
+    const paymentResult = await execute(`
       INSERT INTO payments (payment_guide_id, installment_id, amount, payment_date, method_id, method_name, notes) 
       VALUES (?, ?, ?, CURRENT_DATE(), ?, ?, ?)`,
       [id, installment_id || null, paymentAmount, method_id, methodName, notes || null]
     );
+
+    const paymentId = paymentResult.insertId;
+
+    // Get client / OS information to build description in Financial Transaction
+    const osInfo = await query(`
+      SELECT o.id as os_id, o.code as os_code, cl.name as client_name 
+      FROM payment_guides g
+      JOIN service_orders o ON g.service_order_id = o.id
+      LEFT JOIN clients cl ON o.client_id = cl.id
+      WHERE g.id = ?`, [id]);
+    
+    if (osInfo && osInfo[0]) {
+      const osId = osInfo[0].os_id;
+      const osCode = osInfo[0].os_code;
+      const clientName = osInfo[0].client_name || "";
+      const paymentDesc = `Pagamento da OS ${osCode} - ${clientName} (${methodName})`;
+
+      // Find 'Serviço de OS' category
+      const finCats = await query("SELECT id FROM financial_categories WHERE name = 'Serviço de OS' AND active = 1 LIMIT 1");
+      const categoryId = finCats[0]?.id || null;
+
+      // Log in financial_transactions
+      await execute(`
+        INSERT INTO financial_transactions (description, type, amount, transaction_date, category_id, os_id, payment_id)
+        VALUES (?, 'entrada', ?, CURRENT_DATE(), ?, ?, ?)`,
+        [paymentDesc, paymentAmount, categoryId, osId, paymentId]
+      );
+    }
 
     // 2. Recalculate
     await recalculateGuidePayments(parseInt(id));
@@ -1369,6 +1397,45 @@ app.put("/api/payments/:id", requireAuth, async (req: any, res: any) => {
       [paymentAmount, method_id, methodName, notes || null, payment_date || null, id]
     );
 
+    // Sync to financial_transactions
+    const updatedPayment = (await query("SELECT * FROM payments WHERE id = ?", [id]))[0];
+    if (updatedPayment) {
+      const osInfo = await query(`
+        SELECT o.id as os_id, o.code as os_code, cl.name as client_name 
+        FROM payment_guides g
+        JOIN service_orders o ON g.service_order_id = o.id
+        LEFT JOIN clients cl ON o.client_id = cl.id
+        WHERE g.id = ?`, [updatedPayment.payment_guide_id]);
+      
+      if (osInfo && osInfo[0]) {
+        const osId = osInfo[0].os_id;
+        const osCode = osInfo[0].os_code;
+        const clientName = osInfo[0].client_name || "";
+        const paymentDesc = `Pagamento da OS ${osCode} - ${clientName} (${methodName})`;
+
+        // Check if there is an existing transaction for this payment
+        const existingTx = await query("SELECT id FROM financial_transactions WHERE payment_id = ?", [id]);
+        if (existingTx && existingTx.length > 0) {
+          await execute(`
+            UPDATE financial_transactions 
+            SET description = ?, amount = ?, transaction_date = ?, os_id = ?
+            WHERE payment_id = ?`,
+            [paymentDesc, paymentAmount, updatedPayment.payment_date, osId, id]
+          );
+        } else {
+          // If none exists, create it
+          const finCats = await query("SELECT id FROM financial_categories WHERE name = 'Serviço de OS' AND active = 1 LIMIT 1");
+          const categoryId = finCats[0]?.id || null;
+
+          await execute(`
+            INSERT INTO financial_transactions (description, type, amount, transaction_date, category_id, os_id, payment_id)
+            VALUES (?, 'entrada', ?, ?, ?, ?, ?)`,
+            [paymentDesc, paymentAmount, updatedPayment.payment_date, categoryId, osId, id]
+          );
+        }
+      }
+    }
+
     // Recalculate
     await recalculateGuidePayments(payment.payment_guide_id);
 
@@ -1402,6 +1469,9 @@ app.delete("/api/payments/:id", requireAuth, async (req: any, res: any) => {
 
     // Delete payment record
     await execute("DELETE FROM payments WHERE id = ?", [id]);
+
+    // Delete corresponding financial transaction
+    await execute("DELETE FROM financial_transactions WHERE payment_id = ?", [id]);
 
     // Recalculate
     await recalculateGuidePayments(payment.payment_guide_id);
@@ -2706,6 +2776,7 @@ async function ensureFinancialTables() {
             transaction_date DATE NOT NULL,
             category_id INT,
             os_id INT NULL,
+            payment_id INT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             FOREIGN KEY (category_id) REFERENCES financial_categories(id) ON DELETE SET NULL,
@@ -2722,6 +2793,7 @@ async function ensureFinancialTables() {
             transaction_date TEXT NOT NULL,
             category_id INTEGER,
             os_id INTEGER NULL,
+            payment_id INTEGER NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (category_id) REFERENCES financial_categories(id) ON DELETE SET NULL,
@@ -2733,6 +2805,31 @@ async function ensureFinancialTables() {
     }
   } catch (err) {
     console.error("Error in ensureFinancialTables:", err);
+  }
+}
+
+// Ensure payment_id column exists on financial_transactions for backward compatibility
+async function ensureFinancialTransactionsPaymentIdColumn() {
+  try {
+    if (!isDatabaseConfigured()) return;
+    const dbConfig = getDatabaseConfig();
+    const isMysql = dbConfig?.mode === "remoto";
+    try {
+      if (isMysql) {
+        const columns = await query("SHOW COLUMNS FROM financial_transactions LIKE 'payment_id'");
+        if (!columns || columns.length === 0) {
+          await execute("ALTER TABLE financial_transactions ADD COLUMN payment_id INT NULL");
+          console.log("Added payment_id column to financial_transactions (MySQL)");
+        }
+      } else {
+        await execute("ALTER TABLE financial_transactions ADD COLUMN payment_id INTEGER NULL");
+        console.log("Added payment_id column to financial_transactions (SQLite)");
+      }
+    } catch (e) {
+      // Column already exists, ignore
+    }
+  } catch (err) {
+    console.error("Error ensuring payment_id column in financial_transactions:", err);
   }
 }
 
@@ -2757,6 +2854,7 @@ async function startServer() {
   await ensureAttachmentsDescriptionColumn();
   await ensurePwaColumns();
   await ensureFinancialTables();
+  await ensureFinancialTransactionsPaymentIdColumn();
 
   // Vite integration
   if (process.env.NODE_ENV !== "production") {
