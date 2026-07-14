@@ -52,7 +52,7 @@ async function requireAuth(req: any, res: any, next: any) {
 
   const session = getSession(token);
   if (!session) {
-    res.clearCookie("session_token");
+    res.clearCookie("session_token", { sameSite: "none", secure: true, httpOnly: true });
     return res.status(401).json({ error: "Sessão inválida" });
   }
 
@@ -349,11 +349,11 @@ app.post("/api/auth/login", async (req: any, res: any) => {
     // Create session token
     const token = createSession(admin.id, admin.username, admin.name);
 
-    // Set secure cookie
+    // Set secure cookie for iframe compatibility in AI Studio preview
     res.cookie("session_token", token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      secure: true,
+      sameSite: "none",
       maxAge: 24 * 60 * 60 * 1000 // 24 hours
     });
 
@@ -377,7 +377,7 @@ app.post("/api/auth/logout", (req: any, res: any) => {
   if (token) {
     destroySession(token);
   }
-  res.clearCookie("session_token");
+  res.clearCookie("session_token", { sameSite: "none", secure: true, httpOnly: true });
   return res.json({ success: true, message: "Logout efetuado com sucesso" });
 });
 
@@ -390,7 +390,7 @@ app.get("/api/auth/me", async (req: any, res: any) => {
 
   const session = getSession(token);
   if (!session) {
-    res.clearCookie("session_token");
+    res.clearCookie("session_token", { sameSite: "none", secure: true, httpOnly: true });
     return res.json({ authenticated: false });
   }
 
