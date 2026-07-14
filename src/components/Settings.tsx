@@ -3,7 +3,8 @@ import { EquipmentCategory, PaymentMethod, WarrantyRule } from "../types";
 import { 
   Settings as SettingsIcon, Save, Plus, Check, Trash2, 
   RefreshCw, DollarSign, Laptop, ShieldCheck, Tag, Loader, AlertCircle,
-  Building, Edit, Database, Server, ArrowLeftRight, Download, Upload
+  Building, Edit, Database, Server, ArrowLeftRight, Download, Upload,
+  Smartphone
 } from "lucide-react";
 
 interface SettingsProps {
@@ -46,7 +47,7 @@ const formatPhone = (value: string) => {
 };
 
 export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated }: SettingsProps) {
-  const [activeSection, setActiveSection] = useState<"geral" | "categorias" | "pagamentos" | "garantias" | "acessorios" | "empresa" | "armazenamento">("geral");
+  const [activeSection, setActiveSection] = useState<"geral" | "categorias" | "pagamentos" | "garantias" | "acessorios" | "empresa" | "armazenamento" | "pwa">("geral");
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -57,7 +58,14 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
     id: 1,
     currency: "R$",
     default_delay_alert_days: 5,
-    default_tax_rate: 0
+    default_tax_rate: 0,
+    pwa_name: "",
+    pwa_short_name: "",
+    pwa_description: "",
+    pwa_theme_color: "#0e131f",
+    pwa_background_color: "#ffffff",
+    pwa_display: "standalone",
+    pwa_icon_url: ""
   });
 
   const [companyConfig, setCompanyConfig] = useState({
@@ -197,7 +205,16 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
       if (res.ok) {
         const data = await res.json();
         if (data.system) {
-          setSystemConfig(data.system);
+          setSystemConfig({
+            ...data.system,
+            pwa_name: data.system.pwa_name || "",
+            pwa_short_name: data.system.pwa_short_name || "",
+            pwa_description: data.system.pwa_description || "",
+            pwa_theme_color: data.system.pwa_theme_color || "#0e131f",
+            pwa_background_color: data.system.pwa_background_color || "#ffffff",
+            pwa_display: data.system.pwa_display || "standalone",
+            pwa_icon_url: data.system.pwa_icon_url || ""
+          });
           onUpdateCurrency(data.system.currency);
         }
         if (data.company) {
@@ -286,6 +303,60 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleSavePwa = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSaving(true);
+    setErrorMsg("");
+    setSuccessMsg("");
+
+    try {
+      const res = await fetch("/api/settings/pwa", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pwa_name: systemConfig.pwa_name,
+          pwa_short_name: systemConfig.pwa_short_name,
+          pwa_description: systemConfig.pwa_description,
+          pwa_theme_color: systemConfig.pwa_theme_color,
+          pwa_background_color: systemConfig.pwa_background_color,
+          pwa_display: systemConfig.pwa_display,
+          pwa_icon_url: systemConfig.pwa_icon_url
+        })
+      });
+      if (res.ok) {
+        setSuccessMsg("Configurações do aplicativo (PWA) salvas com sucesso!");
+        setTimeout(() => setSuccessMsg(""), 4000);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setErrorMsg(data.error || "Erro ao salvar as configurações do aplicativo.");
+      }
+    } catch (err) {
+      setErrorMsg("Falha de conexão com o servidor.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleIconChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 1.5 * 1024 * 1024) {
+      alert("O tamanho da imagem do ícone não deve ultrapassar 1.5MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setSystemConfig({ ...systemConfig, pwa_icon_url: reader.result as string });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleResetIcon = () => {
+    setSystemConfig({ ...systemConfig, pwa_icon_url: "" });
   };
 
   // Save (Add or Update) category
@@ -459,7 +530,8 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
             { id: "pagamentos", label: "Formas de Pagamento", icon: DollarSign },
             { id: "garantias", label: "Termos de Garantia", icon: ShieldCheck },
             { id: "acessorios", label: "Acessórios Checklist", icon: Tag },
-            { id: "armazenamento", label: "Armazenamento", icon: Database }
+            { id: "armazenamento", label: "Armazenamento", icon: Database },
+            { id: "pwa", label: "Configurar Aplicativo (PWA)", icon: Smartphone }
           ].map((sec) => {
             const IconComp = sec.icon;
             return (
@@ -1286,6 +1358,308 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
                   )}
                 </>
               )}
+            </div>
+          )}
+
+          {/* SECTION: CONFIGURAÇÃO DO APLICATIVO PWA */}
+          {activeSection === "pwa" && (
+            <div className="space-y-6">
+              <div className="border-b border-gray-100 pb-3 flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-gray-900 text-sm flex items-center">
+                    <Smartphone className="h-4 w-4 mr-2 text-indigo-600" />
+                    Aplicativo Android / PWA (Progressive Web App)
+                  </h3>
+                  <p className="text-gray-400 text-[10px] mt-0.5">
+                    Habilite a instalação direta do PK SIG no celular em tela cheia com sua própria marca, cores e ícone.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                
+                {/* Formulário de Configuração */}
+                <form onSubmit={handleSavePwa} className="lg:col-span-3 space-y-4">
+                  
+                  {/* Nome e Descrição do App */}
+                  <div className="space-y-3">
+                    <h4 className="font-bold text-gray-800 text-xs border-b border-gray-50 pb-1">Identidade do Aplicativo</h4>
+                    
+                    <div>
+                      <label className="block text-gray-600 mb-1 font-semibold flex items-center">
+                        Nome do Aplicativo
+                        <span className="ml-1 text-[10px] text-gray-400 font-normal">(Exibido na tela de carregamento)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={systemConfig.pwa_name}
+                        onChange={(e) => setSystemConfig({ ...systemConfig, pwa_name: e.target.value })}
+                        placeholder="Ex: PK SIG - Sistema de Gestão de OS"
+                        className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 font-bold"
+                      />
+                      <p className="text-[10px] text-gray-400 mt-1 leading-relaxed">
+                        Este é o título completo do seu aplicativo que aparece na barra de carregamento e nas propriedades do sistema.
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-gray-600 mb-1 font-semibold flex items-center">
+                        Nome Curto na Tela Inicial
+                        <span className="ml-1 text-[10px] text-gray-400 font-normal">(Crucial para Android)</span>
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={15}
+                        value={systemConfig.pwa_short_name}
+                        onChange={(e) => setSystemConfig({ ...systemConfig, pwa_short_name: e.target.value })}
+                        placeholder="Ex: PK SIG"
+                        className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 font-bold"
+                      />
+                      <p className="text-[10px] text-gray-400 mt-1 leading-relaxed">
+                        O nome que ficará impresso logo abaixo do ícone do aplicativo na tela inicial do celular Android. Use no máximo 12-15 caracteres para evitar cortes.
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-gray-600 mb-1 font-semibold">Descrição do Aplicativo</label>
+                      <textarea
+                        value={systemConfig.pwa_description}
+                        onChange={(e) => setSystemConfig({ ...systemConfig, pwa_description: e.target.value })}
+                        placeholder="Ex: Sistema completo para gerenciamento de ordens de serviço, clientes e estoque."
+                        rows={2}
+                        className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 font-bold"
+                      />
+                      <p className="text-[10px] text-gray-400 mt-1 leading-relaxed">
+                        Uma breve descrição do propósito do aplicativo, utilizada por lojas e pelo instalador do navegador.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Cores e Aparência */}
+                  <div className="space-y-3 pt-2">
+                    <h4 className="font-bold text-gray-800 text-xs border-b border-gray-50 pb-1">Cores e Aparência</h4>
+                    
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-gray-600 mb-1 font-semibold flex items-center">
+                          Cor de Tema (Status Bar)
+                        </label>
+                        <div className="flex space-x-2">
+                          <input
+                            type="color"
+                            value={systemConfig.pwa_theme_color}
+                            onChange={(e) => setSystemConfig({ ...systemConfig, pwa_theme_color: e.target.value })}
+                            className="w-8 h-8 rounded border border-gray-300 cursor-pointer shrink-0"
+                          />
+                          <input
+                            type="text"
+                            value={systemConfig.pwa_theme_color}
+                            onChange={(e) => setSystemConfig({ ...systemConfig, pwa_theme_color: e.target.value })}
+                            className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs font-mono font-bold"
+                          />
+                        </div>
+                        <p className="text-[9px] text-gray-400 mt-1 leading-normal">
+                          Colore a barra de notificações do celular quando o app estiver aberto.
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="block text-gray-600 mb-1 font-semibold flex items-center">
+                          Cor de Fundo (Splash)
+                        </label>
+                        <div className="flex space-x-2">
+                          <input
+                            type="color"
+                            value={systemConfig.pwa_background_color}
+                            onChange={(e) => setSystemConfig({ ...systemConfig, pwa_background_color: e.target.value })}
+                            className="w-8 h-8 rounded border border-gray-300 cursor-pointer shrink-0"
+                          />
+                          <input
+                            type="text"
+                            value={systemConfig.pwa_background_color}
+                            onChange={(e) => setSystemConfig({ ...systemConfig, pwa_background_color: e.target.value })}
+                            className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs font-mono font-bold"
+                          />
+                        </div>
+                        <p className="text-[9px] text-gray-400 mt-1 leading-normal">
+                          Cor da tela de abertura (Splash Screen) enquanto o aplicativo inicializa.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-gray-600 mb-1 font-semibold">Modo de Exibição (Tela Cheia)</label>
+                      <select
+                        value={systemConfig.pwa_display}
+                        onChange={(e) => setSystemConfig({ ...systemConfig, pwa_display: e.target.value })}
+                        className="w-full px-3 py-1.5 border border-gray-300 rounded-md bg-white text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 font-bold"
+                      >
+                        <option value="standalone">Standalone (Como aplicativo nativo - recomendado)</option>
+                        <option value="fullscreen">Fullscreen (Imersão total - oculta barra de status do celular)</option>
+                        <option value="minimal-ui">Minimal UI (Exibe barra simples de navegação superior)</option>
+                      </select>
+                      <p className="text-[10px] text-gray-400 mt-1 leading-relaxed">
+                        Controla as bordas do navegador. O modo **Standalone** remove toda e qualquer barra de navegador, simulando perfeitamente um aplicativo nativo baixado pela Google Play Store!
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Upload do Ícone Personalizado */}
+                  <div className="space-y-3 pt-2">
+                    <h4 className="font-bold text-gray-800 text-xs border-b border-gray-50 pb-1">Ícone de Lançamento</h4>
+                    
+                    <div className="flex items-start space-x-4">
+                      <div className="w-16 h-16 rounded-xl border border-gray-200 overflow-hidden bg-slate-900 flex items-center justify-center shrink-0 shadow-inner">
+                        {systemConfig.pwa_icon_url ? (
+                          <img src={systemConfig.pwa_icon_url} alt="Ícone PWA" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        ) : (
+                          <div className="text-[10px] text-indigo-400 font-mono font-bold">PADRÃO</div>
+                        )}
+                      </div>
+                      <div className="space-y-1.5 w-full">
+                        <label className="block text-gray-600 font-semibold">Alterar Ícone do Aplicativo</label>
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="file"
+                            accept="image/png, image/jpeg, image/svg+xml"
+                            onChange={handleIconChange}
+                            className="hidden"
+                            id="pwa-icon-file"
+                          />
+                          <label
+                            htmlFor="pwa-icon-file"
+                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded text-xs font-bold transition cursor-pointer flex items-center space-x-1 border border-slate-300"
+                          >
+                            <Upload className="h-3.5 w-3.5" />
+                            <span>Enviar Nova Imagem</span>
+                          </label>
+                          {systemConfig.pwa_icon_url && (
+                            <button
+                              type="button"
+                              onClick={handleResetIcon}
+                              className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded text-xs font-bold transition cursor-pointer border border-red-200"
+                            >
+                              Redefinir Padrão
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-gray-400 leading-normal">
+                          Envie um ícone quadrado (PNG ou SVG de preferência). Recomendado tamanho mínimo de 192x192px. A imagem é comprimida e sincronizada na nuvem automaticamente.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Ação de salvar */}
+                  <div className="pt-3 border-t border-gray-100 flex items-center justify-end">
+                    <button
+                      type="submit"
+                      disabled={isSaving}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded text-xs font-bold transition flex items-center space-x-1.5 shadow-sm cursor-pointer"
+                    >
+                      {isSaving ? (
+                        <>
+                          <Loader className="h-3.5 w-3.5 animate-spin" />
+                          <span>Salvando...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save className="h-3.5 w-3.5" />
+                          <span>Salvar Configurações do App</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+
+                {/* Painel Lateral Interativo (Android Mockup & Instruções) */}
+                <div className="lg:col-span-2 space-y-6">
+                  
+                  {/* Celular Mockup Interativo */}
+                  <div className="bg-slate-950 rounded-[32px] p-4 shadow-xl border-4 border-slate-800 max-w-[260px] mx-auto relative overflow-hidden flex flex-col items-center">
+                    {/* Speaker notch */}
+                    <div className="w-20 h-4 bg-slate-800 rounded-b-xl absolute top-0 z-20 flex items-center justify-center">
+                      <div className="w-10 h-1 bg-slate-900 rounded-full"></div>
+                    </div>
+
+                    {/* Phone Status Bar */}
+                    <div 
+                      className="w-full h-6 pt-1 px-4 flex items-center justify-between text-[8px] text-white/90 font-mono font-bold select-none z-10 transition-colors duration-300"
+                      style={{ backgroundColor: systemConfig.pwa_theme_color || "#0e131f" }}
+                    >
+                      <span>12:00</span>
+                      <div className="flex items-center space-x-1">
+                        <span>📶</span>
+                        <span>🔋 100%</span>
+                      </div>
+                    </div>
+
+                    {/* Phone Screen Area */}
+                    <div 
+                      className="w-full aspect-[9/16] rounded-[20px] p-4 flex flex-col items-center justify-between text-center select-none relative transition-colors duration-500 overflow-hidden"
+                      style={{ backgroundColor: systemConfig.pwa_background_color || "#ffffff" }}
+                    >
+                      <div className="w-full flex flex-col items-center justify-center flex-grow mt-8 space-y-3 z-10">
+                        {/* App Launcher Icon inside Screen */}
+                        <div className="w-14 h-14 rounded-xl shadow-lg border border-gray-100 overflow-hidden bg-[#0e131f] flex items-center justify-center">
+                          {systemConfig.pwa_icon_url ? (
+                            <img src={systemConfig.pwa_icon_url} alt="Phone Mock Icon" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          ) : (
+                            <svg className="w-10 h-10 text-indigo-500" viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="6">
+                              <circle cx="50" cy="50" r="40" stroke="currentColor" strokeWidth="4" />
+                              <path d="M35,50 L45,60 L65,40" stroke="currentColor" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          )}
+                        </div>
+
+                        {/* Title of application */}
+                        <div className="space-y-1">
+                          <h5 className="font-bold text-[11px] truncate max-w-[140px]" style={{ color: (systemConfig.pwa_background_color || "#ffffff").toLowerCase() === "#ffffff" ? "#0f172a" : "#ffffff" }}>
+                            {systemConfig.pwa_short_name || systemConfig.pwa_name || "PK SIG"}
+                          </h5>
+                          <p className="text-[7px] text-gray-400 font-mono">Carregando recursos...</p>
+                        </div>
+                      </div>
+
+                      {/* Micro Footer Indicator */}
+                      <div className="w-full z-10">
+                        <div className="h-1 bg-gray-300 rounded-full w-24 mx-auto mb-1"></div>
+                        <p className="text-[6px] text-gray-400">{systemConfig.pwa_short_name || "PK SIG"}</p>
+                      </div>
+                    </div>
+
+                    {/* Bottom home button bar */}
+                    <div className="w-24 h-1.5 bg-slate-800 rounded-full mt-3"></div>
+                  </div>
+
+                  {/* Informações sobre o PWA para o Usuário */}
+                  <div className="bg-amber-50/50 border border-amber-200 rounded-md p-4 space-y-2.5 text-xs text-amber-900 leading-relaxed">
+                    <p className="font-bold flex items-center mb-1 text-amber-800 text-xs">
+                      <AlertCircle className="h-4 w-4 mr-1 text-amber-600 shrink-0" />
+                      Como instalar no seu Android?
+                    </p>
+                    <ol className="list-decimal pl-4 space-y-1.5 text-[11px] text-amber-800">
+                      <li>
+                        Acesse este sistema no seu celular usando o navegador <strong>Google Chrome</strong>.
+                      </li>
+                      <li>
+                        Toque no botão de <strong>Menu (três pontinhos)</strong> no canto superior direito.
+                      </li>
+                      <li>
+                        Clique na opção <strong>"Adicionar à tela inicial"</strong> ou <strong>"Instalar aplicativo"</strong>.
+                      </li>
+                      <li>
+                        O aplicativo será baixado e aparecerá na sua tela de aplicativos como se fosse baixado da Play Store!
+                      </li>
+                    </ol>
+                    <div className="border-t border-amber-200/50 pt-2 text-[10px] text-amber-700/85">
+                      <strong>Nota de Consistência:</strong> Esta tecnologia PWA roda em tela cheia. Caso faça alterações no ícone ou cores acima, reinstale o aplicativo ou limpe o cache do Chrome no celular para ver os novos ícones aplicados.
+                    </div>
+                  </div>
+
+                </div>
+
+              </div>
             </div>
           )}
 

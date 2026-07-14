@@ -1988,6 +1988,249 @@ app.get("/api/settings/security/logs", requireAuth, async (req: any, res: any) =
 });
 
 // ==========================================
+// PWA & APP CUSTOMIZATION SERVICES
+// ==========================================
+
+// Serve default PWA icon
+app.get("/assets/icon.svg", (req: any, res: any) => {
+  res.header("Content-Type", "image/svg+xml");
+  res.send(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f172a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e293b;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#4f46e5;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="url(#grad)" />
+  <circle cx="256" cy="256" r="160" fill="none" stroke="url(#accent)" stroke-width="24" />
+  <circle cx="256" cy="256" r="110" fill="url(#accent)" opacity="0.15" />
+  <g transform="translate(192, 160)" stroke="url(#accent)" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M128,128 L128,152" />
+    <rect x="16" y="0" width="96" height="192" rx="16" stroke="#ffffff" stroke-width="20" />
+    <line x1="48" y1="160" x2="80" y2="160" stroke="#ffffff" stroke-width="12" />
+  </g>
+  <circle cx="256" cy="225" r="32" fill="#ffffff" />
+  <path d="M240,225 L252,237 L272,217" stroke="#4f46e5" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+</svg>
+  `.trim());
+});
+
+// Serve Service Worker dynamically
+app.get("/sw.js", (req: any, res: any) => {
+  res.header("Content-Type", "application/javascript");
+  res.header("Service-Worker-Allowed", "/");
+  res.send(`
+    const CACHE_NAME = 'pksig-cache-v1';
+    const ASSETS_TO_CACHE = [
+      '/',
+      '/index.html',
+      '/manifest.json',
+      '/assets/icon.svg'
+    ];
+
+    self.addEventListener('install', event => {
+      event.waitUntil(
+        caches.open(CACHE_NAME).then(cache => {
+          return cache.addAll(ASSETS_TO_CACHE);
+        }).then(() => self.skipWaiting())
+      );
+    });
+
+    self.addEventListener('activate', event => {
+      event.waitUntil(
+        caches.keys().then(keys => {
+          return Promise.all(
+            keys.map(key => {
+              if (key !== CACHE_NAME) {
+                return caches.delete(key);
+              }
+            })
+          );
+        }).then(() => self.clients.claim())
+      );
+    });
+
+    self.addEventListener('fetch', event => {
+      // Avoid intercepting API calls or dynamic posts
+      if (event.request.url.includes('/api/') || event.request.method !== 'GET') {
+        return;
+      }
+      event.respondWith(
+        fetch(event.request)
+          .catch(() => {
+            return caches.match(event.request);
+          })
+      );
+    });
+  `.trim());
+});
+
+// Serve Manifest dynamically
+app.get("/manifest.json", async (req: any, res: any) => {
+  try {
+    let systemName = "PK SIG";
+    let pwaName = "PK SIG - Gestão de OS";
+    let pwaShortName = "PK SIG";
+    let pwaDesc = "Sistema de Gestão de Ordens de Serviço";
+    let themeColor = "#0e131f";
+    let bgColor = "#ffffff";
+    let display = "standalone";
+    let iconUrl = "/assets/icon.svg";
+
+    if (isDatabaseConfigured()) {
+      const system = await query("SELECT * FROM system_settings LIMIT 1");
+      if (system && system.length > 0) {
+        const sys = system[0];
+        systemName = sys.system_name || systemName;
+        pwaName = sys.pwa_name || sys.system_name || pwaName;
+        pwaShortName = sys.pwa_short_name || sys.system_name || pwaShortName;
+        pwaDesc = sys.pwa_description || pwaDesc;
+        themeColor = sys.pwa_theme_color || themeColor;
+        bgColor = sys.pwa_background_color || bgColor;
+        display = sys.pwa_display || display;
+        if (sys.pwa_icon_url) {
+          iconUrl = sys.pwa_icon_url;
+        }
+      }
+    }
+
+    const manifest = {
+      name: pwaName,
+      short_name: pwaShortName,
+      description: pwaDesc,
+      start_url: "/",
+      display: display,
+      background_color: bgColor,
+      theme_color: themeColor,
+      orientation: "any",
+      icons: [
+        {
+          src: iconUrl,
+          sizes: "192x192",
+          type: iconUrl.startsWith("data:image/") ? iconUrl.split(";")[0].split(":")[1] : "image/svg+xml",
+          purpose: "any maskable"
+        },
+        {
+          src: iconUrl,
+          sizes: "512x512",
+          type: iconUrl.startsWith("data:image/") ? iconUrl.split(";")[0].split(":")[1] : "image/svg+xml",
+          purpose: "any maskable"
+        }
+      ]
+    };
+
+    res.header("Content-Type", "application/json");
+    return res.send(JSON.stringify(manifest, null, 2));
+  } catch (err) {
+    const manifest = {
+      name: "PK SIG - Gestão de OS",
+      short_name: "PK SIG",
+      description: "Sistema de Gestão de Ordens de Serviço",
+      start_url: "/",
+      display: "standalone",
+      background_color: "#ffffff",
+      theme_color: "#0e131f",
+      icons: [
+        {
+          src: "/assets/icon.svg",
+          sizes: "192x192",
+          type: "image/svg+xml",
+          purpose: "any maskable"
+        }
+      ]
+    };
+    res.header("Content-Type", "application/json");
+    return res.send(JSON.stringify(manifest, null, 2));
+  }
+});
+
+// Update PWA Settings
+app.post("/api/settings/pwa", requireAuth, async (req: any, res: any) => {
+  const { pwa_name, pwa_short_name, pwa_description, pwa_theme_color, pwa_background_color, pwa_display, pwa_icon_url } = req.body;
+
+  try {
+    const existing = await query("SELECT id FROM system_settings WHERE id = 1");
+    if (!existing || existing.length === 0) {
+      await execute("INSERT INTO system_settings (id) VALUES (1)");
+    }
+
+    await execute(`
+      UPDATE system_settings SET 
+        pwa_name = ?, 
+        pwa_short_name = ?, 
+        pwa_description = ?, 
+        pwa_theme_color = ?, 
+        pwa_background_color = ?, 
+        pwa_display = ?, 
+        pwa_icon_url = ? 
+      WHERE id = 1`,
+      [
+        pwa_name || null,
+        pwa_short_name || null,
+        pwa_description || null,
+        pwa_theme_color || "#0e131f",
+        pwa_background_color || "#ffffff",
+        pwa_display || "standalone",
+        pwa_icon_url || null
+      ]
+    );
+
+    return res.json({ success: true, message: "Configurações do PWA salvas com sucesso!" });
+  } catch (err: any) {
+    console.error("POST /api/settings/pwa error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Helper migration function to add PWA columns to system_settings dynamically
+async function ensurePwaColumns() {
+  try {
+    if (!isDatabaseConfigured()) return;
+
+    // Check if columns exist
+    const pwaColumns = [
+      { name: "pwa_name", type: "VARCHAR(255) NULL" },
+      { name: "pwa_short_name", type: "VARCHAR(100) NULL" },
+      { name: "pwa_description", type: "TEXT NULL" },
+      { name: "pwa_theme_color", type: "VARCHAR(50) DEFAULT '#0e131f'" },
+      { name: "pwa_background_color", type: "VARCHAR(50) DEFAULT '#ffffff'" },
+      { name: "pwa_display", type: "VARCHAR(50) DEFAULT 'standalone'" },
+      { name: "pwa_icon_url", type: "LONGTEXT NULL" }
+    ];
+
+    const dbConfig = getDatabaseConfig();
+    const isMysql = dbConfig?.mode === "remoto";
+
+    for (const col of pwaColumns) {
+      try {
+        if (isMysql) {
+          // MySQL schema check and alter
+          const checkQuery = `SHOW COLUMNS FROM system_settings LIKE '${col.name}'`;
+          const cols = await query(checkQuery);
+          if (!cols || cols.length === 0) {
+            await execute(`ALTER TABLE system_settings ADD COLUMN ${col.name} ${col.type}`);
+            console.log(`Added column ${col.name} to system_settings (MySQL)`);
+          }
+        } else {
+          // SQLite simple try/catch alter
+          await execute(`ALTER TABLE system_settings ADD COLUMN ${col.name} ${col.type}`);
+          console.log(`Added column ${col.name} to system_settings (SQLite)`);
+        }
+      } catch (e) {
+        // Silently swallow if column already exists
+      }
+    }
+  } catch (err) {
+    console.error("Error ensuring PWA columns on system_settings:", err);
+  }
+}
+
+// ==========================================
 // VITE & FRONTEND BOOTSTRAP
 // ==========================================
 async function ensureAttachmentsDescriptionColumn() {
@@ -2006,6 +2249,7 @@ async function ensureAttachmentsDescriptionColumn() {
 async function startServer() {
   // Ensure table migration
   await ensureAttachmentsDescriptionColumn();
+  await ensurePwaColumns();
 
   // Vite integration
   if (process.env.NODE_ENV !== "production") {
