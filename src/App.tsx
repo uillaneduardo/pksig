@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { 
   Shield, LayoutDashboard, Users, FileText, Settings as SettingsIcon, 
-  LogOut, AlertCircle, RefreshCw, ChevronRight, Menu 
+  LogOut, AlertCircle, RefreshCw, ChevronRight, Menu, DollarSign
 } from "lucide-react";
 
 // Components
@@ -13,6 +13,7 @@ import ClientDetails from "./components/ClientDetails";
 import ServiceOrderList from "./components/ServiceOrderList";
 import ServiceOrderDetails from "./components/ServiceOrderDetails";
 import Settings from "./components/Settings";
+import Finance from "./components/Finance";
 
 export default function App() {
   // Config state
@@ -195,6 +196,14 @@ export default function App() {
             </button>
 
             <button
+              onClick={() => navigateTo("financeiro")}
+              className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-md font-semibold transition cursor-pointer ${activeTab === "financeiro" ? "bg-indigo-600 text-white font-bold" : "hover:bg-gray-800/50 hover:text-white"}`}
+            >
+              <DollarSign className="h-4.5 w-4.5 shrink-0" />
+              <span>Financeiro</span>
+            </button>
+
+            <button
               onClick={() => navigateTo("settings")}
               className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-md font-semibold transition cursor-pointer ${activeTab === "settings" ? "bg-indigo-600 text-white font-bold" : "hover:bg-gray-800/50 hover:text-white"}`}
             >
@@ -300,6 +309,12 @@ export default function App() {
               onUpdateCurrency={setCurrency} 
               currency={currency} 
               onCompanyUpdated={checkSystemStatus}
+            />
+          )}
+
+          {activeTab === "financeiro" && (
+            <Finance 
+              currency={currency}
             />
           )}
 

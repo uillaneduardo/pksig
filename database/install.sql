@@ -405,4 +405,42 @@ CREATE TABLE attachments (
     FOREIGN KEY (service_order_id) REFERENCES service_orders(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 22. Financial Categories
+DROP TABLE IF EXISTS financial_categories;
+CREATE TABLE financial_categories (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    type ENUM('entrada', 'saida') NOT NULL,
+    active TINYINT(1) DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Seed default financial categories
+INSERT INTO financial_categories (name, type, active) VALUES
+('Serviço de OS', 'entrada', 1),
+('Venda de Produto', 'entrada', 1),
+('Outras Receitas', 'entrada', 1),
+('Compra de Peças', 'saida', 1),
+('Aluguel / Condomínio', 'saida', 1),
+('Salários e Pró-labore', 'saida', 1),
+('Energia / Água / Internet', 'saida', 1),
+('Impostos e Taxas', 'saida', 1),
+('Outras Despesas', 'saida', 1);
+
+-- 23. Financial Transactions
+DROP TABLE IF EXISTS financial_transactions;
+CREATE TABLE financial_transactions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    description VARCHAR(255) NOT NULL,
+    type ENUM('entrada', 'saida') NOT NULL,
+    amount DECIMAL(12,2) NOT NULL,
+    transaction_date DATE NOT NULL,
+    category_id INT,
+    os_id INT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (category_id) REFERENCES financial_categories(id) ON DELETE SET NULL,
+    FOREIGN KEY (os_id) REFERENCES service_orders(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;

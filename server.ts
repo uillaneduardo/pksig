@@ -1438,6 +1438,249 @@ app.get("/api/payment-guides/:id", requireAuth, async (req: any, res: any) => {
 });
 
 // ==========================================
+// 6.5. FINANCE ENDPOINTS
+// ==========================================
+
+// Get financial categories
+app.get("/api/finance/categories", requireAuth, async (req: any, res: any) => {
+  try {
+    const rows = await query("SELECT * FROM financial_categories ORDER BY type ASC, name ASC");
+    return res.json(rows);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Create financial category
+app.post("/api/finance/categories", requireAuth, async (req: any, res: any) => {
+  const { name, type } = req.body;
+  if (!name || !type) {
+    return res.status(400).json({ error: "Nome e tipo (entrada/saida) são obrigatórios" });
+  }
+  if (type !== "entrada" && type !== "saida") {
+    return res.status(400).json({ error: "Tipo deve ser 'entrada' ou 'saida'" });
+  }
+  try {
+    await execute(
+      "INSERT INTO financial_categories (name, type, active) VALUES (?, ?, 1)",
+      [name, type]
+    );
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Update financial category
+app.put("/api/finance/categories/:id", requireAuth, async (req: any, res: any) => {
+  const { id } = req.params;
+  const { name, type, active } = req.body;
+  if (!name || !type) {
+    return res.status(400).json({ error: "Nome e tipo são obrigatórios" });
+  }
+  try {
+    await execute(
+      "UPDATE financial_categories SET name = ?, type = ?, active = ? WHERE id = ?",
+      [name, type, active !== false ? 1 : 0, id]
+    );
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Get financial transactions with filters
+app.get("/api/finance/transactions", requireAuth, async (req: any, res: any) => {
+  const { startDate, endDate, categoryId, type, searchQuery, osId } = req.query;
+  try {
+    let sql = `
+      SELECT 
+        t.*, 
+        c.name AS category_name, 
+        o.code AS os_code, 
+        cl.name AS client_name, 
+        e.brand AS equipment_brand, 
+        e.model AS equipment_model
+      FROM financial_transactions t
+      LEFT JOIN financial_categories c ON t.category_id = c.id
+      LEFT JOIN service_orders o ON t.os_id = o.id
+      LEFT JOIN clients cl ON o.client_id = cl.id
+      LEFT JOIN equipments e ON o.equipment_id = e.id
+      WHERE 1=1
+    `;
+    const params: any[] = [];
+
+    if (startDate) {
+      sql += " AND t.transaction_date >= ?";
+      params.push(startDate);
+    }
+    if (endDate) {
+      sql += " AND t.transaction_date <= ?";
+      params.push(endDate);
+    }
+    if (categoryId) {
+      sql += " AND t.category_id = ?";
+      params.push(categoryId);
+    }
+    if (type) {
+      sql += " AND t.type = ?";
+      params.push(type);
+    }
+    if (osId) {
+      sql += " AND t.os_id = ?";
+      params.push(osId);
+    }
+    if (searchQuery) {
+      sql += " AND (t.description LIKE ? OR o.code LIKE ? OR cl.name LIKE ?)";
+      const searchWild = `%${searchQuery}%`;
+      params.push(searchWild, searchWild, searchWild);
+    }
+
+    sql += " ORDER BY t.transaction_date DESC, t.id DESC";
+    const rows = await query(sql, params);
+    return res.json(rows);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Create financial transaction
+app.post("/api/finance/transactions", requireAuth, async (req: any, res: any) => {
+  const { description, type, amount, transaction_date, category_id, os_id } = req.body;
+  if (!description || !type || amount === undefined || !transaction_date) {
+    return res.status(400).json({ error: "Descrição, tipo, valor e data são obrigatórios" });
+  }
+  if (type !== "entrada" && type !== "saida") {
+    return res.status(400).json({ error: "Tipo deve ser 'entrada' ou 'saida'" });
+  }
+  try {
+    await execute(
+      `INSERT INTO financial_transactions 
+       (description, type, amount, transaction_date, category_id, os_id) 
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        description,
+        type,
+        parseFloat(amount),
+        transaction_date,
+        category_id ? parseInt(category_id) : null,
+        os_id ? parseInt(os_id) : null
+      ]
+    );
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Update financial transaction
+app.put("/api/finance/transactions/:id", requireAuth, async (req: any, res: any) => {
+  const { id } = req.params;
+  const { description, type, amount, transaction_date, category_id, os_id } = req.body;
+  if (!description || !type || amount === undefined || !transaction_date) {
+    return res.status(400).json({ error: "Descrição, tipo, valor e data são obrigatórios" });
+  }
+  try {
+    await execute(
+      `UPDATE financial_transactions 
+       SET description = ?, type = ?, amount = ?, transaction_date = ?, category_id = ?, os_id = ? 
+       WHERE id = ?`,
+      [
+        description,
+        type,
+        parseFloat(amount),
+        transaction_date,
+        category_id ? parseInt(category_id) : null,
+        os_id ? parseInt(os_id) : null,
+        id
+      ]
+    );
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete financial transaction
+app.delete("/api/finance/transactions/:id", requireAuth, async (req: any, res: any) => {
+  const { id } = req.params;
+  try {
+    await execute("DELETE FROM financial_transactions WHERE id = ?", [id]);
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Get financial statistics and groupings
+app.get("/api/finance/stats", requireAuth, async (req: any, res: any) => {
+  const { startDate, endDate } = req.query;
+  try {
+    let filterSql = "";
+    const params: any[] = [];
+    if (startDate) {
+      filterSql += " AND transaction_date >= ?";
+      params.push(startDate);
+    }
+    if (endDate) {
+      filterSql += " AND transaction_date <= ?";
+      params.push(endDate);
+    }
+
+    // 1. Inflows and Outflows
+    const totals = await query(
+      `SELECT 
+         SUM(CASE WHEN type = 'entrada' THEN amount ELSE 0 END) as inflows,
+         SUM(CASE WHEN type = 'saida' THEN amount ELSE 0 END) as outflows
+       FROM financial_transactions
+       WHERE 1=1 ${filterSql}`,
+      params
+    );
+
+    const inflows = parseFloat(totals[0]?.inflows || 0);
+    const outflows = parseFloat(totals[0]?.outflows || 0);
+    const balance = inflows - outflows;
+
+    // 2. Group by category
+    const byCategory = await query(
+      `SELECT 
+         c.name as category_name,
+         c.type as category_type,
+         SUM(t.amount) as total_amount
+       FROM financial_transactions t
+       JOIN financial_categories c ON t.category_id = c.id
+       WHERE 1=1 ${filterSql}
+       GROUP BY c.name, c.type
+       ORDER BY total_amount DESC`,
+      params
+    );
+
+    // 3. Daily grouping for cash flow chart
+    const dailyFlow = await query(
+      `SELECT 
+         transaction_date as date,
+         SUM(CASE WHEN type = 'entrada' THEN amount ELSE 0 END) as inflows,
+         SUM(CASE WHEN type = 'saida' THEN amount ELSE 0 END) as outflows
+       FROM financial_transactions
+       WHERE 1=1 ${filterSql}
+       GROUP BY transaction_date
+       ORDER BY transaction_date ASC`,
+      params
+    );
+
+    return res.json({
+      inflows,
+      outflows,
+      balance,
+      byCategory,
+      dailyFlow
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
 // 7. WARRANTY ENDPOINTS
 // ==========================================
 
@@ -2381,6 +2624,118 @@ async function ensurePwaColumns() {
   }
 }
 
+async function ensureFinancialTables() {
+  try {
+    if (!isDatabaseConfigured()) return;
+
+    const dbConfig = getDatabaseConfig();
+    const isMysql = dbConfig?.mode === "remoto";
+
+    // 1. Check or create financial_categories
+    let hasCategoriesTable = false;
+    try {
+      await query("SELECT 1 FROM financial_categories LIMIT 1");
+      hasCategoriesTable = true;
+    } catch (e) {
+      // Table doesn't exist
+    }
+
+    if (!hasCategoriesTable) {
+      console.log("Creating financial_categories table...");
+      if (isMysql) {
+        await execute(`
+          CREATE TABLE financial_categories (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(100) NOT NULL,
+            type ENUM('entrada', 'saida') NOT NULL,
+            active TINYINT(1) DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+      } else {
+        await execute(`
+          CREATE TABLE financial_categories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL,
+            active INTEGER DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          )
+        `);
+      }
+
+      // Seed default categories
+      const defaults = [
+        ["Serviço de OS", "entrada"],
+        ["Venda de Produto", "entrada"],
+        ["Outras Receitas", "entrada"],
+        ["Compra de Peças", "saida"],
+        ["Aluguel / Condomínio", "saida"],
+        ["Salários e Pró-labore", "saida"],
+        ["Energia / Água / Internet", "saida"],
+        ["Impostos e Taxas", "saida"],
+        ["Outras Despesas", "saida"]
+      ];
+      for (const [name, type] of defaults) {
+        await execute(
+          "INSERT INTO financial_categories (name, type, active) VALUES (?, ?, 1)",
+          [name, type]
+        );
+      }
+      console.log("financial_categories table created and seeded.");
+    }
+
+    // 2. Check or create financial_transactions
+    let hasTransactionsTable = false;
+    try {
+      await query("SELECT 1 FROM financial_transactions LIMIT 1");
+      hasTransactionsTable = true;
+    } catch (e) {
+      // Table doesn't exist
+    }
+
+    if (!hasTransactionsTable) {
+      console.log("Creating financial_transactions table...");
+      if (isMysql) {
+        await execute(`
+          CREATE TABLE financial_transactions (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            description VARCHAR(255) NOT NULL,
+            type ENUM('entrada', 'saida') NOT NULL,
+            amount DECIMAL(12,2) NOT NULL,
+            transaction_date DATE NOT NULL,
+            category_id INT,
+            os_id INT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            FOREIGN KEY (category_id) REFERENCES financial_categories(id) ON DELETE SET NULL,
+            FOREIGN KEY (os_id) REFERENCES service_orders(id) ON DELETE SET NULL
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+      } else {
+        await execute(`
+          CREATE TABLE financial_transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            description TEXT NOT NULL,
+            type TEXT NOT NULL,
+            amount DECIMAL(12,2) NOT NULL,
+            transaction_date TEXT NOT NULL,
+            category_id INTEGER,
+            os_id INTEGER NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (category_id) REFERENCES financial_categories(id) ON DELETE SET NULL,
+            FOREIGN KEY (os_id) REFERENCES service_orders(id) ON DELETE SET NULL
+          )
+        `);
+      }
+      console.log("financial_transactions table created.");
+    }
+  } catch (err) {
+    console.error("Error in ensureFinancialTables:", err);
+  }
+}
+
 // ==========================================
 // VITE & FRONTEND BOOTSTRAP
 // ==========================================
@@ -2401,6 +2756,7 @@ async function startServer() {
   // Ensure table migration
   await ensureAttachmentsDescriptionColumn();
   await ensurePwaColumns();
+  await ensureFinancialTables();
 
   // Vite integration
   if (process.env.NODE_ENV !== "production") {

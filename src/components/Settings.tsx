@@ -47,11 +47,82 @@ const formatPhone = (value: string) => {
 };
 
 export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated }: SettingsProps) {
-  const [activeSection, setActiveSection] = useState<"geral" | "categorias" | "pagamentos" | "garantias" | "acessorios" | "empresa" | "armazenamento" | "pwa">("geral");
+  const [activeSection, setActiveSection] = useState<"geral" | "categorias" | "pagamentos" | "garantias" | "acessorios" | "empresa" | "armazenamento" | "pwa" | "financeiro">("geral");
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+
+  // Financial States
+  const [finCategories, setFinCategories] = useState<any[]>([]);
+  const [newFinCatName, setNewFinCatName] = useState("");
+  const [newFinCatType, setNewFinCatType] = useState<"entrada" | "saida">("entrada");
+  const [editingFinCategory, setEditingFinCategory] = useState<any | null>(null);
+
+  const fetchFinCategories = async () => {
+    try {
+      const res = await fetch("/api/finance/categories");
+      if (res.ok) {
+        const data = await res.json();
+        setFinCategories(data);
+      }
+    } catch (err) {
+      console.error("Error fetching financial categories:", err);
+    }
+  };
+
+  const handleAddFinCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newFinCatName.trim()) return;
+
+    setErrorMsg("");
+    setSuccessMsg("");
+    try {
+      const res = await fetch("/api/finance/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newFinCatName, type: newFinCatType })
+      });
+      if (res.ok) {
+        setSuccessMsg("Categoria financeira adicionada com sucesso!");
+        setNewFinCatName("");
+        fetchFinCategories();
+        setTimeout(() => setSuccessMsg(""), 3000);
+      } else {
+        const d = await res.json();
+        setErrorMsg(d.error || "Erro ao adicionar categoria.");
+      }
+    } catch (err) {
+      setErrorMsg("Erro de comunicação.");
+    }
+  };
+
+  const handleUpdateFinCategory = async (cat: any, updatedFields: Partial<any>) => {
+    setErrorMsg("");
+    setSuccessMsg("");
+    try {
+      const res = await fetch(`/api/finance/categories/${cat.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: updatedFields.name !== undefined ? updatedFields.name : cat.name,
+          type: updatedFields.type !== undefined ? updatedFields.type : cat.type,
+          active: updatedFields.active !== undefined ? updatedFields.active : cat.active
+        })
+      });
+      if (res.ok) {
+        setSuccessMsg("Categoria financeira atualizada.");
+        setEditingFinCategory(null);
+        fetchFinCategories();
+        setTimeout(() => setSuccessMsg(""), 3000);
+      } else {
+        const d = await res.json();
+        setErrorMsg(d.error || "Erro ao atualizar categoria.");
+      }
+    } catch (err) {
+      setErrorMsg("Erro de comunicação.");
+    }
+  };
 
   // DB States
   const [systemConfig, setSystemConfig] = useState({
@@ -342,6 +413,7 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
         setPaymentMethods(data.paymentMethods || []);
         setWarrantyRules(data.warrantyRules || []);
         setAccessories(data.accessories || []);
+        fetchFinCategories();
       }
     } catch (err) {
       setErrorMsg("Falha ao sincronizar as configurações.");
@@ -358,6 +430,9 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
     if (activeSection === "armazenamento") {
       fetchDbConfig();
       handleVerifyDbIntegrity();
+    }
+    if (activeSection === "financeiro") {
+      fetchFinCategories();
     }
   }, [activeSection]);
 
@@ -639,6 +714,7 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
             { id: "empresa", label: "Informações da Empresa", icon: Building },
             { id: "categorias", label: "Categorias de Equip.", icon: Laptop },
             { id: "pagamentos", label: "Formas de Pagamento", icon: DollarSign },
+            { id: "financeiro", label: "Categorias Financeiras", icon: ArrowLeftRight },
             { id: "garantias", label: "Termos de Garantia", icon: ShieldCheck },
             { id: "acessorios", label: "Acessórios Checklist", icon: Tag },
             { id: "armazenamento", label: "Armazenamento", icon: Database },
@@ -2024,6 +2100,225 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
                     </div>
                   </div>
 
+                </div>
+
+              </div>
+            </div>
+          )}
+
+          {/* SECTION: CATEGORIAS FINANCEIRAS */}
+          {activeSection === "financeiro" && (
+            <div className="space-y-6">
+              <div className="border-b border-gray-100 pb-3">
+                <h3 className="font-bold text-gray-900 text-sm flex items-center">
+                  <ArrowLeftRight className="h-4 w-4 mr-2 text-indigo-600" />
+                  Categorias Financeiras
+                </h3>
+                <p className="text-gray-400 text-[10px] mt-0.5">
+                  Configure as categorias e tags utilizadas para classificar as entradas e saídas de dinheiro na sua oficina.
+                </p>
+              </div>
+
+              {/* Informational Guidance */}
+              <div className="p-3 bg-indigo-50 border border-indigo-150 rounded-md text-[11px] text-indigo-900 leading-relaxed space-y-1">
+                <p className="font-bold flex items-center">
+                  <AlertCircle className="h-3.5 w-3.5 mr-1.5 text-indigo-700 shrink-0" />
+                  Como funcionam as Categorias Financeiras?
+                </p>
+                <p className="text-indigo-800">
+                  Estas categorias são utilizadas no menu <strong>Financeiro</strong> para organizar o fluxo de caixa. Elas permitem classificar cada movimentação (como custos de peças, salários, ou receitas de serviços) para que você tenha relatórios precisos de lucratividade e faturamento por categoria.
+                </p>
+              </div>
+
+              {/* Formulário de Adicionar Categoria */}
+              <form onSubmit={handleAddFinCategory} className="bg-gray-50 border border-gray-200 rounded-md p-4 space-y-4">
+                <h4 className="font-bold text-gray-800 text-xs">Nova Categoria</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-gray-600 mb-1 font-semibold">Nome da Categoria</label>
+                    <input
+                      type="text"
+                      value={newFinCatName}
+                      onChange={(e) => setNewFinCatName(e.target.value)}
+                      placeholder="Ex: Aluguel, Compra de Telas, etc."
+                      className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-xs bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-gray-600 mb-1 font-semibold">Tipo de Movimentação</label>
+                    <select
+                      value={newFinCatType}
+                      onChange={(e) => setNewFinCatType(e.target.value as any)}
+                      className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-xs bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-semibold"
+                    >
+                      <option value="entrada" className="text-green-600 font-semibold">Entrada (Receita)</option>
+                      <option value="saida" className="text-red-600 font-semibold">Saída (Despesa / Custo)</option>
+                    </select>
+                  </div>
+                  <div className="flex items-end">
+                    <button
+                      type="submit"
+                      disabled={!newFinCatName.trim()}
+                      className="w-full px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded font-bold transition text-xs flex items-center justify-center space-x-1.5 shadow-sm cursor-pointer"
+                    >
+                      <Plus className="h-4 w-4" />
+                      <span>Cadastrar Categoria</span>
+                    </button>
+                  </div>
+                </div>
+              </form>
+
+              {/* Listagem de Categorias */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                {/* Entradas */}
+                <div className="space-y-3">
+                  <h4 className="font-bold text-green-700 text-xs flex items-center border-b border-green-100 pb-1.5">
+                    <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+                    Categorias de Entrada (Receitas)
+                  </h4>
+                  <div className="border border-gray-150 rounded-md divide-y divide-gray-150 bg-white shadow-sm overflow-hidden text-xs">
+                    {finCategories.filter(c => c.type === "entrada").length === 0 ? (
+                      <p className="p-4 text-center text-gray-400 text-[11px]">Nenhuma categoria cadastrada.</p>
+                    ) : (
+                      finCategories.filter(c => c.type === "entrada").map(cat => (
+                        <div key={cat.id} className="p-3 flex items-center justify-between hover:bg-gray-50 transition">
+                          {editingFinCategory?.id === cat.id ? (
+                            <div className="flex items-center space-x-2 w-full">
+                              <input
+                                type="text"
+                                value={editingFinCategory.name}
+                                onChange={(e) => setEditingFinCategory({ ...editingFinCategory, name: e.target.value })}
+                                className="px-2 py-1 border border-gray-300 rounded text-xs bg-white text-gray-900 w-full"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateFinCategory(cat, { name: editingFinCategory.name })}
+                                className="px-2 py-1 bg-green-600 text-white rounded text-[10px] font-bold hover:bg-green-700"
+                              >
+                                Salvar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingFinCategory(null)}
+                                className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-[10px] font-bold hover:bg-gray-300"
+                              >
+                                Sair
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex items-center space-x-2">
+                                <span className={`font-semibold ${cat.active ? "text-gray-800" : "text-gray-400 line-through"}`}>
+                                  {cat.name}
+                                </span>
+                                {!cat.active && (
+                                  <span className="bg-gray-100 text-gray-400 text-[9px] px-1.5 py-0.2 rounded font-bold border border-gray-250">
+                                    Inativa
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingFinCategory({ id: cat.id, name: cat.name })}
+                                  className="text-gray-500 hover:text-indigo-600 transition"
+                                >
+                                  <Edit className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateFinCategory(cat, { active: !cat.active })}
+                                  className={`text-[10px] font-bold px-2 py-1 rounded border transition ${
+                                    cat.active 
+                                      ? "bg-red-50 hover:bg-red-100 text-red-600 border-red-200" 
+                                      : "bg-green-50 hover:bg-green-100 text-green-600 border-green-200"
+                                  }`}
+                                >
+                                  {cat.active ? "Desativar" : "Ativar"}
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Saídas */}
+                <div className="space-y-3">
+                  <h4 className="font-bold text-red-700 text-xs flex items-center border-b border-red-100 pb-1.5">
+                    <span className="w-2 h-2 bg-red-500 rounded-full mr-2"></span>
+                    Categorias de Saída (Despesas)
+                  </h4>
+                  <div className="border border-gray-150 rounded-md divide-y divide-gray-150 bg-white shadow-sm overflow-hidden text-xs">
+                    {finCategories.filter(c => c.type === "saida").length === 0 ? (
+                      <p className="p-4 text-center text-gray-400 text-[11px]">Nenhuma categoria cadastrada.</p>
+                    ) : (
+                      finCategories.filter(c => c.type === "saida").map(cat => (
+                        <div key={cat.id} className="p-3 flex items-center justify-between hover:bg-gray-50 transition">
+                          {editingFinCategory?.id === cat.id ? (
+                            <div className="flex items-center space-x-2 w-full">
+                              <input
+                                type="text"
+                                value={editingFinCategory.name}
+                                onChange={(e) => setEditingFinCategory({ ...editingFinCategory, name: e.target.value })}
+                                className="px-2 py-1 border border-gray-300 rounded text-xs bg-white text-gray-900 w-full"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateFinCategory(cat, { name: editingFinCategory.name })}
+                                className="px-2 py-1 bg-green-600 text-white rounded text-[10px] font-bold hover:bg-green-700"
+                              >
+                                Salvar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingFinCategory(null)}
+                                className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-[10px] font-bold hover:bg-gray-300"
+                              >
+                                Sair
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex items-center space-x-2">
+                                <span className={`font-semibold ${cat.active ? "text-gray-800" : "text-gray-400 line-through"}`}>
+                                  {cat.name}
+                                </span>
+                                {!cat.active && (
+                                  <span className="bg-gray-100 text-gray-400 text-[9px] px-1.5 py-0.2 rounded font-bold border border-gray-250">
+                                    Inativa
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingFinCategory({ id: cat.id, name: cat.name })}
+                                  className="text-gray-500 hover:text-indigo-600 transition"
+                                >
+                                  <Edit className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateFinCategory(cat, { active: !cat.active })}
+                                  className={`text-[10px] font-bold px-2 py-1 rounded border transition ${
+                                    cat.active 
+                                      ? "bg-red-50 hover:bg-red-100 text-red-600 border-red-200" 
+                                      : "bg-green-50 hover:bg-green-100 text-green-600 border-green-200"
+                                  }`}
+                                >
+                                  {cat.active ? "Desativar" : "Ativar"}
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
 
               </div>
