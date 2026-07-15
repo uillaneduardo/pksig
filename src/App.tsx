@@ -155,7 +155,7 @@ export default function App() {
     <div className="min-h-screen bg-[#f3f4f6] flex flex-col md:flex-row font-sans text-xs antialiased overflow-x-hidden">
       
       {/* 1. SIDEBAR NAVIGATION - DEEP SLATE/NAVY VISUAL BRAND */}
-      <aside className={`w-64 bg-[#0e131f] text-gray-300 flex flex-col justify-between shrink-0 transition-transform md:translate-x-0 z-40 fixed md:relative h-full ${showMobileSidebar ? "translate-x-0" : "-translate-x-full"}`}>
+      <aside className={`w-64 bg-[#0e131f] text-gray-300 flex flex-col justify-between shrink-0 transition-transform md:translate-x-0 z-40 fixed inset-y-0 left-0 md:inset-y-auto md:left-auto md:relative min-h-screen ${showMobileSidebar ? "translate-x-0" : "-translate-x-full"}`}>
         
         <div className="flex flex-col">
           {/* Logo brand */}
