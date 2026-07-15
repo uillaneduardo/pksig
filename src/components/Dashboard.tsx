@@ -16,11 +16,18 @@ interface DashboardProps {
 export default function Dashboard({ onNavigate, currency }: DashboardProps) {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any>(null);
+  const [period, setPeriod] = useState("6m");
+  const [groupBy, setGroupBy] = useState("month");
+  const [chartLoading, setChartLoading] = useState(false);
 
-  const fetchDashboardData = async () => {
-    setLoading(true);
+  const fetchDashboardData = async (currentPeriod = period, currentGroupBy = groupBy, isInitial = false) => {
+    if (isInitial) {
+      setLoading(true);
+    } else {
+      setChartLoading(true);
+    }
     try {
-      const res = await fetch("/api/dashboard");
+      const res = await fetch(`/api/dashboard?period=${currentPeriod}&groupBy=${currentGroupBy}`);
       if (res.ok) {
         const json = await res.json();
         setData(json);
@@ -28,13 +35,36 @@ export default function Dashboard({ onNavigate, currency }: DashboardProps) {
     } catch (err) {
       console.error("Failed to load dashboard data", err);
     } finally {
-      setLoading(false);
+      if (isInitial) {
+        setLoading(false);
+      } else {
+        setChartLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    fetchDashboardData();
+    fetchDashboardData(period, groupBy, true);
   }, []);
+
+  const handlePeriodChange = (newPeriod: string) => {
+    let newGroupBy = groupBy;
+    if (newPeriod === "15d" || newPeriod === "30d") {
+      newGroupBy = "day";
+    } else if (newPeriod === "90d") {
+      newGroupBy = "week";
+    } else if (newPeriod === "6m" || newPeriod === "1y") {
+      newGroupBy = "month";
+    }
+    setPeriod(newPeriod);
+    setGroupBy(newGroupBy);
+    fetchDashboardData(newPeriod, newGroupBy, false);
+  };
+
+  const handleGroupByChange = (newGroupBy: string) => {
+    setGroupBy(newGroupBy);
+    fetchDashboardData(period, newGroupBy, false);
+  };
 
   if (loading) {
     return (
@@ -127,13 +157,62 @@ export default function Dashboard({ onNavigate, currency }: DashboardProps) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 text-xs text-gray-700">
         
         {/* Chart 1: Revenue Evolution (2/3 width) */}
-        <div className="lg:col-span-2 bg-white border border-gray-200 rounded-md shadow-sm p-6 space-y-4">
-          <div>
-            <h3 className="font-bold text-gray-900 text-sm">Faturamento Recebido</h3>
-            <p className="text-gray-400 text-[10px]">Evolução mensal dos recebimentos e amortizações da oficina.</p>
+        <div className="lg:col-span-2 bg-white border border-gray-200 rounded-md shadow-sm p-6 space-y-4 relative">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <h3 className="font-bold text-gray-900 text-sm">Faturamento Recebido</h3>
+              <p className="text-gray-400 text-[10px]">Evolução dos recebimentos e amortizações da oficina no período.</p>
+            </div>
+            
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Period Selector */}
+              <div className="flex items-center space-x-1 bg-gray-100 p-1 rounded-md shrink-0">
+                {[
+                  { label: "15d", value: "15d" },
+                  { label: "30d", value: "30d" },
+                  { label: "3m", value: "90d" },
+                  { label: "6m", value: "6m" },
+                  { label: "1a", value: "1y" },
+                ].map((item) => (
+                  <button
+                    key={item.value}
+                    onClick={() => handlePeriodChange(item.value)}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
+                      period === item.value
+                        ? "bg-white text-gray-950 shadow-sm"
+                        : "text-gray-500 hover:text-gray-900"
+                    }`}
+                    title={`Visualizar últimos ${item.label}`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Group By Selector */}
+              <div className="flex items-center space-x-1 bg-gray-100 p-1 rounded-md shrink-0">
+                {[
+                  { label: "Dia", value: "day" },
+                  { label: "Sem.", value: "week" },
+                  { label: "Mês", value: "month" },
+                ].map((item) => (
+                  <button
+                    key={item.value}
+                    onClick={() => handleGroupByChange(item.value)}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
+                      groupBy === item.value
+                        ? "bg-white text-[#0e131f] shadow-sm"
+                        : "text-gray-500 hover:text-gray-900"
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
-          <div className="h-64 font-mono">
+          <div className={`h-64 font-mono transition-opacity duration-200 ${chartLoading ? "opacity-40" : "opacity-100"}`}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartEarnings}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
@@ -147,6 +226,11 @@ export default function Dashboard({ onNavigate, currency }: DashboardProps) {
               </BarChart>
             </ResponsiveContainer>
           </div>
+          {chartLoading && (
+            <div className="absolute inset-0 bg-white/20 flex items-center justify-center pointer-events-none">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#0e131f]" />
+            </div>
+          )}
         </div>
 
         {/* Chart 2: OS Categories (1/3 width) */}

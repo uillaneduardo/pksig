@@ -1957,6 +1957,7 @@ app.get("/api/dashboard", requireAuth, async (req: any, res: any) => {
     const monthlyEarnings = earningsResult[0]?.total || 0;
 
     // 5. Recent Service Orders
+    // 5. Recent Service Orders
     const recentOrders = await query(`
       SELECT o.*, c.name as client_name, c.code as client_code, eq.brand, eq.model
       FROM service_orders o
@@ -1966,21 +1967,162 @@ app.get("/api/dashboard", requireAuth, async (req: any, res: any) => {
       LIMIT 5
     `);
 
-    // 6. Revenue Trend (last 6 months)
-    const revenueTrendRaw = await query(`
-      SELECT MONTHNAME(payment_date) as month_name, MONTH(payment_date) as month_num, SUM(amount) as amount
-      FROM payments
-      WHERE payment_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH)
-      GROUP BY month_num, month_name
-      ORDER BY month_num ASC
-    `);
-    const revenueTrend = revenueTrendRaw.map((r: any) => ({
-      month: r.month_name || `Mês ${r.month_num}`,
-      revenue: parseFloat(r.amount || 0)
+    // 6. Dynamic Revenue Trend
+    const period = req.query.period as string || "6m";
+    const groupBy = req.query.groupBy as string || "month";
+
+    const today = new Date();
+    let startDate = new Date();
+    if (period === "15d") {
+      startDate.setDate(today.getDate() - 15);
+    } else if (period === "30d") {
+      startDate.setDate(today.getDate() - 30);
+    } else if (period === "90d") {
+      startDate.setDate(today.getDate() - 90);
+    } else if (period === "12w") {
+      startDate.setDate(today.getDate() - 12 * 7);
+    } else if (period === "6m") {
+      startDate.setMonth(today.getMonth() - 6);
+    } else if (period === "1y") {
+      startDate.setFullYear(today.getFullYear() - 1);
+    } else {
+      startDate.setMonth(today.getMonth() - 6);
+    }
+
+    const formatDate = (d: Date) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+    const startDateStr = formatDate(startDate);
+    const endDateStr = formatDate(today);
+
+    // Query all payments in that range
+    const paymentsRaw = await query(
+      "SELECT amount, payment_date FROM payments WHERE payment_date >= ? AND payment_date <= ? ORDER BY payment_date ASC",
+      [startDateStr, endDateStr]
+    );
+
+    const chartData: any[] = [];
+
+    if (groupBy === "day") {
+      const current = new Date(startDate);
+      while (current <= today) {
+        const dateStr = formatDate(current);
+        const parts = dateStr.split("-");
+        const label = `${parts[2]}/${parts[1]}`;
+        chartData.push({
+          key: dateStr,
+          label: label,
+          revenue: 0
+        });
+        current.setDate(current.getDate() + 1);
+      }
+
+      for (const p of paymentsRaw) {
+        const pDate = p.payment_date;
+        let pDateStr = "";
+        if (pDate instanceof Date) {
+          pDateStr = formatDate(pDate);
+        } else if (typeof pDate === "string") {
+          pDateStr = pDate.split(" ")[0];
+        }
+        const match = chartData.find(d => d.key === pDateStr);
+        if (match) {
+          match.revenue += parseFloat(p.amount || 0);
+        }
+      }
+    } else if (groupBy === "week") {
+      const start = new Date(startDate);
+      const day = start.getDay();
+      const diff = start.getDate() - day + (day === 0 ? -6 : 1);
+      const alignedStart = new Date(start.setDate(diff));
+
+      const current = new Date(alignedStart);
+      while (current <= today) {
+        const dateStr = formatDate(current);
+        const parts = dateStr.split("-");
+        const label = `Sem ${parts[2]}/${parts[1]}`;
+        chartData.push({
+          key: dateStr,
+          label: label,
+          revenue: 0
+        });
+        current.setDate(current.getDate() + 7);
+      }
+
+      for (const p of paymentsRaw) {
+        const pDate = p.payment_date;
+        let pDateStr = "";
+        if (pDate instanceof Date) {
+          pDateStr = formatDate(pDate);
+        } else if (typeof pDate === "string") {
+          pDateStr = pDate.split(" ")[0];
+        }
+
+        const pDateTime = new Date(pDateStr).getTime();
+        let bestWeek: any = null;
+        for (const bucket of chartData) {
+          const bucketTime = new Date(bucket.key).getTime();
+          if (bucketTime <= pDateTime) {
+            bestWeek = bucket;
+          } else {
+            break;
+          }
+        }
+        if (bestWeek) {
+          bestWeek.revenue += parseFloat(p.amount || 0);
+        }
+      }
+    } else {
+      // month
+      const current = new Date(startDate);
+      current.setDate(1);
+
+      const monthNames = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+
+      while (current <= today) {
+        const yr = current.getFullYear();
+        const mo = current.getMonth();
+        const key = `${yr}-${String(mo + 1).padStart(2, "0")}`;
+        const label = `${monthNames[mo]}/${String(yr).slice(-2)}`;
+        chartData.push({
+          key: key,
+          label: label,
+          revenue: 0
+        });
+        current.setMonth(current.getMonth() + 1);
+      }
+
+      for (const p of paymentsRaw) {
+        const pDate = p.payment_date;
+        let pDateStr = "";
+        if (pDate instanceof Date) {
+          pDateStr = formatDate(pDate);
+        } else if (typeof pDate === "string") {
+          pDateStr = pDate.split(" ")[0];
+        }
+
+        if (pDateStr) {
+          const parts = pDateStr.split("-");
+          const key = `${parts[0]}-${parts[1]}`;
+          const match = chartData.find(d => d.key === key);
+          if (match) {
+            match.revenue += parseFloat(p.amount || 0);
+          }
+        }
+      }
+    }
+
+    const revenueTrend = chartData.map(d => ({
+      month: d.label,
+      label: d.label,
+      revenue: d.revenue
     }));
 
     if (revenueTrend.length === 0) {
-      revenueTrend.push({ month: "Mês Atual", revenue: 0 });
+      revenueTrend.push({ month: "Mês Atual", label: "Mês Atual", revenue: 0 });
     }
 
     // 7. Categories distribution
