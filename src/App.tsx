@@ -152,10 +152,10 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f3f4f6] flex flex-col md:flex-row font-sans text-xs antialiased overflow-x-hidden">
+    <div className="min-h-screen md:h-screen md:overflow-hidden bg-[#f3f4f6] flex flex-col md:flex-row font-sans text-xs antialiased overflow-x-hidden">
       
       {/* 1. SIDEBAR NAVIGATION - DEEP SLATE/NAVY VISUAL BRAND */}
-      <aside className={`w-64 bg-[#0e131f] text-gray-300 flex flex-col justify-between shrink-0 transition-transform md:translate-x-0 z-40 fixed inset-y-0 left-0 md:inset-y-auto md:left-auto md:relative min-h-screen ${showMobileSidebar ? "translate-x-0" : "-translate-x-full"}`}>
+      <aside className={`w-64 bg-[#0e131f] text-gray-300 flex flex-col justify-between shrink-0 transition-transform md:translate-x-0 z-40 fixed inset-y-0 left-0 md:relative md:h-screen md:overflow-y-auto ${showMobileSidebar ? "translate-x-0" : "-translate-x-full"}`}>
         
         <div className="flex flex-col">
           {/* Logo brand */}
@@ -237,7 +237,7 @@ export default function App() {
       </aside>
 
       {/* 2. MAIN ACTIVE WORKSPACE - LIGHT THEME CANVAS */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 md:h-screen md:overflow-hidden">
         
         {/* Top Header bar with search indicator / mobile drawer toggles */}
         <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between shadow-xs sticky top-0 z-30">
