@@ -78,7 +78,7 @@ const setupInstallSchema = z.object({
 });
 
 const clientSchema = z.object({
-  type: z.enum(["Física", "Jurídica"]),
+  type: z.enum(["PF", "PJ"]),
   name: z.string().min(2, "Nome é obrigatório e deve ter pelo menos 2 caracteres"),
   cpf_cnpj: z.string().min(11, "CPF/CNPJ é obrigatório e deve ter pelo menos 11 caracteres"),
   rg_ie: z.string().optional().nullable(),
