@@ -917,7 +917,12 @@ app.post("/api/auth/login", validateBody(loginSchema), async (req: any, res: any
 
     // Log success
     await execute("INSERT INTO login_attempts (username, ip_address, success) VALUES (?, ?, 1)", [username, ip]);
-    await execute("UPDATE admins SET last_login_at = NOW() WHERE id = ?", [admin.id]);
+    
+    if (isSqlite) {
+      await execute("UPDATE admins SET last_login_at = datetime('now') WHERE id = ?", [admin.id]);
+    } else {
+      await execute("UPDATE admins SET last_login_at = NOW() WHERE id = ?", [admin.id]);
+    }
 
     // Create session token
     const token = await createSession(admin.id, admin.username, admin.name, ip, req.headers["user-agent"]);
