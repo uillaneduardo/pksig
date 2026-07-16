@@ -634,158 +634,125 @@ export async function verifyAndRepairDatabaseSchema(): Promise<{ success: boolea
     const type = config.type || "mysql";
     const isSqlite = mode === "local" || type === "sqlite";
 
-    console.log(`[Database Integrity Check] Running integrity and correction check for ${type} in ${mode} mode...`);
+    console.log(`[Database Migration Engine] Running migrations for ${type} in ${mode} mode...`);
 
-    // 1. Run low-level DB health check if SQLite
+    // Ensure migrations directory exists
+    const migrationsDir = path.join(process.cwd(), "database", "migrations");
+    if (!fs.existsSync(migrationsDir)) {
+      fs.mkdirSync(migrationsDir, { recursive: true });
+    }
+
+    // 1. Ensure schema_migrations table exists
+    let hasMigrationTable = false;
     if (isSqlite) {
+      const rows = await query("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'");
+      hasMigrationTable = rows && rows.length > 0;
+    } else {
+      const rows = await query("SHOW TABLES LIKE 'schema_migrations'");
+      hasMigrationTable = rows && rows.length > 0;
+    }
+
+    let isUpgradeFromOldSystem = false;
+    if (!hasMigrationTable) {
+      console.log("[Database Migration Engine] Creating schema_migrations table...");
+      
+      // Check if this is an upgrade from an existing system that has tables (e.g. admins table exists)
+      let tableCheck = false;
+      if (isSqlite) {
+        const rows = await query("SELECT name FROM sqlite_master WHERE type='table' AND name='admins'");
+        tableCheck = rows && rows.length > 0;
+      } else {
+        const rows = await query("SHOW TABLES LIKE 'admins'");
+        tableCheck = rows && rows.length > 0;
+      }
+      
+      if (tableCheck) {
+        isUpgradeFromOldSystem = true;
+        console.log("[Database Migration Engine] Existing tables detected. Initial schema migration (001) will be marked as pre-applied.");
+      }
+
+      if (isSqlite) {
+        await execute(`
+          CREATE TABLE schema_migrations (
+            version TEXT PRIMARY KEY,
+            applied_at TEXT DEFAULT CURRENT_TIMESTAMP
+          )
+        `);
+      } else {
+        await execute(`
+          CREATE TABLE schema_migrations (
+            version VARCHAR(255) PRIMARY KEY,
+            applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+      }
+    }
+
+    // 2. Read migration files
+    const migrationFiles = fs.readdirSync(migrationsDir)
+      .filter(f => f.endsWith(".sql"))
+      .sort(); // guarantees chronological execution if prefixed with numbers (e.g., 001_, 002_)
+
+    if (migrationFiles.length === 0) {
+      console.log("[Database Migration Engine] No migrations found in database/migrations/");
+    }
+
+    // 3. Retrieve already applied migrations
+    const appliedRows = await query("SELECT version FROM schema_migrations");
+    const appliedSet = new Set(appliedRows.map((r: any) => r.version));
+
+    // If it's an upgrade from the old system and '001_initial_schema.sql' is present but not in schema_migrations,
+    // mark it as applied so we don't drop/recreate tables and wipe their database!
+    if (isUpgradeFromOldSystem) {
+      const initialFile = migrationFiles.find(f => f.includes("001_initial_schema") || f.startsWith("001_"));
+      if (initialFile && !appliedSet.has(initialFile)) {
+        await execute("INSERT INTO schema_migrations (version) VALUES (?)", [initialFile]);
+        appliedSet.add(initialFile);
+        console.log(`[Database Migration Engine] Marked ${initialFile} as already applied to preserve data.`);
+      }
+    }
+
+    // 4. Run pending migrations
+    for (const file of migrationFiles) {
+      if (appliedSet.has(file)) {
+        continue;
+      }
+
+      console.log(`[Database Migration Engine] Applying migration: ${file}...`);
+      const filePath = path.join(migrationsDir, file);
+      const sqlContent = fs.readFileSync(filePath, "utf8");
+
+      // Split the script into statements
+      const statements = sqlContent
+        .split(/;(?=(?:[^'"`]*['"`][^'"`]*['"`])*[^'"`]*$)/g) // split on semicolons outside of quotes
+        .map(stmt => stmt.trim())
+        .filter(stmt => stmt.length > 0);
+
+      // Execute each statement inside a transaction-like sequence
       try {
-        const integrityCheck = await query("PRAGMA integrity_check");
-        if (integrityCheck && integrityCheck.length > 0 && Object.values(integrityCheck[0])[0] !== "ok") {
-          console.error("[Database Integrity Check] PRAGMA integrity_check failed:", integrityCheck);
-        } else {
-          console.log("[Database Integrity Check] SQLite file physical integrity: OK");
+        for (const statement of statements) {
+          if (statement.startsWith("--") || statement.startsWith("/*")) {
+            continue;
+          }
+          await execute(statement);
         }
         
-        const fkCheck = await query("PRAGMA foreign_key_check");
-        if (fkCheck && fkCheck.length > 0) {
-          console.warn("[Database Integrity Check] SQLite foreign key violations detected:", fkCheck);
-        }
-      } catch (e: any) {
-        console.error("[Database Integrity Check] Low-level SQLite health check failed:", e.message);
+        // Record as applied
+        await execute("INSERT INTO schema_migrations (version) VALUES (?)", [file]);
+        console.log(`[Database Migration Engine] Migration ${file} applied successfully.`);
+      } catch (migrationErr: any) {
+        console.error(`[Database Migration Engine] Error applying migration ${file}:`, migrationErr.message);
+        throw new Error(`Falha na migração ${file}: ${migrationErr.message}`);
       }
     }
 
-    // 2. Systematic Table Presence Verification and Repair
-    const expectedTables = [
-      "app_meta", "admins", "admin_sessions", "login_attempts", "company_settings", 
-      "system_settings", "sequences", "idempotency_keys", "clients", 
-      "equipment_categories", "reception_accessories", "equipment_category_accessories", 
-      "equipments", "service_order_statuses", "service_orders", "service_order_accessories", 
-      "budget_items", "payment_methods", "payment_guides", "payment_installments", 
-      "payments", "warranty_rules", "warranties", "attachments", 
-      "financial_categories", "financial_transactions"
-    ];
-
-    let existingTables: string[] = [];
-    if (isSqlite) {
-      const rows = await query("SELECT name FROM sqlite_master WHERE type='table'");
-      existingTables = rows.map((r: any) => r.name);
-    } else {
-      const rows = await query("SHOW TABLES");
-      existingTables = rows.map((r: any) => Object.values(r)[0] as string);
-    }
-
-    // Detect and repair missing tables
-    for (const table of expectedTables) {
-      if (!existingTables.includes(table)) {
-        console.log(`[Database Integrity Check] Table "${table}" is missing. Repairing...`);
-        const ddl = getCreateTableStatement(table);
-        if (ddl) {
-          await execute(ddl);
-          console.log(`[Database Integrity Check] Table "${table}" restored successfully.`);
-        } else {
-          console.error(`[Database Integrity Check] Could not locate CREATE TABLE statement for "${table}" in install.sql`);
-        }
-      }
-    }
-
-    // 3. Columns Verification and Repair
-    // Check specific columns added by migrations or official updates
-    const columnChecks = [
-      {
-        table: "attachments",
-        column: "description",
-        sqliteType: "TEXT",
-        mysqlType: "TEXT NULL"
-      },
-      {
-        table: "financial_transactions",
-        column: "payment_id",
-        sqliteType: "INTEGER",
-        mysqlType: "INT DEFAULT NULL"
-      },
-      {
-        table: "system_settings",
-        column: "pwa_name",
-        sqliteType: "TEXT",
-        mysqlType: "VARCHAR(255) DEFAULT NULL"
-      },
-      {
-        table: "system_settings",
-        column: "pwa_short_name",
-        sqliteType: "TEXT",
-        mysqlType: "VARCHAR(100) DEFAULT NULL"
-      },
-      {
-        table: "system_settings",
-        column: "pwa_description",
-        sqliteType: "TEXT",
-        mysqlType: "TEXT DEFAULT NULL"
-      },
-      {
-        table: "system_settings",
-        column: "pwa_theme_color",
-        sqliteType: "TEXT DEFAULT '#0e131f'",
-        mysqlType: "VARCHAR(50) DEFAULT '#0e131f'"
-      },
-      {
-        table: "system_settings",
-        column: "pwa_background_color",
-        sqliteType: "TEXT DEFAULT '#ffffff'",
-        mysqlType: "VARCHAR(50) DEFAULT '#ffffff'"
-      },
-      {
-        table: "system_settings",
-        column: "pwa_display",
-        sqliteType: "TEXT DEFAULT 'standalone'",
-        mysqlType: "VARCHAR(50) DEFAULT 'standalone'"
-      },
-      {
-        table: "system_settings",
-        column: "pwa_icon_url",
-        sqliteType: "TEXT",
-        mysqlType: "LONGTEXT DEFAULT NULL"
-      }
-    ];
-
-    for (const check of columnChecks) {
-      // Check column existence
-      let columnExists = false;
-      if (isSqlite) {
-        try {
-          const colInfo = await query(`PRAGMA table_info(${check.table})`);
-          columnExists = colInfo.some((col: any) => col.name === check.column);
-        } catch (err) {
-          console.error(`Failed to verify SQLite column ${check.table}.${check.column}`);
-        }
-      } else {
-        try {
-          const colInfo = await query(`SHOW COLUMNS FROM \`${check.table}\` LIKE ?`, [check.column]);
-          columnExists = colInfo && colInfo.length > 0;
-        } catch (err) {
-          console.error(`Failed to verify MySQL column ${check.table}.${check.column}`);
-        }
-      }
-
-      if (!columnExists) {
-        console.log(`[Database Integrity Check] Column "${check.column}" is missing in table "${check.table}". Repairing...`);
-        const typeDefinition = isSqlite ? check.sqliteType : check.mysqlType;
-        try {
-          await execute(`ALTER TABLE \`${check.table}\` ADD COLUMN \`${check.column}\` ${typeDefinition}`);
-          console.log(`[Database Integrity Check] Column "${check.column}" in "${check.table}" added successfully.`);
-        } catch (alterErr: any) {
-          console.error(`[Database Integrity Check] Failed to add column ${check.table}.${check.column}:`, alterErr.message);
-        }
-      }
-    }
-
-    // 4. Ensure master/initial seed values are present
+    // 5. Ensure master seed values are present
     await ensureMasterSeedData();
 
-    return { success: true, message: "Integridade do banco de dados verificada e corrigida com sucesso!" };
+    return { success: true, message: "Migrações do banco de dados executadas com sucesso!" };
   } catch (err: any) {
-    console.error("[Database Integrity Check] Integrity and repair failed:", err);
-    return { success: false, message: `Falha no teste de integridade do banco: ${err.message}` };
+    console.error("[Database Migration Engine] Migration check failed:", err);
+    return { success: false, message: `Falha nas migrações do banco: ${err.message}` };
   }
 }
 
