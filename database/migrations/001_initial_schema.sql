@@ -107,10 +107,10 @@ INSERT INTO system_settings (id) VALUES (1);
 DROP TABLE IF EXISTS sequences;
 CREATE TABLE sequences (
     type VARCHAR(50) PRIMARY KEY,
-    last_value INT NOT NULL DEFAULT 0
+    `last_value` INT NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-INSERT INTO sequences (type, last_value) VALUES 
+INSERT INTO sequences (type, `last_value`) VALUES 
 ('client', 0),
 ('equipment', 0),
 ('os', 0),

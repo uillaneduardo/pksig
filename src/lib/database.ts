@@ -576,7 +576,7 @@ async function ensureMasterSeedData() {
       console.log("[Database Seeding] Seeding initial sequences values...");
       const types = ["client", "equipment", "os", "guide", "warranty"];
       for (const t of types) {
-        await execute("INSERT INTO sequences (type, last_value) VALUES (?, 0)", [t]);
+        await execute("INSERT INTO sequences (type, `last_value`) VALUES (?, 0)", [t]);
       }
     }
   } catch (err) {
