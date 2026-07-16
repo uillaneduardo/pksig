@@ -12,7 +12,7 @@ CREATE TABLE app_meta (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-INSERT INTO app_meta (meta_key, meta_value) VALUES ('version', '1.0.0'), ('installed_at', NOW());
+INSERT INTO app_meta (meta_key, meta_value) VALUES ('version', '1.0.0'), ('installed_at', CURRENT_TIMESTAMP);
 
 -- 2. Administrators
 DROP TABLE IF EXISTS admins;
@@ -89,12 +89,41 @@ CREATE TABLE system_settings (
     digits_count INT DEFAULT 6,
     default_delay_alert_days INT DEFAULT 5,
     default_tax_rate DECIMAL(5,2) DEFAULT 0.00,
+    pwa_name VARCHAR(255) DEFAULT NULL,
+    pwa_short_name VARCHAR(100) DEFAULT NULL,
+    pwa_description TEXT DEFAULT NULL,
+    pwa_theme_color VARCHAR(50) DEFAULT '#0e131f',
+    pwa_background_color VARCHAR(50) DEFAULT '#ffffff',
+    pwa_display VARCHAR(50) DEFAULT 'standalone',
+    pwa_icon_url LONGTEXT DEFAULT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT chk_system_id CHECK (id = 1)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Insert default system settings
 INSERT INTO system_settings (id) VALUES (1);
+
+-- 5B. Sequences (for safe unique code generation)
+DROP TABLE IF EXISTS sequences;
+CREATE TABLE sequences (
+    type VARCHAR(50) PRIMARY KEY,
+    last_value INT NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO sequences (type, last_value) VALUES 
+('client', 0),
+('equipment', 0),
+('os', 0),
+('guide', 0),
+('warranty', 0);
+
+-- 5C. Idempotency Keys (for offline sync protection)
+DROP TABLE IF EXISTS idempotency_keys;
+CREATE TABLE idempotency_keys (
+    `key` VARCHAR(100) PRIMARY KEY,
+    `response_body` LONGTEXT NOT NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 6. Clients
 DROP TABLE IF EXISTS clients;

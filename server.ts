@@ -18,7 +18,8 @@ import {
   execute,
   getPool,
   verifyDatabaseCompatibility,
-  runInTransaction
+  runInTransaction,
+  verifyAndRepairDatabaseSchema
 } from "./src/lib/database.js";
 import { 
   createSession, 
@@ -548,6 +549,12 @@ app.post("/api/setup/install", checkSetupProtection, validateBody(setupInstallSc
       await execute(
         "INSERT INTO company_settings (id, company_name) VALUES (1, 'Minha Assistência Técnica') ON DUPLICATE KEY UPDATE company_name='Minha Assistência Técnica'"
       );
+    }
+
+    // 5. Run automatic integrity check and repair to make sure everything matches perfectly
+    const repairResult = await verifyAndRepairDatabaseSchema();
+    if (!repairResult.success) {
+      console.warn("Integrity repair warning during setup:", repairResult.message);
     }
 
     return res.json({ 
@@ -3736,14 +3743,21 @@ async function ensureAdminSessionsTable() {
 }
 
 async function startServer() {
-  // Ensure table migration
-  await ensureAdminSessionsTable();
-  await ensureSequencesTable();
-  await ensureIdempotencyTable();
-  await ensureAttachmentsDescriptionColumn();
-  await ensurePwaColumns();
-  await ensureFinancialTables();
-  await ensureFinancialTransactionsPaymentIdColumn();
+  // Run automatic database schema verification and repair if configured
+  if (isDatabaseConfigured()) {
+    try {
+      const repairRes = await verifyAndRepairDatabaseSchema();
+      if (repairRes.success) {
+        console.log("Database integrity verification completed successfully.");
+      } else {
+        console.warn("Database integrity verification warning:", repairRes.message);
+      }
+    } catch (err: any) {
+      console.error("Database integrity and repair failed during startup:", err.message);
+    }
+  } else {
+    console.log("Database is not configured yet. Skipping schema verification on startup.");
+  }
 
   // Periodically clean expired sessions every hour
   setInterval(() => {
