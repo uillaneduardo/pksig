@@ -2,30 +2,15 @@ import mysql from "mysql2/promise";
 import fs from "fs";
 import path from "path";
 import { encrypt, decrypt } from "./crypto.js";
-import { DatabaseSync } from "node:sqlite";
 
 const CONFIG_FILE = path.join(process.cwd(), "storage", "config", "database.json");
 
 let pool: mysql.Pool | null = null;
 let currentConfig: any = null;
-let sqliteDbInstance: DatabaseSync | null = null;
-
-function getSqliteInstance(databaseName: string): DatabaseSync {
-  if (sqliteDbInstance) {
-    return sqliteDbInstance;
-  }
-  const dbPath = path.join(process.cwd(), "storage", databaseName || "pksig.db");
-  const dir = path.dirname(dbPath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  sqliteDbInstance = new DatabaseSync(dbPath);
-  return sqliteDbInstance;
-}
 
 export interface DatabaseConfig {
   mode: "local" | "remoto";
-  type?: "mysql" | "mariadb" | "sqlite";
+  type?: "mysql" | "mariadb";
   host: string;
   port: number;
   database: string;
@@ -43,184 +28,6 @@ export interface DatabaseDriver {
   execute(sql: string, params?: any[]): Promise<any>;
   testConnection(): Promise<{ success: boolean; message: string }>;
   createDatabaseAutomatically(): Promise<{ success: boolean; message: string }>;
-}
-
-export function translateMySqlToSqlite(sql: string): string {
-  let cleanSql = sql.trim();
-
-  // 1. Handle SET FOREIGN_KEY_CHECKS
-  if (cleanSql.toUpperCase().startsWith("SET FOREIGN_KEY_CHECKS")) {
-    const enable = cleanSql.includes("1") ? "ON" : "OFF";
-    return `PRAGMA foreign_keys = ${enable}`;
-  }
-
-  // 2. Translate ON DUPLICATE KEY UPDATE
-  if (/ON\s+DUPLICATE\s+KEY\s+UPDATE/i.test(cleanSql)) {
-    const tableMatch = cleanSql.match(/INSERT\s+INTO\s+`?([a-zA-Z0-9_]+)`?/i);
-    if (tableMatch) {
-      const tableName = tableMatch[1].toLowerCase();
-      let conflictTarget = "id";
-      if (["equipment_categories", "payment_methods", "reception_accessories", "warranty_rules"].includes(tableName)) {
-        conflictTarget = "name";
-      }
-      cleanSql = cleanSql.replace(/ON\s+DUPLICATE\s+KEY\s+UPDATE/i, `ON CONFLICT(${conflictTarget}) DO UPDATE SET`);
-    }
-  }
-
-  // 3. Translate MySQL datatypes/constraints for CREATE TABLE
-  if (/CREATE\s+TABLE/i.test(cleanSql)) {
-    // Strip MySQL engine/charset/collate options
-    cleanSql = cleanSql.replace(/\)\s*ENGINE\s*=\s*[a-zA-Z0-9_]+\s*(?:DEFAULT\s+CHARSET\s*=\s*[a-zA-Z0-9_]+\s*)?(?:COLLATE\s*=\s*[a-zA-Z0-9_]+\s*)?;?/i, ")");
-    
-    // Autoincrement translation
-    cleanSql = cleanSql.replace(/INT\s+(?:NOT\s+NULL\s+)?AUTO_INCREMENT\s+PRIMARY\s+KEY/ig, "INTEGER PRIMARY KEY AUTOINCREMENT");
-    cleanSql = cleanSql.replace(/INTEGER\s+AUTO_INCREMENT\s+PRIMARY\s+KEY/ig, "INTEGER PRIMARY KEY AUTOINCREMENT");
-    cleanSql = cleanSql.replace(/`?id`?\s+INT\s+AUTO_INCREMENT\s+PRIMARY\s+KEY/ig, "id INTEGER PRIMARY KEY AUTOINCREMENT");
-    cleanSql = cleanSql.replace(/`?id`?\s+int\(11\)\s+NOT\s+NULL\s+AUTO_INCREMENT/ig, "id INTEGER PRIMARY KEY AUTOINCREMENT");
-    
-    // Replace column datatypes
-    cleanSql = cleanSql.replace(/\bINT\(\d+\)/ig, "INTEGER");
-    cleanSql = cleanSql.replace(/\bINT\b/ig, "INTEGER");
-    cleanSql = cleanSql.replace(/\bTINYINT\(1\)/ig, "INTEGER");
-    cleanSql = cleanSql.replace(/\bTINYINT\b/ig, "INTEGER");
-    cleanSql = cleanSql.replace(/\bDATETIME\b/ig, "TEXT");
-    cleanSql = cleanSql.replace(/\bTIMESTAMP\b/ig, "TEXT");
-    cleanSql = cleanSql.replace(/\bDECIMAL\(\d+,\d+\)/ig, "NUMERIC");
-    
-    // Translate ENUM(...) to TEXT
-    cleanSql = cleanSql.replace(/\bENUM\([^)]+\)/ig, "TEXT");
-    
-    // Strip ON UPDATE CURRENT_TIMESTAMP
-    cleanSql = cleanSql.replace(/DEFAULT\s+CURRENT_TIMESTAMP\s+ON\s+UPDATE\s+CURRENT_TIMESTAMP/ig, "DEFAULT CURRENT_TIMESTAMP");
-    cleanSql = cleanSql.replace(/DEFAULT\s+current_timestamp\(\)\s+ON\s+UPDATE\s+current_timestamp\(\)/ig, "DEFAULT current_timestamp()");
-    cleanSql = cleanSql.replace(/ON\s+UPDATE\s+current_timestamp\(\)/ig, "");
-    cleanSql = cleanSql.replace(/ON\s+UPDATE\s+CURRENT_TIMESTAMP/ig, "");
-
-    // SQLite doesn't support inline UNIQUE KEY uq_name (cols)
-    // Translate "UNIQUE KEY uq_name (col1, col2)" to "UNIQUE (col1, col2)"
-    cleanSql = cleanSql.replace(/UNIQUE\s+KEY\s+`?[a-zA-Z0-9_]+`?\s*\(([^)]+)\)/ig, "UNIQUE ($1)");
-
-    // Inline index declarations (e.g. INDEX idx_name (cols)) are not supported in SQLite's CREATE TABLE.
-    // Strip them out.
-    const lines = cleanSql.split("\n");
-    const filteredLines: string[] = [];
-    for (const line of lines) {
-      if (/^\s*(?:INDEX|KEY)\s+`?[a-zA-Z0-9_]+`?\s*\([^)]+\),?/i.test(line)) {
-        continue;
-      }
-      filteredLines.push(line);
-    }
-    cleanSql = filteredLines.join("\n");
-    // Clean up trailing commas before closing brackets
-    cleanSql = cleanSql.replace(/,\s*\)/g, ")");
-  }
-
-  return cleanSql;
-}
-
-export class SqliteDriver implements DatabaseDriver {
-  config: DatabaseConfig;
-  constructor(config: DatabaseConfig) {
-    this.config = config;
-  }
-
-  get db() {
-    return getSqliteInstance(this.config.database || "pksig.db");
-  }
-
-  async query<T = any>(sql: string, params: any[] = []): Promise<T[]> {
-    try {
-      const cleanSql = translateMySqlToSqlite(sql);
-      const stmt = this.db.prepare(cleanSql);
-      const rows = stmt.all(...params);
-      return rows as T[];
-    } catch (err: any) {
-      console.error("SQLite query error:", err.message, "SQL:", sql);
-      throw err;
-    }
-  }
-
-  async execute(sql: string, params: any[] = []): Promise<any> {
-    try {
-      const cleanSql = translateMySqlToSqlite(sql);
-      if (cleanSql.includes(";") && !cleanSql.startsWith("INSERT") && !cleanSql.startsWith("UPDATE")) {
-        // Handle multiple statements split by semicolon (e.g. installation scripts)
-        const statements = cleanSql.split(/;(?=(?:[^'"`]*['"`][^'"`]*['"`])*[^'"`]*$)/g)
-          .map(s => s.trim())
-          .filter(s => s.length > 0);
-        let lastResult: any = { affectedRows: 0, insertId: 0 };
-        for (const stmtSql of statements) {
-          const stmt = this.db.prepare(stmtSql);
-          const result = stmt.run(...params);
-          lastResult = {
-            insertId: Number(result.lastInsertRowid),
-            affectedRows: result.changes,
-            changes: result.changes,
-            lastInsertRowid: Number(result.lastInsertRowid)
-          };
-        }
-        return lastResult;
-      } else {
-        const stmt = this.db.prepare(cleanSql);
-        const result = stmt.run(...params);
-        return {
-          insertId: Number(result.lastInsertRowid),
-          affectedRows: result.changes,
-          changes: result.changes,
-          lastInsertRowid: Number(result.lastInsertRowid)
-        };
-      }
-    } catch (err: any) {
-      console.error("SQLite execute error:", err.message, "SQL:", sql);
-      throw err;
-    }
-  }
-
-  async testConnection(): Promise<{ success: boolean; message: string }> {
-    try {
-      this.db.prepare("SELECT 1").all();
-      return { success: true, message: "Conexão estabelecida com sucesso com o SQLite local!" };
-    } catch (err: any) {
-      return { success: false, message: `Erro ao conectar ao SQLite local: ${err.message}` };
-    }
-  }
-
-  async createDatabaseAutomatically(): Promise<{ success: boolean; message: string }> {
-    return { success: true, message: "Banco de dados SQLite local inicializado com sucesso!" };
-  }
-}
-
-export class SqliteMockPool {
-  async getConnection() {
-    return {
-      query: async (sql: string, params: any[] = []) => {
-        let cleanSql = sql.trim();
-        if (cleanSql.toUpperCase().startsWith("SET FOREIGN_KEY_CHECKS")) {
-          const enable = cleanSql.includes("1") ? "ON" : "OFF";
-          cleanSql = `PRAGMA foreign_keys = ${enable}`;
-          const driver = getDbDriver();
-          await driver.execute(cleanSql, params);
-          return [[{}]];
-        }
-        
-        const driver = getDbDriver();
-        const rows = await driver.query(cleanSql, params);
-        return [rows];
-      },
-      release: () => {}
-    };
-  }
-  async query(sql: string, params: any[] = []) {
-    const driver = getDbDriver();
-    const rows = await driver.query(sql, params);
-    return [rows];
-  }
-  async execute(sql: string, params: any[] = []) {
-    const driver = getDbDriver();
-    const result = await driver.execute(sql, params);
-    return [result];
-  }
-  async end() {}
 }
 
 export class MySqlDriver implements DatabaseDriver {
@@ -317,12 +124,7 @@ export function getDbDriver(): DatabaseDriver {
   if (!config) {
     throw new Error("Banco de dados não configurado");
   }
-  const mode = config.mode || "remoto";
   const type = config.type || "mysql";
-  
-  if (mode === "local" || type === "sqlite") {
-    return new SqliteDriver(config);
-  }
 
   switch (type) {
     case "mysql":
@@ -375,50 +177,39 @@ export function saveDatabaseConfig(config: DatabaseConfig) {
     pool.end().catch(console.error);
     pool = null;
   }
-  sqliteDbInstance = null;
   currentConfig = null;
 }
 
 export async function testConnection(config: DatabaseConfig): Promise<{ success: boolean; message: string }> {
-  const mode = config.mode || "remoto";
   const type = config.type || "mysql";
   let driver: DatabaseDriver;
   
-  if (mode === "local" || type === "sqlite") {
-    driver = new SqliteDriver(config);
-  } else {
-    switch (type) {
-      case "mysql":
-        driver = new MySqlDriver(config);
-        break;
-      case "mariadb":
-        driver = new MariaDbDriver(config);
-        break;
-      default:
-        driver = new MySqlDriver(config);
-    }
+  switch (type) {
+    case "mysql":
+      driver = new MySqlDriver(config);
+      break;
+    case "mariadb":
+      driver = new MariaDbDriver(config);
+      break;
+    default:
+      driver = new MySqlDriver(config);
   }
   return driver.testConnection();
 }
 
 export async function createDatabaseAutomatically(config: DatabaseConfig): Promise<{ success: boolean; message: string }> {
-  const mode = config.mode || "remoto";
   const type = config.type || "mysql";
   let driver: DatabaseDriver;
   
-  if (mode === "local" || type === "sqlite") {
-    driver = new SqliteDriver(config);
-  } else {
-    switch (type) {
-      case "mysql":
-        driver = new MySqlDriver(config);
-        break;
-      case "mariadb":
-        driver = new MariaDbDriver(config);
-        break;
-      default:
-        driver = new MySqlDriver(config);
-    }
+  switch (type) {
+    case "mysql":
+      driver = new MySqlDriver(config);
+      break;
+    case "mariadb":
+      driver = new MariaDbDriver(config);
+      break;
+    default:
+      driver = new MySqlDriver(config);
   }
   return driver.createDatabaseAutomatically();
 }
@@ -427,13 +218,6 @@ export async function getPool(): Promise<any> {
   const config = getDatabaseConfig();
   if (!config) {
     throw new Error("Banco de dados não configurado");
-  }
-
-  const mode = config.mode || "remoto";
-  const type = config.type || "mysql";
-
-  if (mode === "local" || type === "sqlite") {
-    return new SqliteMockPool();
   }
 
   if (pool) {
@@ -531,71 +315,42 @@ export async function verifyDatabaseCompatibility(config: DatabaseConfig): Promi
   let foundTables: string[] = [];
   let adminsList: { username: string; name: string }[] = [];
 
-  const mode = config.mode || "remoto";
-  const type = config.type || "mysql";
+  let tempPool: mysql.Pool | null = null;
+  try {
+    const connectionOptions: mysql.PoolOptions = {
+      host: config.host,
+      port: config.port,
+      user: config.user,
+      password: config.password && config.password.includes(":") ? decrypt(config.password) : config.password,
+      database: config.database,
+      connectTimeout: 8000,
+      ssl: config.ssl ? (config.certificate ? { ca: config.certificate } : { rejectUnauthorized: false }) : undefined,
+    };
 
-  if (mode === "local" || type === "sqlite") {
-    try {
-      const db = getSqliteInstance(config.database || "pksig.db");
-      const rows = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as any[];
-      foundTables = rows.map(r => r.name);
-      
-      const hasAdminsTable = foundTables.includes("admins");
-      if (hasAdminsTable) {
-        try {
-          const adminsRows = db.prepare("SELECT username, name FROM admins").all() as any[];
-          adminsList = adminsRows;
-        } catch (adminErr) {
-          console.warn("Could not query admins table in SQLite:", adminErr);
-        }
+    tempPool = mysql.createPool(connectionOptions);
+    const [rows] = await tempPool.query("SHOW TABLES");
+    foundTables = (rows as any[]).map(r => Object.values(r)[0] as string);
+
+    const hasAdminsTable = foundTables.includes("admins");
+    if (hasAdminsTable) {
+      try {
+        const [adminRows] = await tempPool.query("SELECT username, name FROM admins");
+        adminsList = adminRows as any[];
+      } catch (adminErr) {
+        console.warn("Could not query admins table:", adminErr);
       }
-    } catch (err: any) {
-      return {
-        success: false,
-        message: `Erro ao conectar e verificar banco SQLite local: ${err.message}`,
-        hasCompatibleTables: false,
-        existingTables: [],
-        existingAdmins: []
-      };
     }
-  } else {
-    let tempPool: mysql.Pool | null = null;
-    try {
-      const connectionOptions: mysql.PoolOptions = {
-        host: config.host,
-        port: config.port,
-        user: config.user,
-        password: config.password && config.password.includes(":") ? decrypt(config.password) : config.password,
-        database: config.database,
-        connectTimeout: 8000,
-        ssl: config.ssl ? (config.certificate ? { ca: config.certificate } : { rejectUnauthorized: false }) : undefined,
-      };
-
-      tempPool = mysql.createPool(connectionOptions);
-      const [rows] = await tempPool.query("SHOW TABLES");
-      foundTables = (rows as any[]).map(r => Object.values(r)[0] as string);
-
-      const hasAdminsTable = foundTables.includes("admins");
-      if (hasAdminsTable) {
-        try {
-          const [adminRows] = await tempPool.query("SELECT username, name FROM admins");
-          adminsList = adminRows as any[];
-        } catch (adminErr) {
-          console.warn("Could not query admins table:", adminErr);
-        }
-      }
-    } catch (err: any) {
-      return {
-        success: false,
-        message: `Erro ao conectar e verificar banco MySQL remoto: ${err.message}`,
-        hasCompatibleTables: false,
-        existingTables: [],
-        existingAdmins: []
-      };
-    } finally {
-      if (tempPool) {
-        await tempPool.end().catch(console.error);
-      }
+  } catch (err: any) {
+    return {
+      success: false,
+      message: `Erro ao conectar e verificar banco MySQL remoto: ${err.message}`,
+      hasCompatibleTables: false,
+      existingTables: [],
+      existingAdmins: []
+    };
+  } finally {
+    if (tempPool) {
+      await tempPool.end().catch(console.error);
     }
   }
 
@@ -630,11 +385,9 @@ export async function verifyAndRepairDatabaseSchema(): Promise<{ success: boolea
       return { success: false, message: "Banco de dados não configurado para auto-reparo" };
     }
 
-    const mode = config.mode || "remoto";
     const type = config.type || "mysql";
-    const isSqlite = mode === "local" || type === "sqlite";
 
-    console.log(`[Database Migration Engine] Running migrations for ${type} in ${mode} mode...`);
+    console.log(`[Database Migration Engine] Running migrations for ${type}...`);
 
     // Ensure migrations directory exists
     const migrationsDir = path.join(process.cwd(), "database", "migrations");
@@ -644,13 +397,8 @@ export async function verifyAndRepairDatabaseSchema(): Promise<{ success: boolea
 
     // 1. Ensure schema_migrations table exists
     let hasMigrationTable = false;
-    if (isSqlite) {
-      const rows = await query("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'");
-      hasMigrationTable = rows && rows.length > 0;
-    } else {
-      const rows = await query("SHOW TABLES LIKE 'schema_migrations'");
-      hasMigrationTable = rows && rows.length > 0;
-    }
+    const rows = await query("SHOW TABLES LIKE 'schema_migrations'");
+    hasMigrationTable = rows && rows.length > 0;
 
     let isUpgradeFromOldSystem = false;
     if (!hasMigrationTable) {
@@ -658,34 +406,20 @@ export async function verifyAndRepairDatabaseSchema(): Promise<{ success: boolea
       
       // Check if this is an upgrade from an existing system that has tables (e.g. admins table exists)
       let tableCheck = false;
-      if (isSqlite) {
-        const rows = await query("SELECT name FROM sqlite_master WHERE type='table' AND name='admins'");
-        tableCheck = rows && rows.length > 0;
-      } else {
-        const rows = await query("SHOW TABLES LIKE 'admins'");
-        tableCheck = rows && rows.length > 0;
-      }
+      const rows = await query("SHOW TABLES LIKE 'admins'");
+      tableCheck = rows && rows.length > 0;
       
       if (tableCheck) {
         isUpgradeFromOldSystem = true;
         console.log("[Database Migration Engine] Existing tables detected. Initial schema migration (001) will be marked as pre-applied.");
       }
 
-      if (isSqlite) {
-        await execute(`
-          CREATE TABLE schema_migrations (
-            version TEXT PRIMARY KEY,
-            applied_at TEXT DEFAULT CURRENT_TIMESTAMP
-          )
-        `);
-      } else {
-        await execute(`
-          CREATE TABLE schema_migrations (
-            version VARCHAR(255) PRIMARY KEY,
-            applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        `);
-      }
+      await execute(`
+        CREATE TABLE schema_migrations (
+          version VARCHAR(255) PRIMARY KEY,
+          applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
     }
 
     // 2. Read migration files

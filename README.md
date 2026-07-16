@@ -1,6 +1,6 @@
 # PK SIG — Sistema de Gerenciamento de Ordens de Serviço (OS)
 
-PK SIG é um sistema web full-stack de alto desempenho para gerenciamento de ordens de serviço, clientes, equipamentos e finanças de assistências técnicas. Projetado para ser robusto, rápido e flexível, ele suporta bancos de dados relacionais **MySQL/MariaDB** e bancos de dados locais **SQLite**, além de contar com um assistente inteligente de instalação automática, diagnóstico e autocorreção de integridade.
+PK SIG é um sistema web full-stack de alto desempenho para gerenciamento de ordens de serviço, clientes, equipamentos e finanças de assistências técnicas. Projetado para ser robusto, rápido e flexível, ele opera exclusivamente sobre o banco de dados relacional **MySQL/MariaDB**, contando com um assistente inteligente de instalação automática, diagnóstico e autocorreção de integridade.
 
 ---
 
@@ -22,8 +22,8 @@ PK SIG é um sistema web full-stack de alto desempenho para gerenciamento de ord
 - Lançamento de parcelamentos, fluxo de caixas diário, métodos de pagamento flexíveis (PIX, Crédito, Débito, Dinheiro, Boleto).
 - Emissão de termos de garantia e regras de garantia personalizáveis por OS.
 
-### ⚙️ Flexibilidade de Banco de Dados e Auto-Reparo (Integridade)
-- **Suporte Híbrido**: Funciona com **MySQL/MariaDB** para servidores de nuvem de produção e **SQLite** local para implantações simplificadas sem infraestrutura complexa.
+### ⚙️ Banco de Dados e Auto-Reparo (Integridade)
+- **Suporte Robusto**: Desenvolvido especificamente para **MySQL/MariaDB** para servidores locais ou em nuvem em ambiente de produção.
 - **Auto-Reparo de Integridade (Self-Healing Schema)**: A cada inicialização, o sistema realiza testes de consistência física e de estrutura do banco de dados de acordo com o arquivo mestre `install.sql`. Se faltarem tabelas ou colunas específicas (como novos campos de PWA ou tabelas de idempotência), o sistema as restaura e popula dados mestres de forma totalmente automática.
 - **Assistente de Instalação (Setup Wizard)**: Interface amigável passo a passo para testar a conexão com o banco de dados, criar o banco automaticamente, verificar a compatibilidade e configurar o administrador do sistema no primeiro acesso.
 
@@ -33,7 +33,7 @@ PK SIG é um sistema web full-stack de alto desempenho para gerenciamento de ord
 
 - **Frontend**: React, Vite, Tailwind CSS, Lucide Icons, Recharts (Gráficos), Motion (Animações).
 - **Backend**: Node.js com Express e TypeScript (`tsx`).
-- **Drivers de Banco de Dados**: `mysql2` para MySQL/MariaDB e `node:sqlite` para SQLite síncrono ultra veloz.
+- **Drivers de Banco de Dados**: `mysql2` para MySQL/MariaDB.
 - **Validação de Dados**: Zod.
 - **Autenticação e Segurança**: JWT, bcryptjs para criptografia de senhas, e criptografia simétrica para chaves de acesso armazenadas localmente.
 
@@ -59,14 +59,14 @@ PK SIG é um sistema web full-stack de alto desempenho para gerenciamento de ord
    ```
 
 4. **Primeiro Acesso (Wizard)**:
-   Abra o seu navegador no endereço indicado (porta `3000`). Você será automaticamente redirecionado para o assistente de configuração visual, onde poderá escolher entre instalar no SQLite local (arquivo `pksig.db`) ou conectar ao seu servidor MySQL/MariaDB remoto.
+   Abra o seu navegador no endereço indicado (porta `3000`). Você será automaticamente redirecionado para o assistente de configuração visual, onde poderá configurar e conectar ao seu servidor MySQL/MariaDB (local ou remoto).
 
 ---
 
 ## 📂 Estrutura de Arquivos
 
 - `/server.ts` — Ponto de entrada do backend Express, APIs do sistema e controle de rotas.
-- `/src/lib/database.ts` — Abstração de banco de dados unificada (`DatabaseDriver`, `SqliteDriver`, `MySqlDriver`) e motor de auto-reparo e verificação de integridade estrutural.
+- `/src/lib/database.ts` — Abstração de banco de dados unificada (`DatabaseDriver`, `MySqlDriver`) e motor de auto-reparo e verificação de integridade estrutural.
 - `/database/install.sql` — Esquema oficial mestre (DDL) de instalação do banco de dados, contendo tabelas, índices e sementes iniciais de dados estáticos do sistema.
 - `/database/seed.sql` — Dados de demonstração opcionais para testes integrados.
 - `/src/` — Código frontend em React contendo componentes modulares, páginas de dashboards de finanças, gerenciamento de ordens de serviço, clientes e configurações.
@@ -75,7 +75,6 @@ PK SIG é um sistema web full-stack de alto desempenho para gerenciamento de ord
 
 ## 🛡️ Autocorreção de Banco de Dados e Segurança
 
-Para proteger contra perda de dados ou scripts mal executados em versões legadas:
-- O sistema verifica todas as tabelas em tempo de inicialização.
-- Campos de PWA e IDs de parcelamentos são criados via comandos de `ALTER TABLE` incrementais em tempo real se não forem encontrados.
-- A integridade física (`PRAGMA integrity_check`) é executada no SQLite para garantir a saúde dos dados gravados localmente no container.
+Para proteger contra perda de dados ou inconsistências estruturais em atualizações do sistema:
+- O sistema verifica todas as tabelas e sua integridade estrutural em tempo de inicialização.
+- Colunas necessárias, como campos de PWA e IDs de parcelamentos, são adicionados automaticamente via comandos `ALTER TABLE` incrementais em tempo real caso estejam ausentes.

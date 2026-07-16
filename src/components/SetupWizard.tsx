@@ -14,7 +14,7 @@ export default function SetupWizard({ onCompleted }: SetupWizardProps) {
 
   // Connection fields
   const [mode, setMode] = useState<"local" | "remoto">("remoto");
-  const [dbType, setDbType] = useState<"sqlite" | "mysql" | "mariadb" | "postgresql" | "sqlserver">("mysql");
+  const [dbType, setDbType] = useState<"mysql" | "mariadb">("mysql");
   const [host, setHost] = useState("127.0.0.1");
   const [port, setPort] = useState("3306");
   const [database, setDatabase] = useState("pksig");

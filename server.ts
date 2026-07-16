@@ -53,11 +53,11 @@ const loginSchema = z.object({
 const setupInstallSchema = z.object({
   connection: z.object({
     mode: z.enum(["local", "remoto"]),
-    type: z.enum(["sqlite", "mysql", "mariadb", "postgresql", "sqlserver"]).optional(),
-    host: z.string().optional().nullable().or(z.literal("")),
-    port: z.string().optional().nullable().or(z.literal("")),
+    type: z.enum(["mysql", "mariadb"]).optional(),
+    host: z.string().min(1, "Host / Servidor é obrigatório"),
+    port: z.string().min(1, "Porta é obrigatória"),
     database: z.string().min(1, "Nome do banco de dados é obrigatório"),
-    user: z.string().optional().nullable().or(z.literal("")),
+    user: z.string().min(1, "Usuário é obrigatório"),
     password: z.string().optional().nullable().or(z.literal("")),
     ssl: z.boolean().optional()
   }),
@@ -386,7 +386,7 @@ app.get("/api/status", async (req: any, res: any) => {
       connected: true,
       hasAdmin: admins.length > 0,
       mode: config?.mode,
-      type: (config?.mode as string) === "local" ? "sqlite" : (config?.type || "mysql"),
+      type: config?.type || "mysql",
       last_sync_at,
       last_sync_direction,
       companyName,
@@ -413,17 +413,17 @@ app.get("/api/status", async (req: any, res: any) => {
 // Test database connection
 app.post("/api/setup/test-connection", checkSetupProtection, async (req: any, res: any) => {
   const { mode, type, host, port, database, user, password, ssl } = req.body;
-  if (mode !== "local" && (!host || !port || !database || !user)) {
+  if (!host || !port || !database || !user) {
     return res.status(400).json({ error: "Todos os campos de conexão são obrigatórios" });
   }
 
   const testResult = await testConnection({
-    mode,
-    type: type || (mode === "local" ? "sqlite" : "mysql"),
-    host: mode === "local" ? "localhost" : host,
-    port: mode === "local" ? 0 : parseInt(port),
-    database: mode === "local" ? "pksig.db" : database,
-    user: mode === "local" ? "local" : user,
+    mode: mode || "remoto",
+    type: type || "mysql",
+    host,
+    port: parseInt(port),
+    database,
+    user,
     password,
     ssl: !!ssl
   });
@@ -434,17 +434,17 @@ app.post("/api/setup/test-connection", checkSetupProtection, async (req: any, re
 // Create database automatically
 app.post("/api/setup/create-database", checkSetupProtection, async (req: any, res: any) => {
   const { mode, type, host, port, database, user, password, ssl } = req.body;
-  if (mode !== "local" && (!host || !port || !database || !user)) {
+  if (!host || !port || !database || !user) {
     return res.status(400).json({ error: "Campos obrigatórios ausentes" });
   }
 
   const result = await createDatabaseAutomatically({
-    mode,
-    type: type || (mode === "local" ? "sqlite" : "mysql"),
-    host: mode === "local" ? "localhost" : host,
-    port: mode === "local" ? 0 : parseInt(port),
-    database: mode === "local" ? "pksig.db" : database,
-    user: mode === "local" ? "local" : user,
+    mode: mode || "remoto",
+    type: type || "mysql",
+    host,
+    port: parseInt(port),
+    database,
+    user,
     password,
     ssl: !!ssl
   });
@@ -455,17 +455,17 @@ app.post("/api/setup/create-database", checkSetupProtection, async (req: any, re
 // Verify database compatibility
 app.post("/api/setup/verify-compatibility", checkSetupProtection, async (req: any, res: any) => {
   const { mode, type, host, port, database, user, password, ssl, certificate } = req.body;
-  if (mode !== "local" && (!host || !port || !database || !user)) {
+  if (!host || !port || !database || !user) {
     return res.status(400).json({ error: "Todos os campos de conexão são obrigatórios" });
   }
 
   const result = await verifyDatabaseCompatibility({
-    mode,
-    type: type || (mode === "local" ? "sqlite" : "mysql"),
-    host: mode === "local" ? "localhost" : host,
-    port: mode === "local" ? 0 : parseInt(port),
-    database: mode === "local" ? "pksig.db" : database,
-    user: mode === "local" ? "local" : user,
+    mode: mode || "remoto",
+    type: type || "mysql",
+    host,
+    port: parseInt(port),
+    database,
+    user,
     password,
     ssl: !!ssl,
     certificate
@@ -479,20 +479,16 @@ app.post("/api/setup/install", checkSetupProtection, validateBody(setupInstallSc
   const { connection, admin, company, useExistingDb } = req.body;
 
   try {
-    const isRemoteIncomplete = connection.mode === "remoto" && (!connection.host || !connection.database);
-    const resolvedMode = isRemoteIncomplete ? "local" : connection.mode;
-    const resolvedType = resolvedMode === "local" ? "sqlite" : (connection.type || "mysql");
-
     // 1. Save Config First
     saveDatabaseConfig({
-      mode: resolvedMode,
-      type: resolvedType,
-      host: resolvedMode === "local" ? "localhost" : connection.host,
-      port: resolvedMode === "local" ? 0 : parseInt(connection.port || "3306"),
-      database: resolvedMode === "local" ? "pksig.db" : connection.database,
-      user: resolvedMode === "local" ? "local" : connection.user,
-      password: resolvedMode === "local" ? "" : connection.password,
-      ssl: resolvedMode === "local" ? false : !!connection.ssl
+      mode: connection.mode || "remoto",
+      type: connection.type || "mysql",
+      host: connection.host,
+      port: parseInt(connection.port || "3306"),
+      database: connection.database,
+      user: connection.user,
+      password: connection.password || "",
+      ssl: !!connection.ssl
     });
 
     // 2. Install Schema (Skip if using existing compatible database)
@@ -887,21 +883,10 @@ app.post("/api/auth/login", validateBody(loginSchema), async (req: any, res: any
 
   try {
     // Basic rate limit check: count failures in last 5 mins
-    const config = getDatabaseConfig();
-    const isSqlite = !config || config.mode === "local" || config.type === "sqlite";
-
-    let recentFailures;
-    if (isSqlite) {
-      recentFailures = await query(
-        "SELECT COUNT(*) as failures FROM login_attempts WHERE username = ? AND success = 0 AND attempted_at > datetime('now', '-5 minutes')",
-        [username]
-      );
-    } else {
-      recentFailures = await query(
-        "SELECT COUNT(*) as failures FROM login_attempts WHERE username = ? AND success = 0 AND attempted_at > NOW() - INTERVAL 5 MINUTE",
-        [username]
-      );
-    }
+    const recentFailures = await query(
+      "SELECT COUNT(*) as failures FROM login_attempts WHERE username = ? AND success = 0 AND attempted_at > NOW() - INTERVAL 5 MINUTE",
+      [username]
+    );
     if (recentFailures[0]?.failures >= 5) {
       return res.status(429).json({ error: "Muitas tentativas malsucedidas. Tente novamente em 5 minutos." });
     }
@@ -918,11 +903,7 @@ app.post("/api/auth/login", validateBody(loginSchema), async (req: any, res: any
     // Log success
     await execute("INSERT INTO login_attempts (username, ip_address, success) VALUES (?, ?, 1)", [username, ip]);
     
-    if (isSqlite) {
-      await execute("UPDATE admins SET last_login_at = datetime('now') WHERE id = ?", [admin.id]);
-    } else {
-      await execute("UPDATE admins SET last_login_at = NOW() WHERE id = ?", [admin.id]);
-    }
+    await execute("UPDATE admins SET last_login_at = NOW() WHERE id = ?", [admin.id]);
 
     // Create session token
     const token = await createSession(admin.id, admin.username, admin.name, ip, req.headers["user-agent"]);
@@ -2612,44 +2593,21 @@ app.get("/api/dashboard", requireAuth, async (req: any, res: any) => {
     const equipmentsCount = equipResult[0]?.count || 0;
 
     // 3. Delayed service orders (not Ready, Delivered, or Cancelled)
-    const config = getDatabaseConfig();
-    const isSqlite = !config || config.mode === "local" || config.type === "sqlite";
-
-    let delayedResult;
-    if (isSqlite) {
-      delayedResult = await query(`
-        SELECT COUNT(*) as count 
-        FROM service_orders 
-        WHERE promise_date < datetime('now') 
-          AND status_name NOT IN ('Pronta', 'Entregue', 'Cancelada')
-      `);
-    } else {
-      delayedResult = await query(`
-        SELECT COUNT(*) as count 
-        FROM service_orders 
-        WHERE promise_date < NOW() 
-          AND status_name NOT IN ('Pronta', 'Entregue', 'Cancelada')
-      `);
-    }
+    const delayedResult = await query(`
+      SELECT COUNT(*) as count 
+      FROM service_orders 
+      WHERE promise_date < NOW() 
+        AND status_name NOT IN ('Pronta', 'Entregue', 'Cancelada')
+    `);
     const delayedCount = delayedResult[0]?.count || 0;
 
     // 4. Monthly earnings
-    let earningsResult;
-    if (isSqlite) {
-      earningsResult = await query(`
-        SELECT SUM(amount) as total 
-        FROM payments 
-        WHERE strftime('%m', payment_date) = strftime('%m', 'now') 
-          AND strftime('%Y', payment_date) = strftime('%Y', 'now')
-      `);
-    } else {
-      earningsResult = await query(`
-        SELECT SUM(amount) as total 
-        FROM payments 
-        WHERE MONTH(payment_date) = MONTH(CURRENT_DATE()) 
-          AND YEAR(payment_date) = YEAR(CURRENT_DATE())
-      `);
-    }
+    const earningsResult = await query(`
+      SELECT SUM(amount) as total 
+      FROM payments 
+      WHERE MONTH(payment_date) = MONTH(CURRENT_DATE()) 
+        AND YEAR(payment_date) = YEAR(CURRENT_DATE())
+    `);
     const monthlyEarnings = earningsResult[0]?.total || 0;
 
     // 5. Recent Service Orders
@@ -3510,38 +3468,17 @@ async function ensurePwaColumns() {
       { name: "pwa_icon_url", type: "LONGTEXT NULL" }
     ];
 
-    const dbConfig = getDatabaseConfig();
-    const isMysql = dbConfig?.mode === "remoto";
-
-    if (isMysql) {
-      for (const col of pwaColumns) {
-        try {
-          // MySQL schema check and alter
-          const checkQuery = `SHOW COLUMNS FROM system_settings LIKE '${col.name}'`;
-          const cols = await query(checkQuery);
-          if (!cols || cols.length === 0) {
-            await execute(`ALTER TABLE system_settings ADD COLUMN ${col.name} ${col.type}`);
-            console.log(`Added column ${col.name} to system_settings (MySQL)`);
-          }
-        } catch (e) {
-          // Silently swallow
-        }
-      }
-    } else {
-      // SQLite: fetch columns of system_settings
+    for (const col of pwaColumns) {
       try {
-        const cols = await query("PRAGMA table_info(system_settings)");
-        if (cols && cols.length > 0) {
-          const colNames = cols.map((c: any) => c.name);
-          for (const col of pwaColumns) {
-            if (!colNames.includes(col.name)) {
-              await execute(`ALTER TABLE system_settings ADD COLUMN ${col.name} ${col.type}`);
-              console.log(`Added column ${col.name} to system_settings (SQLite)`);
-            }
-          }
+        // MySQL schema check and alter
+        const checkQuery = `SHOW COLUMNS FROM system_settings LIKE '${col.name}'`;
+        const cols = await query(checkQuery);
+        if (!cols || cols.length === 0) {
+          await execute(`ALTER TABLE system_settings ADD COLUMN ${col.name} ${col.type}`);
+          console.log(`Added column ${col.name} to system_settings (MySQL)`);
         }
       } catch (e) {
-        // Table system_settings doesn't exist yet, ignore
+        // Silently swallow
       }
     }
   } catch (err) {
@@ -3552,9 +3489,6 @@ async function ensurePwaColumns() {
 async function ensureFinancialTables() {
   try {
     if (!isDatabaseConfigured()) return;
-
-    const dbConfig = getDatabaseConfig();
-    const isMysql = dbConfig?.mode === "remoto";
 
     // 1. Check or create financial_categories
     let hasCategoriesTable = false;
@@ -3567,27 +3501,15 @@ async function ensureFinancialTables() {
 
     if (!hasCategoriesTable) {
       console.log("Creating financial_categories table...");
-      if (isMysql) {
-        await execute(`
-          CREATE TABLE financial_categories (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            name VARCHAR(100) NOT NULL,
-            type ENUM('entrada', 'saida') NOT NULL,
-            active TINYINT(1) DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        `);
-      } else {
-        await execute(`
-          CREATE TABLE financial_categories (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            type TEXT NOT NULL,
-            active INTEGER DEFAULT 1,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-          )
-        `);
-      }
+      await execute(`
+        CREATE TABLE financial_categories (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          name VARCHAR(100) NOT NULL,
+          type ENUM('entrada', 'saida') NOT NULL,
+          active TINYINT(1) DEFAULT 1,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
 
       // Seed default categories
       const defaults = [
@@ -3621,41 +3543,22 @@ async function ensureFinancialTables() {
 
     if (!hasTransactionsTable) {
       console.log("Creating financial_transactions table...");
-      if (isMysql) {
-        await execute(`
-          CREATE TABLE financial_transactions (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            description VARCHAR(255) NOT NULL,
-            type ENUM('entrada', 'saida') NOT NULL,
-            amount DECIMAL(12,2) NOT NULL,
-            transaction_date DATE NOT NULL,
-            category_id INT,
-            os_id INT NULL,
-            payment_id INT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            FOREIGN KEY (category_id) REFERENCES financial_categories(id) ON DELETE SET NULL,
-            FOREIGN KEY (os_id) REFERENCES service_orders(id) ON DELETE SET NULL
-          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        `);
-      } else {
-        await execute(`
-          CREATE TABLE financial_transactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            description TEXT NOT NULL,
-            type TEXT NOT NULL,
-            amount DECIMAL(12,2) NOT NULL,
-            transaction_date TEXT NOT NULL,
-            category_id INTEGER,
-            os_id INTEGER NULL,
-            payment_id INTEGER NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (category_id) REFERENCES financial_categories(id) ON DELETE SET NULL,
-            FOREIGN KEY (os_id) REFERENCES service_orders(id) ON DELETE SET NULL
-          )
-        `);
-      }
+      await execute(`
+        CREATE TABLE financial_transactions (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          description VARCHAR(255) NOT NULL,
+          type ENUM('entrada', 'saida') NOT NULL,
+          amount DECIMAL(12,2) NOT NULL,
+          transaction_date DATE NOT NULL,
+          category_id INT,
+          os_id INT NULL,
+          payment_id INT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          FOREIGN KEY (category_id) REFERENCES financial_categories(id) ON DELETE SET NULL,
+          FOREIGN KEY (os_id) REFERENCES service_orders(id) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
       console.log("financial_transactions table created.");
     }
   } catch (err) {
@@ -3667,24 +3570,11 @@ async function ensureFinancialTables() {
 async function ensureFinancialTransactionsPaymentIdColumn() {
   try {
     if (!isDatabaseConfigured()) return;
-    const dbConfig = getDatabaseConfig();
-    const isMysql = dbConfig?.mode === "remoto";
     try {
-      if (isMysql) {
-        const columns = await query("SHOW COLUMNS FROM financial_transactions LIKE 'payment_id'");
-        if (!columns || columns.length === 0) {
-          await execute("ALTER TABLE financial_transactions ADD COLUMN payment_id INT NULL");
-          console.log("Added payment_id column to financial_transactions (MySQL)");
-        }
-      } else {
-        const columns = await query("PRAGMA table_info(financial_transactions)");
-        if (columns && columns.length > 0) {
-          const hasCol = columns.some((col: any) => col.name === "payment_id");
-          if (!hasCol) {
-            await execute("ALTER TABLE financial_transactions ADD COLUMN payment_id INTEGER NULL");
-            console.log("Added payment_id column to financial_transactions (SQLite)");
-          }
-        }
+      const columns = await query("SHOW COLUMNS FROM financial_transactions LIKE 'payment_id'");
+      if (!columns || columns.length === 0) {
+        await execute("ALTER TABLE financial_transactions ADD COLUMN payment_id INT NULL");
+        console.log("Added payment_id column to financial_transactions (MySQL)");
       }
     } catch (e) {
       // Column already exists or table doesn't exist, ignore
@@ -3700,25 +3590,12 @@ async function ensureFinancialTransactionsPaymentIdColumn() {
 async function ensureAttachmentsDescriptionColumn() {
   try {
     if (!isDatabaseConfigured()) return;
-    const dbConfig = getDatabaseConfig();
-    const isMysql = dbConfig?.mode === "remoto";
 
     try {
-      if (isMysql) {
-        const columns = await query("SHOW COLUMNS FROM attachments LIKE 'description'");
-        if (!columns || columns.length === 0) {
-          await execute("ALTER TABLE attachments ADD COLUMN description TEXT NULL");
-          console.log("Added description column to attachments table (MySQL)");
-        }
-      } else {
-        const columns = await query("PRAGMA table_info(attachments)");
-        if (columns && columns.length > 0) {
-          const hasCol = columns.some((col: any) => col.name === "description");
-          if (!hasCol) {
-            await execute("ALTER TABLE attachments ADD COLUMN description TEXT NULL");
-            console.log("Added description column to attachments table (SQLite)");
-          }
-        }
+      const columns = await query("SHOW COLUMNS FROM attachments LIKE 'description'");
+      if (!columns || columns.length === 0) {
+        await execute("ALTER TABLE attachments ADD COLUMN description TEXT NULL");
+        console.log("Added description column to attachments table (MySQL)");
       }
     } catch (e) {
       // Ignore
@@ -3731,49 +3608,26 @@ async function ensureAttachmentsDescriptionColumn() {
 async function ensureAdminSessionsTable() {
   try {
     if (!isDatabaseConfigured()) return;
-    const dbConfig = getDatabaseConfig();
-    const isMysql = dbConfig?.mode === "remoto";
 
     // Try querying the admin_sessions table to see if it exists
     try {
       await query("SELECT 1 FROM admin_sessions LIMIT 1");
     } catch (e) {
       console.log("Creating admin_sessions table...");
-      if (isMysql) {
-        await execute(`
-          CREATE TABLE admin_sessions (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            admin_id INT NOT NULL,
-            token_hash VARCHAR(64) NOT NULL UNIQUE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            expires_at TIMESTAMP NOT NULL,
-            last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            ip_address VARCHAR(45) NULL,
-            user_agent TEXT NULL,
-            FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE,
-            INDEX idx_sessions_token_hash (token_hash)
-          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        `);
-      } else {
-        await execute(`
-          CREATE TABLE admin_sessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            admin_id INTEGER NOT NULL,
-            token_hash TEXT NOT NULL UNIQUE,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            expires_at DATETIME NOT NULL,
-            last_activity_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            ip_address TEXT,
-            user_agent TEXT,
-            FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE
-          )
-        `);
-        try {
-          await execute(`CREATE INDEX idx_sessions_token_hash ON admin_sessions(token_hash)`);
-        } catch (indexErr) {
-          // Index might already exist
-        }
-      }
+      await execute(`
+        CREATE TABLE admin_sessions (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          admin_id INT NOT NULL,
+          token_hash VARCHAR(64) NOT NULL UNIQUE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          expires_at TIMESTAMP NOT NULL,
+          last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          ip_address VARCHAR(45) NULL,
+          user_agent TEXT NULL,
+          FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE,
+          INDEX idx_sessions_token_hash (token_hash)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
       console.log("admin_sessions table checked/created successfully.");
     }
   } catch (err) {
