@@ -887,10 +887,21 @@ app.post("/api/auth/login", validateBody(loginSchema), async (req: any, res: any
 
   try {
     // Basic rate limit check: count failures in last 5 mins
-    const recentFailures = await query(
-      "SELECT COUNT(*) as failures FROM login_attempts WHERE username = ? AND success = 0 AND attempted_at > NOW() - INTERVAL 5 MINUTE",
-      [username]
-    );
+    const config = getDatabaseConfig();
+    const isSqlite = !config || config.mode === "local" || config.type === "sqlite";
+
+    let recentFailures;
+    if (isSqlite) {
+      recentFailures = await query(
+        "SELECT COUNT(*) as failures FROM login_attempts WHERE username = ? AND success = 0 AND attempted_at > datetime('now', '-5 minutes')",
+        [username]
+      );
+    } else {
+      recentFailures = await query(
+        "SELECT COUNT(*) as failures FROM login_attempts WHERE username = ? AND success = 0 AND attempted_at > NOW() - INTERVAL 5 MINUTE",
+        [username]
+      );
+    }
     if (recentFailures[0]?.failures >= 5) {
       return res.status(429).json({ error: "Muitas tentativas malsucedidas. Tente novamente em 5 minutos." });
     }
@@ -2596,21 +2607,44 @@ app.get("/api/dashboard", requireAuth, async (req: any, res: any) => {
     const equipmentsCount = equipResult[0]?.count || 0;
 
     // 3. Delayed service orders (not Ready, Delivered, or Cancelled)
-    const delayedResult = await query(`
-      SELECT COUNT(*) as count 
-      FROM service_orders 
-      WHERE promise_date < NOW() 
-        AND status_name NOT IN ('Pronta', 'Entregue', 'Cancelada')
-    `);
+    const config = getDatabaseConfig();
+    const isSqlite = !config || config.mode === "local" || config.type === "sqlite";
+
+    let delayedResult;
+    if (isSqlite) {
+      delayedResult = await query(`
+        SELECT COUNT(*) as count 
+        FROM service_orders 
+        WHERE promise_date < datetime('now') 
+          AND status_name NOT IN ('Pronta', 'Entregue', 'Cancelada')
+      `);
+    } else {
+      delayedResult = await query(`
+        SELECT COUNT(*) as count 
+        FROM service_orders 
+        WHERE promise_date < NOW() 
+          AND status_name NOT IN ('Pronta', 'Entregue', 'Cancelada')
+      `);
+    }
     const delayedCount = delayedResult[0]?.count || 0;
 
     // 4. Monthly earnings
-    const earningsResult = await query(`
-      SELECT SUM(amount) as total 
-      FROM payments 
-      WHERE MONTH(payment_date) = MONTH(CURRENT_DATE()) 
-        AND YEAR(payment_date) = YEAR(CURRENT_DATE())
-    `);
+    let earningsResult;
+    if (isSqlite) {
+      earningsResult = await query(`
+        SELECT SUM(amount) as total 
+        FROM payments 
+        WHERE strftime('%m', payment_date) = strftime('%m', 'now') 
+          AND strftime('%Y', payment_date) = strftime('%Y', 'now')
+      `);
+    } else {
+      earningsResult = await query(`
+        SELECT SUM(amount) as total 
+        FROM payments 
+        WHERE MONTH(payment_date) = MONTH(CURRENT_DATE()) 
+          AND YEAR(payment_date) = YEAR(CURRENT_DATE())
+      `);
+    }
     const monthlyEarnings = earningsResult[0]?.total || 0;
 
     // 5. Recent Service Orders
