@@ -8,6 +8,7 @@ import {
   Building, Edit, Database, Server, ArrowLeftRight, Download, Upload,
   Smartphone, Shield
 } from "lucide-react";
+import ImportAssistant from "./ImportAssistant";
 
 interface SettingsProps {
   onUpdateCurrency: (currency: string) => void;
@@ -51,6 +52,7 @@ const formatPhone = (value: string) => {
 
 export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated, onDatabaseUpdated }: SettingsProps) {
   const [activeSection, setActiveSection] = useState<"geral" | "categorias" | "pagamentos" | "garantias" | "acessorios" | "empresa" | "armazenamento" | "pwa" | "financeiro">("geral");
+  const [armazenamentoTab, setArmazenamentoTab] = useState<"diagnostico" | "importacao">("diagnostico");
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -1307,6 +1309,35 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
                 </p>
               </div>
 
+              {/* TAB ROW */}
+              <div className="flex border-b border-gray-200">
+                <button
+                  type="button"
+                  onClick={() => setArmazenamentoTab("diagnostico")}
+                  className={`py-2 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+                    armazenamentoTab === "diagnostico"
+                      ? "border-[#0e131f] text-[#0e131f] font-black"
+                      : "border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-200"
+                  }`}
+                >
+                  Visão Geral & Diagnóstico
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setArmazenamentoTab("importacao")}
+                  className={`py-2 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+                    armazenamentoTab === "importacao"
+                      ? "border-[#0e131f] text-[#0e131f] font-black"
+                      : "border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-200"
+                  }`}
+                >
+                  Assistente de Importação & Backup
+                </button>
+              </div>
+
+              {armazenamentoTab === "diagnostico" && (
+                <div className="space-y-6">
+
               {/* ARQUITETURA DE ARMAZENAMENTO COMPLETA E SEGURA - ETAPA 9 */}
               <div className="bg-indigo-50/40 border border-indigo-150 rounded-lg p-4 space-y-3 text-xs leading-relaxed">
                 <h4 className="font-bold text-indigo-950 text-xs flex items-center">
@@ -1489,145 +1520,7 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
                 </div>
               </div>
 
-              {/* DYNAMIC JSON IMPORT/EXPORT FOR SETTINGS */}
-              <div className="bg-white border border-gray-200 rounded-md p-4 space-y-4 shadow-sm">
-                <div className="border-b border-gray-100 pb-2">
-                  <h4 className="font-bold text-gray-800 text-xs flex items-center space-x-1.5">
-                    <ArrowLeftRight className="h-4.5 w-4.5 text-indigo-600" />
-                    <span>Importar e Exportar Configurações (JSON)</span>
-                  </h4>
-                  <p className="text-gray-400 text-[10px] mt-0.5">
-                    Realize o backup ou a carga inicial rápida das configurações essenciais do sistema (Parâmetros, Empresa, Categorias, Formas de Pagamento, Categorias Financeiras, Garantias, e Checklist de Acessórios).
-                  </p>
-                </div>
 
-                {importSuccess && (
-                  <div className="p-3 bg-green-50 border border-green-200 text-green-800 text-xs rounded-md flex items-start space-x-2">
-                    <Check className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
-                    <div>
-                      <p className="font-bold">Sucesso!</p>
-                      <p className="text-[10px] mt-0.5">{importSuccess}</p>
-                    </div>
-                  </div>
-                )}
-
-                {importError && (
-                  <div className="p-3 bg-red-50 border border-red-200 text-red-800 text-xs rounded-md flex items-start space-x-2">
-                    <AlertCircle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
-                    <div>
-                      <p className="font-bold">Falha na Importação</p>
-                      <p className="text-[10px] mt-0.5">{importError}</p>
-                    </div>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
-                  {/* Export Box */}
-                  <div className="border border-gray-200 rounded p-4 flex flex-col justify-between space-y-3 bg-gray-50/30">
-                    <div className="space-y-1">
-                      <h5 className="font-bold text-xs text-gray-900 flex items-center">
-                        <Download className="h-4 w-4 text-indigo-600 mr-1.5" />
-                        Exportar Dados Atuais
-                      </h5>
-                      <p className="text-gray-500 text-[10.5px] leading-relaxed">
-                        Gera um arquivo JSON contendo todas as configurações da empresa, checklists, categorias e garantias cadastradas para salvar como backup seguro.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleExportSettings}
-                      className="w-full py-2 bg-[#0e131f] hover:bg-[#1a2336] text-white rounded text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer"
-                    >
-                      <Download className="h-3.5 w-3.5" />
-                      <span>Exportar Configurações (.JSON)</span>
-                    </button>
-                  </div>
-
-                  {/* Import Box */}
-                  <div className="border border-gray-200 rounded p-4 flex flex-col justify-between space-y-3 bg-gray-50/30">
-                    <div className="space-y-1">
-                      <h5 className="font-bold text-xs text-gray-900 flex items-center">
-                        <Upload className="h-4 w-4 text-emerald-600 mr-1.5" />
-                        Importar do Arquivo
-                      </h5>
-                      <p className="text-gray-500 text-[10.5px] leading-relaxed">
-                        Selecione um arquivo de backup JSON gerado anteriormente. <strong>Atenção:</strong> Isso irá substituir as tabelas de configuração atuais pelas contidas no arquivo.
-                      </p>
-                    </div>
-                    <label className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer text-center">
-                      {importLoading ? <Loader className="animate-spin h-3.5 w-3.5" /> : <Upload className="h-3.5 w-3.5" />}
-                      <span>{importLoading ? "Processando..." : "Importar Configurações (.JSON)"}</span>
-                      <input
-                        type="file"
-                        accept=".json"
-                        onChange={handleImportSettings}
-                        disabled={importLoading}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              {/* BACKUP COMPLETO DATABASE .SQL */}
-              <div className="bg-white border border-gray-200 rounded-md p-4 space-y-4 shadow-sm">
-                <div className="border-b border-gray-100 pb-2">
-                  <h4 className="font-bold text-gray-800 text-xs flex items-center space-x-1.5">
-                    <Database className="h-4.5 w-4.5 text-blue-600 mr-2" />
-                    <span>Importar Backup de Banco de Dados (.SQL)</span>
-                  </h4>
-                  <p className="text-gray-400 text-[10px] mt-0.5">
-                    Restaure ou migre um banco de dados completo contendo tabelas de clientes, ordens de serviço, acessórios, categorias, pagamentos e checklists utilizando um dump SQL do MySQL ou MariaDB.
-                  </p>
-                </div>
-
-                {sqlSuccess && (
-                  <div className="p-3 bg-blue-50 border border-blue-200 text-blue-800 text-xs rounded-md flex items-start space-x-2">
-                    <Check className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
-                    <div>
-                      <p className="font-bold">Sucesso!</p>
-                      <p className="text-[10px] mt-0.5">{sqlSuccess}</p>
-                    </div>
-                  </div>
-                )}
-
-                {sqlError && (
-                  <div className="p-3 bg-red-50 border border-red-200 text-red-800 text-xs rounded-md flex items-start space-x-2">
-                    <AlertCircle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
-                    <div>
-                      <p className="font-bold">Importação Parcial ou Falha</p>
-                      <pre className="text-[9px] mt-1 whitespace-pre-wrap font-mono max-h-32 overflow-y-auto bg-white/50 p-1.5 border border-red-100 rounded">
-                        {sqlError}
-                      </pre>
-                    </div>
-                  </div>
-                )}
-
-                <div className="pt-1">
-                  <div className="border border-gray-200 rounded p-4 flex flex-col justify-between space-y-3 bg-gray-50/30">
-                    <div className="space-y-1">
-                      <h5 className="font-bold text-xs text-gray-900 flex items-center">
-                        <Upload className="h-4 w-4 text-blue-600 mr-1.5" />
-                        Carregar Backup SQL do Banco de Dados
-                      </h5>
-                      <p className="text-gray-500 text-[10.5px] leading-relaxed">
-                        Selecione um arquivo de despejo de dados <strong>.sql</strong> (como um dump gerado pelo phpMyAdmin). Este recurso desabilitará temporariamente a checagem de chaves estrangeiras para carregar e relacionar todos os dados corretamente.
-                      </p>
-                    </div>
-                    <label className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer text-center">
-                      {sqlLoading ? <Loader className="animate-spin h-3.5 w-3.5" /> : <Upload className="h-3.5 w-3.5" />}
-                      <span>{sqlLoading ? "Executando queries SQL..." : "Selecionar e Importar Backup (.SQL)"}</span>
-                      <input
-                        type="file"
-                        accept=".sql"
-                        onChange={handleImportSql}
-                        disabled={sqlLoading}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
-                </div>
-              </div>
 
               {/* REDEFINIÇÃO E RESTAURAÇÃO DE FÁBRICA */}
               <div className="bg-white border border-red-200 rounded-md p-4 space-y-4 shadow-sm">
@@ -1774,7 +1667,47 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
                     3. No frontend, invoque <code className="bg-gray-200 px-1 py-0.2 rounded font-mono">useOperationProgress()</code> passando o ID e renderize o componente reutilizável <code className="bg-gray-200 px-1 py-0.2 rounded font-mono">&lt;ProgressModal /&gt;</code>.
                   </p>
                 </div>
-              </div>
+              )}
+
+              {/* IMPORT TAB CONTENT */}
+              {armazenamentoTab === "importacao" && (
+                <div className="space-y-6">
+                  <ImportAssistant onDatabaseUpdated={onDatabaseUpdated} loadSettingsData={loadSettingsData} />
+
+                  {/* Export Box */}
+                  <div className="bg-white border border-gray-200 rounded-md p-5 space-y-4 shadow-sm">
+                    <div className="border-b border-gray-100 pb-2">
+                      <h4 className="font-bold text-gray-800 text-xs flex items-center space-x-1.5">
+                        <Download className="h-4.5 w-4.5 text-indigo-600 animate-pulse" />
+                        <span>Exportador Geral de Configurações (Backup)</span>
+                      </h4>
+                      <p className="text-gray-400 text-[10px] mt-0.5">
+                        Gere cópias de segurança offline das definições do sistema para reimportar em outros ambientes ou como ponto de restauração seguro.
+                      </p>
+                    </div>
+
+                    <div className="border border-gray-200 rounded p-4 flex flex-col md:flex-row items-center justify-between space-y-3 md:space-y-0 bg-gray-50/30">
+                      <div className="space-y-1 max-w-xl">
+                        <h5 className="font-bold text-xs text-gray-900 flex items-center">
+                          <Download className="h-4 w-4 text-indigo-600 mr-1.5" />
+                          Exportar Dados Atuais
+                        </h5>
+                        <p className="text-gray-500 text-[10.5px] leading-relaxed">
+                          Gera um arquivo de formato JSON contendo todas as tabelas de parametrização da oficina (Empresa, Checklist de Entrada, Garantias, Categorias, Métodos de Pagamento e Definições Gerais).
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleExportSettings}
+                        className="py-2.5 px-5 bg-[#0e131f] hover:bg-[#1a2336] text-white rounded text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer whitespace-nowrap"
+                      >
+                        <Download className="h-4 w-4" />
+                        <span>Exportar Configurações (.JSON)</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* MODALS RENDERING */}
               <ProgressModal
