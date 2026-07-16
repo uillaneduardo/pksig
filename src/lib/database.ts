@@ -188,7 +188,8 @@ export function sqliteQuery<T = any>(sql: string, params: any[] = []): Promise<T
     
     db.all(translatedSql, params, (err: any, rows: any[]) => {
       if (err) {
-        console.error("SQLite query error:", err, "SQL:", translatedSql, "Params:", params);
+        // Log as debug so probes and handled errors don't flood stderr/console
+        console.debug("SQLite query error (handled by caller):", err.message, "SQL:", translatedSql);
         reject(err);
       } else {
         resolve(rows as T[]);
@@ -204,7 +205,8 @@ export function sqliteExecute(sql: string, params: any[] = []): Promise<any> {
     
     db.run(translatedSql, params, function (this: any, err: any) {
       if (err) {
-        console.error("SQLite execute error:", err, "SQL:", translatedSql, "Params:", params);
+        // Log as debug so probes and handled errors don't flood stderr/console
+        console.debug("SQLite execute error (handled by caller):", err.message, "SQL:", translatedSql);
         reject(err);
       } else {
         resolve({

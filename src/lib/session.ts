@@ -42,37 +42,42 @@ export async function createSession(
 
 export async function getSession(token: string): Promise<SessionData | null> {
   if (!token) return null;
-  const tokenHash = hashToken(token);
-  const nowStr = formatDatetime(new Date());
+  try {
+    const tokenHash = hashToken(token);
+    const nowStr = formatDatetime(new Date());
 
-  const sessions = await query(
-    `SELECT s.*, a.username, a.name 
-     FROM admin_sessions s
-     JOIN admins a ON s.admin_id = a.id
-     WHERE s.token_hash = ? AND s.expires_at > ?
-     LIMIT 1`,
-    [tokenHash, nowStr]
-  );
+    const sessions = await query(
+      `SELECT s.*, a.username, a.name 
+       FROM admin_sessions s
+       JOIN admins a ON s.admin_id = a.id
+       WHERE s.token_hash = ? AND s.expires_at > ?
+       LIMIT 1`,
+      [tokenHash, nowStr]
+    );
 
-  if (!sessions || sessions.length === 0) {
+    if (!sessions || sessions.length === 0) {
+      return null;
+    }
+
+    const s = sessions[0];
+
+    // Update last_activity_at to prevent premature cleanup
+    await execute(
+      `UPDATE admin_sessions SET last_activity_at = ? WHERE id = ?`,
+      [formatDatetime(new Date()), s.id]
+    );
+
+    return {
+      userId: s.admin_id,
+      username: s.username,
+      name: s.name,
+      createdAt: new Date(s.created_at).getTime(),
+      expiresAt: new Date(s.expires_at).getTime(),
+    };
+  } catch (err) {
+    console.warn("Failed to retrieve session from database (this is normal if system is not setup):", err);
     return null;
   }
-
-  const s = sessions[0];
-
-  // Update last_activity_at to prevent premature cleanup
-  await execute(
-    `UPDATE admin_sessions SET last_activity_at = ? WHERE id = ?`,
-    [formatDatetime(new Date()), s.id]
-  );
-
-  return {
-    userId: s.admin_id,
-    username: s.username,
-    name: s.name,
-    createdAt: new Date(s.created_at).getTime(),
-    expiresAt: new Date(s.expires_at).getTime(),
-  };
 }
 
 export async function destroySession(token: string): Promise<void> {

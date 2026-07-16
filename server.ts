@@ -3245,9 +3245,9 @@ async function ensurePwaColumns() {
     const dbConfig = getDatabaseConfig();
     const isMysql = dbConfig?.mode === "remoto";
 
-    for (const col of pwaColumns) {
-      try {
-        if (isMysql) {
+    if (isMysql) {
+      for (const col of pwaColumns) {
+        try {
           // MySQL schema check and alter
           const checkQuery = `SHOW COLUMNS FROM system_settings LIKE '${col.name}'`;
           const cols = await query(checkQuery);
@@ -3255,13 +3255,25 @@ async function ensurePwaColumns() {
             await execute(`ALTER TABLE system_settings ADD COLUMN ${col.name} ${col.type}`);
             console.log(`Added column ${col.name} to system_settings (MySQL)`);
           }
-        } else {
-          // SQLite simple try/catch alter
-          await execute(`ALTER TABLE system_settings ADD COLUMN ${col.name} ${col.type}`);
-          console.log(`Added column ${col.name} to system_settings (SQLite)`);
+        } catch (e) {
+          // Silently swallow
+        }
+      }
+    } else {
+      // SQLite: fetch columns of system_settings
+      try {
+        const cols = await query("PRAGMA table_info(system_settings)");
+        if (cols && cols.length > 0) {
+          const colNames = cols.map((c: any) => c.name);
+          for (const col of pwaColumns) {
+            if (!colNames.includes(col.name)) {
+              await execute(`ALTER TABLE system_settings ADD COLUMN ${col.name} ${col.type}`);
+              console.log(`Added column ${col.name} to system_settings (SQLite)`);
+            }
+          }
         }
       } catch (e) {
-        // Silently swallow if column already exists
+        // Table system_settings doesn't exist yet, ignore
       }
     }
   } catch (err) {
@@ -3397,11 +3409,17 @@ async function ensureFinancialTransactionsPaymentIdColumn() {
           console.log("Added payment_id column to financial_transactions (MySQL)");
         }
       } else {
-        await execute("ALTER TABLE financial_transactions ADD COLUMN payment_id INTEGER NULL");
-        console.log("Added payment_id column to financial_transactions (SQLite)");
+        const columns = await query("PRAGMA table_info(financial_transactions)");
+        if (columns && columns.length > 0) {
+          const hasCol = columns.some((col: any) => col.name === "payment_id");
+          if (!hasCol) {
+            await execute("ALTER TABLE financial_transactions ADD COLUMN payment_id INTEGER NULL");
+            console.log("Added payment_id column to financial_transactions (SQLite)");
+          }
+        }
       }
     } catch (e) {
-      // Column already exists, ignore
+      // Column already exists or table doesn't exist, ignore
     }
   } catch (err) {
     console.error("Error ensuring payment_id column in financial_transactions:", err);
@@ -3414,10 +3432,28 @@ async function ensureFinancialTransactionsPaymentIdColumn() {
 async function ensureAttachmentsDescriptionColumn() {
   try {
     if (!isDatabaseConfigured()) return;
-    const columns = await query("SHOW COLUMNS FROM attachments LIKE 'description'");
-    if (columns && columns.length === 0) {
-      await execute("ALTER TABLE attachments ADD COLUMN description TEXT NULL");
-      console.log("Added description column to attachments table");
+    const dbConfig = getDatabaseConfig();
+    const isMysql = dbConfig?.mode === "remoto";
+
+    try {
+      if (isMysql) {
+        const columns = await query("SHOW COLUMNS FROM attachments LIKE 'description'");
+        if (!columns || columns.length === 0) {
+          await execute("ALTER TABLE attachments ADD COLUMN description TEXT NULL");
+          console.log("Added description column to attachments table (MySQL)");
+        }
+      } else {
+        const columns = await query("PRAGMA table_info(attachments)");
+        if (columns && columns.length > 0) {
+          const hasCol = columns.some((col: any) => col.name === "description");
+          if (!hasCol) {
+            await execute("ALTER TABLE attachments ADD COLUMN description TEXT NULL");
+            console.log("Added description column to attachments table (SQLite)");
+          }
+        }
+      }
+    } catch (e) {
+      // Ignore
     }
   } catch (err) {
     console.error("Error checking or adding description column to attachments:", err);
