@@ -419,26 +419,21 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
       setUploadProgress(`Enviando ${i + 1} de ${files.length}: ${file.name}...`);
       
       try {
-        const base64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = (err) => reject(err);
-          reader.readAsDataURL(file);
-        });
+        const formData = new FormData();
+        formData.append("file", file);
 
         const res = await fetch(`/api/service-orders/${osId}/attachments`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            filename: file.name,
-            fileBase64: base64,
-            mimeType: file.type
-          })
+          body: formData
         });
 
         if (res.ok) {
           successCount++;
         } else {
+          const errData = await res.json().catch(() => ({}));
+          if (errData.error) {
+            alert(`Erro ao enviar ${file.name}: ${errData.error}`);
+          }
           failCount++;
         }
       } catch (err) {

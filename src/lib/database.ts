@@ -808,3 +808,67 @@ export async function verifyDatabaseCompatibility(config: DatabaseConfig): Promi
     existingAdmins
   };
 }
+
+export async function runInTransaction<T>(
+  callback: (exec: (sql: string, params?: any[]) => Promise<any>) => Promise<T>
+): Promise<T> {
+  const config = getDatabaseConfig();
+  const isMysql = config?.mode === "remoto";
+
+  if (isMysql) {
+    const activePool = await getPool();
+    const connection = await activePool.getConnection();
+    await connection.beginTransaction();
+
+    const exec = async (sql: string, params: any[] = []): Promise<any> => {
+      const [results] = await connection.query(sql, params);
+      return results;
+    };
+
+    try {
+      const result = await callback(exec);
+      await connection.commit();
+      return result;
+    } catch (err) {
+      await connection.rollback().catch(console.error);
+      throw err;
+    } finally {
+      connection.release();
+    }
+  } else {
+    const db = getSqliteDb();
+
+    const exec = (sql: string, params: any[] = []): Promise<any> => {
+      const translatedSql = translateSqlForSqlite(sql);
+      return new Promise((resolve, reject) => {
+        const lower = translatedSql.trim().toLowerCase();
+        if (lower.startsWith("select")) {
+          db.all(translatedSql, params, (err: any, rows: any[]) => {
+            if (err) reject(err);
+            else resolve(rows);
+          });
+        } else {
+          db.run(translatedSql, params, function (this: any, err: any) {
+            if (err) reject(err);
+            else {
+              resolve({
+                insertId: this ? this.lastID : null,
+                affectedRows: this ? this.changes : 0
+              });
+            }
+          });
+        }
+      });
+    };
+
+    await exec("BEGIN TRANSACTION");
+    try {
+      const result = await callback(exec);
+      await exec("COMMIT");
+      return result;
+    } catch (err) {
+      await exec("ROLLBACK").catch(console.error);
+      throw err;
+    }
+  }
+}

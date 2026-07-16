@@ -1,7 +1,11 @@
 import express from "express";
+import { z } from "zod";
 import path from "path";
 import fs from "fs";
 import bcrypt from "bcryptjs";
+import helmet from "helmet";
+import multer from "multer";
+import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import { 
   isDatabaseConfigured, 
@@ -13,17 +17,157 @@ import {
   query, 
   execute,
   cloneDatabase,
-  verifyDatabaseCompatibility
+  verifyDatabaseCompatibility,
+  runInTransaction
 } from "./src/lib/database.js";
 import { 
   createSession, 
   getSession, 
   destroySession, 
-  cleanExpiredSessions 
+  cleanExpiredSessions,
+  destroyAllUserSessions
 } from "./src/lib/session.js";
+
+// ==========================================
+// Zod Input Validation Schemas & Middleware
+// ==========================================
+
+function validateBody(schema: z.ZodSchema) {
+  return (req: any, res: any, next: any) => {
+    const result = schema.safeParse(req.body);
+    if (!result.success) {
+      const errorMsg = result.error.issues.map(err => `${err.path.join(".")}: ${err.message}`).join(", ");
+      return res.status(400).json({ error: `Falha na validação: ${errorMsg}` });
+    }
+    req.body = result.data;
+    next();
+  };
+}
+
+const loginSchema = z.object({
+  username: z.string().min(3, "Usuário deve conter pelo menos 3 caracteres"),
+  password: z.string().min(4, "Senha deve conter pelo menos 4 caracteres")
+});
+
+const setupInstallSchema = z.object({
+  connection: z.object({
+    mode: z.enum(["local", "remoto"]),
+    host: z.string().optional().nullable().or(z.literal("")),
+    port: z.string().optional().nullable().or(z.literal("")),
+    database: z.string().min(1, "Nome do banco de dados é obrigatório"),
+    user: z.string().optional().nullable().or(z.literal("")),
+    password: z.string().optional().nullable().or(z.literal("")),
+    ssl: z.boolean().optional()
+  }),
+  admin: z.object({
+    name: z.string().min(2, "Nome do administrador deve ter pelo menos 2 caracteres"),
+    username: z.string().min(3, "Username deve ter pelo menos 3 caracteres"),
+    password: z.string().min(4, "Senha do administrador deve ter pelo menos 4 caracteres")
+  }),
+  company: z.object({
+    name: z.string().optional().nullable().or(z.literal("")),
+    tradeName: z.string().optional().nullable().or(z.literal("")),
+    taxId: z.string().optional().nullable().or(z.literal("")),
+    phone: z.string().optional().nullable().or(z.literal("")),
+    whatsapp: z.string().optional().nullable().or(z.literal("")),
+    email: z.string().optional().nullable().or(z.literal("")),
+    address: z.string().optional().nullable().or(z.literal("")),
+    notes: z.string().optional().nullable().or(z.literal(""))
+  }).optional(),
+  useExistingDb: z.boolean().optional()
+});
+
+const clientSchema = z.object({
+  type: z.enum(["Física", "Jurídica"]),
+  name: z.string().min(2, "Nome é obrigatório e deve ter pelo menos 2 caracteres"),
+  cpf_cnpj: z.string().min(11, "CPF/CNPJ é obrigatório e deve ter pelo menos 11 caracteres"),
+  rg_ie: z.string().optional().nullable(),
+  responsible: z.string().optional().nullable(),
+  birth_date: z.string().optional().nullable(),
+  email: z.string().optional().nullable(),
+  phone: z.string().optional().nullable(),
+  whatsapp: z.string().optional().nullable(),
+  zip_code: z.string().optional().nullable(),
+  street: z.string().optional().nullable(),
+  number: z.string().optional().nullable(),
+  complement: z.string().optional().nullable(),
+  neighborhood: z.string().optional().nullable(),
+  city: z.string().optional().nullable(),
+  state: z.string().optional().nullable(),
+  notes: z.string().optional().nullable()
+});
+
+const equipmentSchema = z.object({
+  client_id: z.union([z.number(), z.string().transform(v => parseInt(v))]),
+  category_id: z.union([z.number(), z.string().transform(v => parseInt(v))]),
+  brand: z.string().min(1, "Marca é obrigatória"),
+  model: z.string().min(1, "Modelo é obrigatório"),
+  serial_number: z.string().optional().nullable(),
+  imei: z.string().optional().nullable(),
+  asset_tag: z.string().optional().nullable(),
+  responsible: z.string().optional().nullable(),
+  color: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+  status: z.string().optional().nullable()
+});
 
 const app = express();
 const PORT = 3000;
+
+app.set("trust proxy", 1);
+
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+}));
+
+// Central cookie generator options helper
+export function getCookieOptions(req: any) {
+  const isProd = process.env.NODE_ENV === "production" || 
+                 req.secure || 
+                 req.headers["x-forwarded-proto"] === "https" ||
+                 (req.headers.host && req.headers.host.includes("run.app"));
+                 
+  return {
+    httpOnly: true,
+    path: "/",
+    secure: isProd,
+    sameSite: isProd ? "none" : "lax" as const,
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  };
+}
+
+// Check if system is already installed (has database config and has admin user)
+export async function isSystemInstalled(): Promise<boolean> {
+  if (!isDatabaseConfigured()) return false;
+  try {
+    const admins = await query("SELECT id FROM admins LIMIT 1");
+    return admins && admins.length > 0;
+  } catch (err) {
+    return false;
+  }
+}
+
+// Setup protection middleware
+async function checkSetupProtection(req: any, res: any, next: any) {
+  const installed = await isSystemInstalled();
+  if (installed) {
+    if (req.path === "/api/setup/install" || req.path === "/install") {
+      return res.status(403).json({ error: "Instalação bloqueada: o sistema já possui um administrador configurado." });
+    }
+    // Check if user is authenticated for other setup routes
+    const token = req.cookies.session_token;
+    if (!token) {
+      return res.status(403).json({ error: "Acesso negado: o sistema já está configurado. Requer autenticação." });
+    }
+    const session = await getSession(token);
+    if (!session) {
+      return res.status(403).json({ error: "Acesso negado: sessão inválida." });
+    }
+    req.session = session;
+  }
+  next();
+}
 
 // Increase JSON payload limit to support base64 attachments
 app.use(express.json({ limit: "50mb" }));
@@ -43,6 +187,42 @@ app.use((req: any, res: any, next) => {
   next();
 });
 
+// CSRF dynamic token generator
+export function generateCsrfToken(sessionToken: string): string {
+  return crypto.createHmac("sha256", "pksig-csrf-secret-key-1337").update(sessionToken).digest("hex");
+}
+
+// CSRF Verification Middleware
+async function verifyCsrf(req: any, res: any, next: any) {
+  // GET, HEAD, OPTIONS do not require CSRF token
+  if (["GET", "HEAD", "OPTIONS"].includes(req.method)) {
+    return next();
+  }
+
+  const token = req.cookies.session_token;
+  if (!token) {
+    // If no session token, it's either an anonymous request (like login or initial setup), which are handled separately
+    return next();
+  }
+
+  const session = await getSession(token);
+  if (!session) {
+    // Session is invalid or expired, let it pass so authentication middleware can handle it
+    return next();
+  }
+
+  const expectedCsrfToken = generateCsrfToken(token);
+  const receivedCsrfToken = req.headers["x-csrf-token"];
+
+  if (!receivedCsrfToken || receivedCsrfToken !== expectedCsrfToken) {
+    return res.status(403).json({ error: "Falha na validação de segurança: Token CSRF inválido ou ausente." });
+  }
+
+  next();
+}
+
+app.use("/api", verifyCsrf);
+
 // Authentication middleware
 async function requireAuth(req: any, res: any, next: any) {
   const token = req.cookies.session_token;
@@ -50,9 +230,9 @@ async function requireAuth(req: any, res: any, next: any) {
     return res.status(401).json({ error: "Sessão expirada ou não autenticada" });
   }
 
-  const session = getSession(token);
+  const session = await getSession(token);
   if (!session) {
-    res.clearCookie("session_token", { sameSite: "none", secure: true, httpOnly: true });
+    res.clearCookie("session_token", getCookieOptions(req));
     return res.status(401).json({ error: "Sessão inválida" });
   }
 
@@ -107,17 +287,26 @@ app.get("/api/status", async (req: any, res: any) => {
       console.error("Error reading company settings in status endpoint:", e);
     }
 
-    return res.json({
+    const token = req.cookies.session_token;
+    const session = token ? await getSession(token) : null;
+    const isAuthenticated = !!session;
+
+    const responseData: any = {
       configured: true,
       connected: true,
       hasAdmin: admins.length > 0,
       mode: config?.mode,
-      host: config?.host,
-      database: config?.database,
-      user: config?.user,
       companyName,
       tradeName
-    });
+    };
+
+    if (isAuthenticated) {
+      responseData.host = config?.host;
+      responseData.database = config?.database;
+      responseData.user = config?.user;
+    }
+
+    return res.json(responseData);
   } catch (err: any) {
     return res.json({ 
       configured: true, 
@@ -129,7 +318,7 @@ app.get("/api/status", async (req: any, res: any) => {
 });
 
 // Test database connection
-app.post("/api/setup/test-connection", async (req: any, res: any) => {
+app.post("/api/setup/test-connection", checkSetupProtection, async (req: any, res: any) => {
   const { mode, host, port, database, user, password, ssl } = req.body;
   if (mode !== "local" && (!host || !port || !database || !user)) {
     return res.status(400).json({ error: "Todos os campos de conexão são obrigatórios" });
@@ -149,7 +338,7 @@ app.post("/api/setup/test-connection", async (req: any, res: any) => {
 });
 
 // Create database automatically
-app.post("/api/setup/create-database", async (req: any, res: any) => {
+app.post("/api/setup/create-database", checkSetupProtection, async (req: any, res: any) => {
   const { mode, host, port, database, user, password, ssl } = req.body;
   if (mode !== "local" && (!host || !port || !database || !user)) {
     return res.status(400).json({ error: "Campos obrigatórios ausentes" });
@@ -169,7 +358,7 @@ app.post("/api/setup/create-database", async (req: any, res: any) => {
 });
 
 // Verify database compatibility
-app.post("/api/setup/verify-compatibility", async (req: any, res: any) => {
+app.post("/api/setup/verify-compatibility", checkSetupProtection, async (req: any, res: any) => {
   const { mode, host, port, database, user, password, ssl, certificate } = req.body;
   if (mode !== "local" && (!host || !port || !database || !user)) {
     return res.status(400).json({ error: "Todos os campos de conexão são obrigatórios" });
@@ -190,11 +379,8 @@ app.post("/api/setup/verify-compatibility", async (req: any, res: any) => {
 });
 
 // Install schema & setup administrator
-app.post("/api/setup/install", async (req: any, res: any) => {
+app.post("/api/setup/install", checkSetupProtection, validateBody(setupInstallSchema), async (req: any, res: any) => {
   const { connection, admin, company, useExistingDb } = req.body;
-  if (!connection || !admin) {
-    return res.status(400).json({ error: "Configurações de conexão e administrador são obrigatórias" });
-  }
 
   try {
     // 1. Save Config First
@@ -462,13 +648,9 @@ app.post("/api/database/reset", requireAuth, async (req: any, res: any) => {
 // ==========================================
 
 // Login endpoint
-app.post("/api/auth/login", async (req: any, res: any) => {
+app.post("/api/auth/login", validateBody(loginSchema), async (req: any, res: any) => {
   const { username, password } = req.body;
-  const ip = req.ip || "127.0.0.1";
-
-  if (!username || !password) {
-    return res.status(400).json({ error: "Usuário e senha são obrigatórios" });
-  }
+  const ip = req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress || "127.0.0.1";
 
   if (!isDatabaseConfigured()) {
     return res.status(400).json({ error: "Sistema não configurado. Por favor, faça o setup." });
@@ -498,15 +680,10 @@ app.post("/api/auth/login", async (req: any, res: any) => {
     await execute("UPDATE admins SET last_login_at = NOW() WHERE id = ?", [admin.id]);
 
     // Create session token
-    const token = createSession(admin.id, admin.username, admin.name);
+    const token = await createSession(admin.id, admin.username, admin.name, ip, req.headers["user-agent"]);
 
-    // Set secure cookie for iframe compatibility in AI Studio preview
-    res.cookie("session_token", token, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "none",
-      maxAge: 24 * 60 * 60 * 1000 // 24 hours
-    });
+    // Set secure/lax cookie dynamically
+    res.cookie("session_token", token, getCookieOptions(req));
 
     return res.json({
       success: true,
@@ -523,12 +700,12 @@ app.post("/api/auth/login", async (req: any, res: any) => {
 });
 
 // Logout endpoint
-app.post("/api/auth/logout", (req: any, res: any) => {
+app.post("/api/auth/logout", async (req: any, res: any) => {
   const token = req.cookies.session_token;
   if (token) {
-    destroySession(token);
+    await destroySession(token);
   }
-  res.clearCookie("session_token", { sameSite: "none", secure: true, httpOnly: true });
+  res.clearCookie("session_token", getCookieOptions(req));
   return res.json({ success: true, message: "Logout efetuado com sucesso" });
 });
 
@@ -539,9 +716,9 @@ app.get("/api/auth/me", async (req: any, res: any) => {
     return res.json({ authenticated: false });
   }
 
-  const session = getSession(token);
+  const session = await getSession(token);
   if (!session) {
-    res.clearCookie("session_token", { sameSite: "none", secure: true, httpOnly: true });
+    res.clearCookie("session_token", getCookieOptions(req));
     return res.json({ authenticated: false });
   }
 
@@ -564,48 +741,146 @@ app.get("/api/auth/me", async (req: any, res: any) => {
   }
 });
 
-// ==========================================
-// Helper: Sequential Code Generators
-// ==========================================
-async function generateNextCode(type: "client" | "equipment" | "os" | "guide" | "warranty"): Promise<string> {
-  const sysSettings = await query("SELECT * FROM system_settings LIMIT 1");
-  const settings = sysSettings[0] || {
-    prefix_client: "CLI",
-    prefix_equipment: "EQP",
-    prefix_os: "OS",
-    prefix_guide: "GUIA",
-    prefix_warranty: "GAR",
-    include_year_in_code: 1,
-    digits_count: 6
-  };
+// Endpoint to fetch the session's CSRF token
+app.get("/api/auth/csrf-token", requireAuth, (req: any, res: any) => {
+  const token = req.cookies.session_token;
+  const csrfToken = generateCsrfToken(token);
+  return res.json({ csrfToken });
+});
 
-  let prefix = "";
-  let table = "";
-  if (type === "client") {
-    prefix = settings.prefix_client;
-    table = "clients";
-  } else if (type === "equipment") {
-    prefix = settings.prefix_equipment;
-    table = "equipments";
-  } else if (type === "os") {
-    prefix = settings.prefix_os;
-    table = "service_orders";
-  } else if (type === "guide") {
-    prefix = settings.prefix_guide;
-    table = "payment_guides";
-  } else if (type === "warranty") {
-    prefix = settings.prefix_warranty;
-    table = "warranties";
+// ==========================================
+// Helper: Sequential Code Generators (Concurrency-Safe)
+// ==========================================
+
+class SimpleMutex {
+  private queue: Promise<any> = Promise.resolve();
+
+  async acquire(): Promise<() => void> {
+    let release: () => void;
+    const next = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const current = this.queue;
+    this.queue = current.then(() => next);
+    await current;
+    return release!;
   }
+}
 
-  const yearSuffix = settings.include_year_in_code ? `-${new Date().getFullYear()}` : "";
-  
-  // Find current count
-  const countResult = await query(`SELECT COUNT(*) as total FROM ${table}`);
-  const nextNumber = (countResult[0]?.total || 0) + 1;
-  const paddedNumber = String(nextNumber).padStart(settings.digits_count, "0");
+const sequenceMutex = new SimpleMutex();
 
-  return `${prefix}${yearSuffix}-${paddedNumber}`;
+async function ensureSequencesTable() {
+  try {
+    if (!isDatabaseConfigured()) return;
+    const dbConfig = getDatabaseConfig();
+    const isMysql = dbConfig?.mode === "remoto";
+
+    try {
+      await query("SELECT 1 FROM sequences LIMIT 1");
+    } catch (e) {
+      console.log("Creating sequences table for safe sequential codes...");
+      if (isMysql) {
+        await execute(`
+          CREATE TABLE sequences (
+            type VARCHAR(50) PRIMARY KEY,
+            last_value INT NOT NULL DEFAULT 0
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+      } else {
+        await execute(`
+          CREATE TABLE sequences (
+            type TEXT PRIMARY KEY,
+            last_value INTEGER NOT NULL DEFAULT 0
+          )
+        `);
+      }
+
+      // Seed initial values safely from existing table sizes
+      const entities = [
+        { type: "client", table: "clients" },
+        { type: "equipment", table: "equipments" },
+        { type: "os", table: "service_orders" },
+        { type: "guide", table: "payment_guides" },
+        { type: "warranty", table: "warranties" }
+      ];
+
+      for (const ent of entities) {
+        let initialVal = 0;
+        try {
+          const currentCount = await query(`SELECT COUNT(*) as total FROM ${ent.table}`);
+          initialVal = currentCount[0]?.total || 0;
+        } catch (err) {
+          // Table doesn't exist or is empty
+        }
+        await execute("INSERT INTO sequences (type, last_value) VALUES (?, ?)", [ent.type, initialVal]);
+      }
+      console.log("sequences table initialized successfully.");
+    }
+  } catch (err) {
+    console.error("Error ensuring or seeding sequences table:", err);
+  }
+}
+
+async function generateNextCode(type: "client" | "equipment" | "os" | "guide" | "warranty"): Promise<string> {
+  await ensureSequencesTable();
+
+  const release = await sequenceMutex.acquire();
+  try {
+    const sysSettings = await query("SELECT * FROM system_settings LIMIT 1");
+    const settings = sysSettings[0] || {
+      prefix_client: "CLI",
+      prefix_equipment: "EQP",
+      prefix_os: "OS",
+      prefix_guide: "GUIA",
+      prefix_warranty: "GAR",
+      include_year_in_code: 1,
+      digits_count: 6
+    };
+
+    let prefix = "";
+    if (type === "client") {
+      prefix = settings.prefix_client;
+    } else if (type === "equipment") {
+      prefix = settings.prefix_equipment;
+    } else if (type === "os") {
+      prefix = settings.prefix_os;
+    } else if (type === "guide") {
+      prefix = settings.prefix_guide;
+    } else if (type === "warranty") {
+      prefix = settings.prefix_warranty;
+    }
+
+    // Atomically increment the sequence counter
+    await execute("UPDATE sequences SET last_value = last_value + 1 WHERE type = ?", [type]);
+
+    // Retrieve the newly incremented sequence counter
+    const seqResult = await query("SELECT last_value FROM sequences WHERE type = ?", [type]);
+    let nextNumber = seqResult[0]?.last_value;
+
+    if (!nextNumber) {
+      // Emergency fallback in case the type was somehow not seeded
+      const countTable = type === "client" ? "clients" :
+                         type === "equipment" ? "equipments" :
+                         type === "os" ? "service_orders" :
+                         type === "guide" ? "payment_guides" : "warranties";
+      const countResult = await query(`SELECT COUNT(*) as total FROM ${countTable}`);
+      nextNumber = (countResult[0]?.total || 0) + 1;
+      
+      const isMysql = getDatabaseConfig()?.mode === "remoto";
+      if (isMysql) {
+        await execute("INSERT IGNORE INTO sequences (type, last_value) VALUES (?, ?)", [type, nextNumber]);
+      } else {
+        await execute("INSERT OR IGNORE INTO sequences (type, last_value) VALUES (?, ?)", [type, nextNumber]);
+      }
+    }
+
+    const yearSuffix = settings.include_year_in_code ? `-${new Date().getFullYear()}` : "";
+    const paddedNumber = String(nextNumber).padStart(settings.digits_count, "0");
+
+    return `${prefix}${yearSuffix}-${paddedNumber}`;
+  } finally {
+    release();
+  }
 }
 
 // ==========================================
@@ -653,16 +928,12 @@ app.get("/api/clients", requireAuth, async (req: any, res: any) => {
 });
 
 // Create client
-app.post("/api/clients", requireAuth, async (req: any, res: any) => {
+app.post("/api/clients", requireAuth, validateBody(clientSchema), async (req: any, res: any) => {
   const { 
     type, name, cpf_cnpj, rg_ie, responsible, birth_date, 
     email, phone, whatsapp, zip_code, street, number, 
     complement, neighborhood, city, state, notes 
   } = req.body;
-
-  if (!type || !name || !cpf_cnpj) {
-    return res.status(400).json({ error: "Tipo, nome e CPF/CNPJ são obrigatórios" });
-  }
 
   try {
     const code = await generateNextCode("client");
@@ -798,12 +1069,8 @@ app.put("/api/clients/:id/status", requireAuth, async (req: any, res: any) => {
 // ==========================================
 
 // Create equipment
-app.post("/api/equipment", requireAuth, async (req: any, res: any) => {
+app.post("/api/equipment", requireAuth, validateBody(equipmentSchema), async (req: any, res: any) => {
   const { client_id, category_id, brand, model, serial_number, imei, asset_tag, responsible, color, notes, status } = req.body;
-
-  if (!client_id || !category_id || !brand || !model) {
-    return res.status(400).json({ error: "Cliente, categoria, marca e modelo são obrigatórios" });
-  }
 
   try {
     const code = await generateNextCode("equipment");
@@ -893,43 +1160,47 @@ app.post("/api/service-orders", requireAuth, async (req: any, res: any) => {
   try {
     const code = await generateNextCode("os");
     
-    // Dynamically resolve status_id for 'Recebida' to prevent FK failures
-    const statuses = await query("SELECT id, name FROM service_order_statuses WHERE name = 'Recebida'");
-    let targetStatusId = statuses[0]?.id;
-    let targetStatusName = statuses[0]?.name || "Recebida";
+    const osId = await runInTransaction(async (exec) => {
+      // Dynamically resolve status_id for 'Recebida' to prevent FK failures
+      const statuses = await exec("SELECT id, name FROM service_order_statuses WHERE name = 'Recebida'");
+      let targetStatusId = statuses[0]?.id;
+      let targetStatusName = statuses[0]?.name || "Recebida";
 
-    if (!targetStatusId) {
-      const anyStatus = await query("SELECT id, name FROM service_order_statuses ORDER BY position ASC, id ASC LIMIT 1");
-      if (anyStatus[0]) {
-        targetStatusId = anyStatus[0].id;
-        targetStatusName = anyStatus[0].name;
-      } else {
-        const insStatus = await execute("INSERT INTO service_order_statuses (name, position, is_system) VALUES ('Recebida', 1, 1)");
-        targetStatusId = insStatus.insertId;
-        targetStatusName = "Recebida";
-      }
-    }
-
-    const result = await execute(`
-      INSERT INTO service_orders 
-        (client_id, equipment_id, code, technician_name, status_id, status_name, problem_reported, reception_equipment_state, reception_notes) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [client_id, equipment_id, code, technician_name || "Suporte TI (Administrador)", targetStatusId, targetStatusName, problem_reported, reception_equipment_state || null, reception_notes || null]
-    );
-
-    const osId = result.insertId;
-
-    // Save accessories
-    if (accessories && Array.isArray(accessories)) {
-      for (const acc of accessories) {
-        if (acc) {
-          await execute("INSERT INTO service_order_accessories (service_order_id, accessory_name) VALUES (?, ?)", [osId, acc]);
+      if (!targetStatusId) {
+        const anyStatus = await exec("SELECT id, name FROM service_order_statuses ORDER BY position ASC, id ASC LIMIT 1");
+        if (anyStatus[0]) {
+          targetStatusId = anyStatus[0].id;
+          targetStatusName = anyStatus[0].name;
+        } else {
+          const insStatus = await exec("INSERT INTO service_order_statuses (name, position, is_system) VALUES ('Recebida', 1, 1)");
+          targetStatusId = insStatus.insertId || insStatus.id;
+          targetStatusName = "Recebida";
         }
       }
-    }
 
-    // Update equipment status to "Em manutenção"
-    await execute("UPDATE equipments SET status = 'Em manutenção' WHERE id = ?", [equipment_id]);
+      const result = await exec(`
+        INSERT INTO service_orders 
+          (client_id, equipment_id, code, technician_name, status_id, status_name, problem_reported, reception_equipment_state, reception_notes) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [client_id, equipment_id, code, technician_name || "Suporte TI (Administrador)", targetStatusId, targetStatusName, problem_reported, reception_equipment_state || null, reception_notes || null]
+      );
+
+      const newOsId = result.insertId || result.id;
+
+      // Save accessories
+      if (accessories && Array.isArray(accessories)) {
+        for (const acc of accessories) {
+          if (acc) {
+            await exec("INSERT INTO service_order_accessories (service_order_id, accessory_name) VALUES (?, ?)", [newOsId, acc]);
+          }
+        }
+      }
+
+      // Update equipment status to "Em manutenção"
+      await exec("UPDATE equipments SET status = 'Em manutenção' WHERE id = ?", [equipment_id]);
+
+      return newOsId;
+    });
 
     return res.json({ success: true, osId, code });
   } catch (err: any) {
@@ -983,6 +1254,66 @@ app.get("/api/service-orders/:id", requireAuth, async (req: any, res: any) => {
   } catch (err: any) {
     console.error("Get OS details error:", err);
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete Service Order (Concurrency and Transaction-Safe)
+app.delete("/api/service-orders/:id", requireAuth, async (req: any, res: any) => {
+  const { id } = req.params;
+
+  try {
+    // 1. Fetch physical attachments list first (so we know what to delete physically if DB transaction succeeds)
+    const attachments = await query("SELECT file_path FROM attachments WHERE service_order_id = ?", [id]);
+
+    // 2. Perform database deletes inside a single unified transaction
+    await runInTransaction(async (exec) => {
+      // Delete budget items
+      await exec("DELETE FROM budget_items WHERE service_order_id = ?", [id]);
+
+      // Delete service order accessories
+      await exec("DELETE FROM service_order_accessories WHERE service_order_id = ?", [id]);
+
+      // Delete attachments meta
+      await exec("DELETE FROM attachments WHERE service_order_id = ?", [id]);
+
+      // Delete payment guides associated
+      await exec("DELETE FROM payment_guides WHERE service_order_id = ?", [id]);
+
+      // Delete warranties associated
+      await exec("DELETE FROM warranties WHERE service_order_id = ?", [id]);
+
+      // Delete service order logs/history if any
+      try {
+        await exec("DELETE FROM service_order_logs WHERE service_order_id = ?", [id]);
+      } catch (logErr) {
+        // Table may not exist, ignore
+      }
+
+      // Finally, delete the service order itself
+      const deleteResult = await exec("DELETE FROM service_orders WHERE id = ?", [id]);
+      // For MySQL, deleteResult can be okPacket. SQLite can be { affectedRows }. Handle both safely:
+      const affected = deleteResult?.affectedRows !== undefined ? deleteResult.affectedRows : 1; 
+      if (affected === 0) {
+        throw new Error("Ordem de serviço não encontrada para exclusão.");
+      }
+    });
+
+    // 3. Only if database transaction committed successfully, delete the physical files
+    for (const attachment of attachments) {
+      try {
+        const absolutePath = path.join(process.cwd(), attachment.file_path);
+        if (fs.existsSync(absolutePath)) {
+          fs.unlinkSync(absolutePath);
+        }
+      } catch (err) {
+        console.error("Error unlinking physical file on deleted OS:", attachment.file_path, err);
+      }
+    }
+
+    return res.json({ success: true, message: "Ordem de serviço e todos os registros vinculados foram excluídos com sucesso." });
+  } catch (err: any) {
+    console.error("Delete Service Order error:", err);
+    return res.status(500).json({ error: err.message || "Erro interno ao excluir ordem de serviço." });
   }
 });
 
@@ -1203,23 +1534,26 @@ app.post("/api/service-orders/:id/guide", requireAuth, async (req: any, res: any
 // 6. PAYMENTS & FINANCES ENDPOINTS
 // ==========================================
 
-async function recalculateGuidePayments(guideId: number) {
+async function recalculateGuidePayments(guideId: number, txExec?: (sql: string, params?: any[]) => Promise<any>) {
+  const runQuery = txExec || query;
+  const runExecute = txExec || execute;
+
   // 1. Get the guide
-  const guides = await query("SELECT * FROM payment_guides WHERE id = ?", [guideId]);
+  const guides = await runQuery("SELECT * FROM payment_guides WHERE id = ?", [guideId]);
   const guide = guides[0];
   if (!guide) return;
 
   // 2. Get all payments for this guide in chronological/insert order
-  const payments = await query("SELECT * FROM payments WHERE payment_guide_id = ? ORDER BY id ASC", [guideId]);
+  const payments = await runQuery("SELECT * FROM payments WHERE payment_guide_id = ? ORDER BY id ASC", [guideId]);
 
   // 3. Reset all installments of this guide
-  await execute(
+  await runExecute(
     "UPDATE payment_installments SET paid_amount = 0, paid_date = NULL, status = 'Pendente' WHERE payment_guide_id = ?",
     [guideId]
   );
 
   // 4. Reset installments list in memory so we can update them
-  const installments = await query("SELECT * FROM payment_installments WHERE payment_guide_id = ? ORDER BY installment_number ASC", [guideId]);
+  const installments = await runQuery("SELECT * FROM payment_installments WHERE payment_guide_id = ? ORDER BY installment_number ASC", [guideId]);
 
   // 5. Distribute payments over installments
   for (const payment of payments) {
@@ -1257,7 +1591,7 @@ async function recalculateGuidePayments(guideId: number) {
 
   // 6. Save updated installments back to DB
   for (const inst of installments) {
-    await execute(
+    await runExecute(
       "UPDATE payment_installments SET paid_amount = ?, paid_date = ?, status = ? WHERE id = ?",
       [inst.paid_amount, inst.paid_date || null, inst.status, inst.id]
     );
@@ -1269,7 +1603,7 @@ async function recalculateGuidePayments(guideId: number) {
   const newBalance = Math.max(0, +(guideTotalAmount - totalPaid).toFixed(2));
   const newStatus = newBalance <= 0 ? "Quitada" : (totalPaid > 0 ? "Parcial" : "Pendente");
 
-  await execute(
+  await runExecute(
     "UPDATE payment_guides SET paid_amount = ?, balance_amount = ?, status = ? WHERE id = ?",
     [totalPaid, newBalance, newStatus, guideId]
   );
@@ -1290,60 +1624,62 @@ app.post("/api/payment-guides/:id/pay", requireAuth, async (req: any, res: any) 
   }
 
   try {
-    const guides = await query("SELECT * FROM payment_guides WHERE id = ?", [id]);
-    const guide = guides[0];
-    if (!guide) {
-      return res.status(404).json({ error: "Guia de pagamento não encontrada" });
-    }
+    const updatedGuide = await runInTransaction(async (exec) => {
+      const guides = await exec("SELECT * FROM payment_guides WHERE id = ?", [id]);
+      const guide = guides[0];
+      if (!guide) {
+        throw new Error("Guia de pagamento não encontrada");
+      }
 
-    if (guide.status === "Cancelada") {
-      return res.status(400).json({ error: "Esta guia foi cancelada" });
-    }
+      if (guide.status === "Cancelada") {
+        throw new Error("Esta guia foi cancelada");
+      }
 
-    const methods = await query("SELECT name FROM payment_methods WHERE id = ?", [method_id]);
-    const methodName = methods[0]?.name || "Outro";
+      const methods = await exec("SELECT name FROM payment_methods WHERE id = ?", [method_id]);
+      const methodName = methods[0]?.name || "Outro";
 
-    // 1. Log Payment
-    const paymentResult = await execute(`
-      INSERT INTO payments (payment_guide_id, installment_id, amount, payment_date, method_id, method_name, notes) 
-      VALUES (?, ?, ?, CURRENT_DATE(), ?, ?, ?)`,
-      [id, installment_id || null, paymentAmount, method_id, methodName, notes || null]
-    );
-
-    const paymentId = paymentResult.insertId;
-
-    // Get client / OS information to build description in Financial Transaction
-    const osInfo = await query(`
-      SELECT o.id as os_id, o.code as os_code, cl.name as client_name 
-      FROM payment_guides g
-      JOIN service_orders o ON g.service_order_id = o.id
-      LEFT JOIN clients cl ON o.client_id = cl.id
-      WHERE g.id = ?`, [id]);
-    
-    if (osInfo && osInfo[0]) {
-      const osId = osInfo[0].os_id;
-      const osCode = osInfo[0].os_code;
-      const clientName = osInfo[0].client_name || "";
-      const paymentDesc = `Pagamento da OS ${osCode} - ${clientName} (${methodName})`;
-
-      // Find 'Serviço de OS' category
-      const finCats = await query("SELECT id FROM financial_categories WHERE name = 'Serviço de OS' AND active = 1 LIMIT 1");
-      const categoryId = finCats[0]?.id || null;
-
-      // Log in financial_transactions
-      await execute(`
-        INSERT INTO financial_transactions (description, type, amount, transaction_date, category_id, os_id, payment_id)
-        VALUES (?, 'entrada', ?, CURRENT_DATE(), ?, ?, ?)`,
-        [paymentDesc, paymentAmount, categoryId, osId, paymentId]
+      // 1. Log Payment
+      const paymentResult = await exec(`
+        INSERT INTO payments (payment_guide_id, installment_id, amount, payment_date, method_id, method_name, notes) 
+        VALUES (?, ?, ?, CURRENT_DATE(), ?, ?, ?)`,
+        [id, installment_id || null, paymentAmount, method_id, methodName, notes || null]
       );
-    }
 
-    // 2. Recalculate
-    await recalculateGuidePayments(parseInt(id));
+      const paymentId = paymentResult.insertId || paymentResult.id;
 
-    // Get updated info
-    const updatedGuides = await query("SELECT * FROM payment_guides WHERE id = ?", [id]);
-    const updatedGuide = updatedGuides[0];
+      // Get client / OS information to build description in Financial Transaction
+      const osInfo = await exec(`
+        SELECT o.id as os_id, o.code as os_code, cl.name as client_name 
+        FROM payment_guides g
+        JOIN service_orders o ON g.service_order_id = o.id
+        LEFT JOIN clients cl ON o.client_id = cl.id
+        WHERE g.id = ?`, [id]);
+      
+      if (osInfo && osInfo[0]) {
+        const osId = osInfo[0].os_id;
+        const osCode = osInfo[0].os_code;
+        const clientName = osInfo[0].client_name || "";
+        const paymentDesc = `Pagamento da OS ${osCode} - ${clientName} (${methodName})`;
+
+        // Find 'Serviço de OS' category
+        const finCats = await exec("SELECT id FROM financial_categories WHERE name = 'Serviço de OS' AND active = 1 LIMIT 1");
+        const categoryId = finCats[0]?.id || null;
+
+        // Log in financial_transactions
+        await exec(`
+          INSERT INTO financial_transactions (description, type, amount, transaction_date, category_id, os_id, payment_id)
+          VALUES (?, 'entrada', ?, CURRENT_DATE(), ?, ?, ?)`,
+          [paymentDesc, paymentAmount, categoryId, osId, paymentId]
+        );
+      }
+
+      // 2. Recalculate using the same transaction connection
+      await recalculateGuidePayments(parseInt(id), exec);
+
+      // Get updated info
+      const updatedGuides = await exec("SELECT * FROM payment_guides WHERE id = ?", [id]);
+      return updatedGuides[0];
+    });
 
     return res.json({ 
       success: true, 
@@ -1810,48 +2146,140 @@ app.post("/api/service-orders/:id/warranty", requireAuth, async (req: any, res: 
 });
 
 // ==========================================
-// 8. ATTACHMENT ENDPOINTS (Base64 uploads)
+// 8. ATTACHMENT ENDPOINTS (Secure Multipart Uploads)
 // ==========================================
 
-app.post("/api/service-orders/:id/attachments", requireAuth, async (req: any, res: any) => {
-  const { id } = req.params;
-  const { filename, fileBase64, mimeType, description } = req.body;
+const allowedMimeTypes = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "application/pdf",
+  "video/mp4",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+];
 
-  if (!filename || !fileBase64 || !mimeType) {
-    return res.status(400).json({ error: "Dados do anexo incompletos" });
+const attachmentStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, ATTACHMENTS_DIR);
+  },
+  filename: (req, file, cb) => {
+    // Generate secure randomized physical name and sanitize ext
+    const randomName = crypto.randomBytes(16).toString("hex");
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `${randomName}${ext}`);
+  }
+});
+
+const uploadAttachment = multer({
+  storage: attachmentStorage,
+  limits: {
+    fileSize: 20 * 1024 * 1024 // 20 MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    if (allowedMimeTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("MimeTypeNotAllowed"));
+    }
+  }
+});
+
+const uploadSingle = (req: any, res: any, next: any) => {
+  uploadAttachment.single("file")(req, res, (err: any) => {
+    if (err) {
+      if (err.code === "LIMIT_FILE_SIZE") {
+        return res.status(400).json({ error: "O tamanho máximo do arquivo é de 20 MB." });
+      }
+      if (err.message === "MimeTypeNotAllowed") {
+        return res.status(400).json({ error: "Formato de arquivo não suportado. Tipos permitidos: JPEG, PNG, WebP, PDF, MP4, DOC, DOCX." });
+      }
+      return res.status(400).json({ error: err.message || "Erro no upload do arquivo." });
+    }
+    next();
+  });
+};
+
+app.post("/api/service-orders/:id/attachments", requireAuth, uploadSingle, async (req: any, res: any) => {
+  const { id } = req.params;
+  const { description } = req.body;
+  const file = req.file;
+
+  if (!file) {
+    return res.status(400).json({ error: "Nenhum arquivo enviado ou dados incompletos." });
+  }
+
+  const filename = file.originalname;
+  const mimeType = file.mimetype;
+  const uniqueFilename = file.filename;
+  const fileSize = file.size;
+  const relativePath = `storage/attachments/${uniqueFilename}`;
+
+  // Validate uploaded metadata with Zod
+  const attachmentMetadataResult = z.object({
+    description: z.string().max(500, "A descrição deve ter no máximo 500 caracteres").optional().nullable(),
+    filename: z.string().min(1, "Nome do arquivo é inválido"),
+    mimeType: z.string().refine(
+      (mime) => [
+        "image/jpeg", "image/png", "image/webp", "application/pdf", 
+        "video/mp4", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      ].includes(mime),
+      { message: "Tipo de arquivo não permitido." }
+    ),
+    fileSize: z.number().max(20 * 1024 * 1024, "O tamanho do arquivo excede o limite de 20MB")
+  }).safeParse({
+    description,
+    filename,
+    mimeType,
+    fileSize
+  });
+
+  if (!attachmentMetadataResult.success) {
+    try {
+      const fullPath = path.join(process.cwd(), relativePath);
+      if (fs.existsSync(fullPath)) {
+        fs.unlinkSync(fullPath);
+      }
+    } catch (e) {
+      // ignore unlink error
+    }
+    const errorMsg = attachmentMetadataResult.error.issues.map(err => `${err.path.join(".")}: ${err.message}`).join(", ");
+    return res.status(400).json({ error: `Dados de upload inválidos: ${errorMsg}` });
   }
 
   try {
-    // Strip header from base64 if present
-    const base64Data = fileBase64.replace(/^data:.*?;base64,/, "");
-    const buffer = Buffer.from(base64Data, "base64");
-    
-    // Save physical file
-    const uniqueFilename = `${Date.now()}-${filename}`;
-    const filePath = path.join(ATTACHMENTS_DIR, uniqueFilename);
-    fs.writeFileSync(filePath, buffer);
-
     // Save to DB
     const result = await execute(`
       INSERT INTO attachments (service_order_id, filename, file_path, file_size, mime_type, description) 
       VALUES (?, ?, ?, ?, ?, ?)`,
-      [id, filename, `storage/attachments/${uniqueFilename}`, buffer.length, mimeType, description || null]
+      [id, filename, relativePath, fileSize, mimeType, description || null]
     );
+
+    // SQLite compatibility check for inserted ID
+    const insertId = result.insertId || result.id || 0;
 
     return res.json({ 
       success: true, 
       attachment: {
-        id: result.insertId,
+        id: insertId,
         filename,
-        file_size: buffer.length,
+        file_size: fileSize,
         mime_type: mimeType,
         description: description || null,
         uploaded_at: new Date()
       } 
     });
   } catch (err: any) {
-    console.error("Upload attachment error:", err);
-    return res.status(500).json({ error: err.message });
+    // Remove orphaned file from storage
+    try {
+      if (fs.existsSync(file.path)) {
+        fs.unlinkSync(file.path);
+      }
+    } catch (unlinkErr) {
+      console.error("Error removing orphaned file on DB fail:", unlinkErr);
+    }
+    console.error("Upload attachment database error:", err);
+    return res.status(500).json({ error: "Erro interno ao salvar os metadados do anexo no banco de dados." });
   }
 });
 
@@ -2577,6 +3005,11 @@ app.post("/api/settings/security/update", requireAuth, async (req: any, res: any
       [name || admin.name, username || admin.username, passHash, adminId]
     );
 
+    if (new_password) {
+      await destroyAllUserSessions(adminId);
+      res.clearCookie("session_token", getCookieOptions(req));
+    }
+
     return res.json({ success: true, message: "Perfil de segurança atualizado com sucesso!" });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -2991,12 +3424,72 @@ async function ensureAttachmentsDescriptionColumn() {
   }
 }
 
+async function ensureAdminSessionsTable() {
+  try {
+    if (!isDatabaseConfigured()) return;
+    const dbConfig = getDatabaseConfig();
+    const isMysql = dbConfig?.mode === "remoto";
+
+    // Try querying the admin_sessions table to see if it exists
+    try {
+      await query("SELECT 1 FROM admin_sessions LIMIT 1");
+    } catch (e) {
+      console.log("Creating admin_sessions table...");
+      if (isMysql) {
+        await execute(`
+          CREATE TABLE admin_sessions (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            admin_id INT NOT NULL,
+            token_hash VARCHAR(64) NOT NULL UNIQUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP NOT NULL,
+            last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            ip_address VARCHAR(45) NULL,
+            user_agent TEXT NULL,
+            FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE,
+            INDEX idx_sessions_token_hash (token_hash)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+      } else {
+        await execute(`
+          CREATE TABLE admin_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            admin_id INTEGER NOT NULL,
+            token_hash TEXT NOT NULL UNIQUE,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            expires_at DATETIME NOT NULL,
+            last_activity_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            ip_address TEXT,
+            user_agent TEXT,
+            FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE
+          )
+        `);
+        try {
+          await execute(`CREATE INDEX idx_sessions_token_hash ON admin_sessions(token_hash)`);
+        } catch (indexErr) {
+          // Index might already exist
+        }
+      }
+      console.log("admin_sessions table checked/created successfully.");
+    }
+  } catch (err) {
+    console.error("Error checking or creating admin_sessions table:", err);
+  }
+}
+
 async function startServer() {
   // Ensure table migration
+  await ensureAdminSessionsTable();
+  await ensureSequencesTable();
   await ensureAttachmentsDescriptionColumn();
   await ensurePwaColumns();
   await ensureFinancialTables();
   await ensureFinancialTransactionsPaymentIdColumn();
+
+  // Periodically clean expired sessions every hour
+  setInterval(() => {
+    cleanExpiredSessions().catch((err) => console.error("Error cleaning expired sessions:", err));
+  }, 60 * 60 * 1000);
 
   // Vite integration
   if (process.env.NODE_ENV !== "production") {

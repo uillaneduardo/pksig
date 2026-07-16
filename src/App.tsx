@@ -4,6 +4,7 @@ import {
   LogOut, AlertCircle, RefreshCw, ChevronRight, Menu, DollarSign,
   ChevronLeft
 } from "lucide-react";
+import { fetchCsrfToken } from "./lib/api";
 
 // Components
 import SetupWizard from "./components/SetupWizard";
@@ -67,6 +68,7 @@ export default function App() {
             if (meData.authenticated) {
               setIsAuthenticated(true);
               setCurrentUser(meData.user);
+              await fetchCsrfToken();
             } else {
               setIsAuthenticated(false);
               setCurrentUser(null);
@@ -144,9 +146,10 @@ export default function App() {
   if (!isAuthenticated) {
     return (
       <Login 
-        onSuccess={(user) => {
+        onSuccess={async (user) => {
           setIsAuthenticated(true);
           setCurrentUser(user);
+          await fetchCsrfToken();
           checkSystemStatus();
         }} 
       />
