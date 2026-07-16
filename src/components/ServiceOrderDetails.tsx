@@ -4,9 +4,10 @@ import {
   ArrowLeft, Save, FileText, Check, Plus, Trash2, DollarSign, 
   ShieldCheck, Upload, Download, Loader, CheckCircle, AlertCircle, Edit
 } from "lucide-react";
+import { DataService } from "../lib/dataService";
 
 interface ServiceOrderDetailsProps {
-  osId: number;
+  osId: number | string;
   onBack: () => void;
   currency: string;
 }
@@ -169,19 +170,19 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
   const loadOSDetails = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/service-orders/${osId}`);
-      if (res.ok) {
-        const data = await res.json();
+      const data = await DataService.getServiceOrder(osId);
+      if (data) {
         setOrder(data.order);
-        setAccessories(data.accessories || []);
-        setBudgetItems(data.budgetItems || []);
-        setGuide(data.guide);
-        setWarranty(data.warranty);
+        setAccessories(data.accessories || data.order?.accessories || []);
+        setBudgetItems(data.budgetItems || data.items || []);
+        setGuide(data.guide || (data.guides && data.guides[0]) || null);
+        setWarranty(data.warranty || (data.warranties && data.warranties[0]) || null);
         setAttachments(data.attachments || []);
 
-        if (data.guide) {
+        const activeGuide = data.guide || (data.guides && data.guides[0]);
+        if (activeGuide && !String(activeGuide.id).startsWith("guide_off_") && !String(osId).startsWith("os_off_")) {
           try {
-            const guideRes = await fetch(`/api/payment-guides/${data.guide.id}`);
+            const guideRes = await fetch(`/api/payment-guides/${activeGuide.id}`);
             if (guideRes.ok) {
               const guideData = await guideRes.json();
               setGuideInstallments(guideData.installments || []);
@@ -198,8 +199,8 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
       } else {
         setErrorMsg("Falha ao carregar ordem de serviço.");
       }
-    } catch (err) {
-      setErrorMsg("Erro de comunicação.");
+    } catch (err: any) {
+      setErrorMsg(err?.message || "Erro de comunicação.");
     } finally {
       setLoading(false);
     }
@@ -244,24 +245,15 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
     setSuccessMsg("");
 
     try {
-      const res = await fetch(`/api/service-orders/${osId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...order,
-          accessories
-        })
+      await DataService.updateServiceOrder(osId, {
+        ...order,
+        accessories
       });
-      if (res.ok) {
-        setSuccessMsg("Ordem de Serviço salva com sucesso.");
-        setTimeout(() => setSuccessMsg(""), 3000);
-        loadOSDetails();
-      } else {
-        const errorData = await res.json().catch(() => ({}));
-        setErrorMsg(errorData.error || "Erro ao salvar ordem de serviço.");
-      }
-    } catch (err) {
-      setErrorMsg("Falha ao conectar com o servidor.");
+      setSuccessMsg("Ordem de Serviço salva com sucesso.");
+      setTimeout(() => setSuccessMsg(""), 3000);
+      loadOSDetails();
+    } catch (err: any) {
+      setErrorMsg(err?.message || "Erro ao salvar ordem de serviço.");
     } finally {
       setIsSaving(false);
     }
@@ -277,33 +269,26 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
 
     try {
       const isEditing = !!editingBudgetItem;
-      const url = isEditing 
-        ? `/api/service-orders/${osId}/budget/${editingBudgetItem.id}` 
-        : `/api/service-orders/${osId}/budget`;
-      const method = isEditing ? "PUT" : "POST";
+      const payload = {
+        description: newDesc,
+        type: newType,
+        quantity: parseFloat(newQty),
+        unit_value: parseFloat(newVal)
+      };
 
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          description: newDesc,
-          type: newType,
-          quantity: parseFloat(newQty),
-          unit_value: parseFloat(newVal)
-        })
-      });
-      if (res.ok) {
-        setNewDesc("");
-        setNewQty("1");
-        setNewVal("0");
-        setEditingBudgetItem(null);
-        loadOSDetails();
+      if (isEditing) {
+        await DataService.updateBudgetItem(osId, editingBudgetItem.id, payload);
       } else {
-        const d = await res.json();
-        alert(d.error || `Erro ao ${isEditing ? "atualizar" : "adicionar"} item.`);
+        await DataService.addBudgetItem(osId, payload);
       }
-    } catch (err) {
-      alert("Erro ao conectar.");
+
+      setNewDesc("");
+      setNewQty("1");
+      setNewVal("0");
+      setEditingBudgetItem(null);
+      loadOSDetails();
+    } catch (err: any) {
+      alert(err?.message || "Erro ao salvar item do orçamento.");
     }
   };
 
@@ -324,21 +309,14 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
   };
 
   // Remove Budget Item
-  const handleRemoveBudgetItem = async (itemId: number) => {
+  const handleRemoveBudgetItem = async (itemId: number | string) => {
     if (!window.confirm("Deseja realmente remover este item do orçamento?")) return;
 
     try {
-      const res = await fetch(`/api/service-orders/${osId}/budget/${itemId}`, {
-        method: "DELETE"
-      });
-      if (res.ok) {
-        loadOSDetails();
-      } else {
-        const d = await res.json();
-        alert(d.error || "Erro ao remover item.");
-      }
-    } catch (err) {
-      alert("Falha de conexão.");
+      await DataService.deleteBudgetItem(osId, itemId);
+      loadOSDetails();
+    } catch (err: any) {
+      alert(err?.message || "Erro ao remover item.");
     }
   };
 

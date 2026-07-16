@@ -2,9 +2,12 @@ import { useState, useEffect } from "react";
 import { 
   Shield, LayoutDashboard, Users, FileText, Settings as SettingsIcon, 
   LogOut, AlertCircle, RefreshCw, ChevronRight, Menu, DollarSign,
-  ChevronLeft, Database, Cloud, Upload, Download, Check, AlertTriangle
+  ChevronLeft, Database, Cloud, Upload, Download, Check, AlertTriangle,
+  Wifi, WifiOff
 } from "lucide-react";
 import { fetchCsrfToken } from "./lib/api";
+import { DataService, type SyncStatus } from "./lib/dataService";
+import { useRegisterSW } from "virtual:pwa-register/react";
 
 // Components
 import SetupWizard from "./components/SetupWizard";
@@ -16,8 +19,40 @@ import ServiceOrderList from "./components/ServiceOrderList";
 import ServiceOrderDetails from "./components/ServiceOrderDetails";
 import Settings from "./components/Settings";
 import Finance from "./components/Finance";
+import PwaStatusDashboard from "./components/PwaStatusDashboard";
 
 export default function App() {
+  // useRegisterSW hook for PWA update management
+  const {
+    needRefresh: [needRefresh, setNeedRefresh],
+    updateServiceWorker,
+  } = useRegisterSW({
+    onRegistered(r) {
+      console.log("Service Worker successfully registered:", r);
+    },
+    onRegisterError(error) {
+      console.error("Service Worker registration failed:", error);
+    }
+  });
+
+  // PWA states
+  const [pwaStatus, setPwaStatus] = useState<SyncStatus>({
+    isOnline: typeof navigator !== "undefined" ? navigator.onLine : true,
+    isSyncing: false,
+    pendingCount: 0,
+    lastSyncAt: null,
+    conflictCount: 0,
+  });
+  const [showPwaModal, setShowPwaModal] = useState<boolean>(false);
+
+  // Subscribe to DataService status
+  useEffect(() => {
+    const unsubscribe = DataService.subscribe((status) => {
+      setPwaStatus(status);
+    });
+    return () => unsubscribe();
+  }, []);
+
   // Config state
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [dbConnected, setDbConnected] = useState<boolean>(false);
@@ -80,8 +115,8 @@ export default function App() {
 
   // Navigation / Routing state
   const [activeTab, setActiveTab] = useState<string>("dashboard"); // dashboard, clients, client-detail, os-list, os-detail, settings
-  const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
-  const [selectedOSId, setSelectedOSId] = useState<number | null>(null);
+  const [selectedClientId, setSelectedClientId] = useState<number | string | null>(null);
+  const [selectedOSId, setSelectedOSId] = useState<number | string | null>(null);
 
   // Global settings synced from backend Settings
   const [currency, setCurrency] = useState<string>("R$");
@@ -178,9 +213,9 @@ export default function App() {
   // State switcher helper
   const navigateTo = (tab: string, arg?: any) => {
     setActiveTab(tab);
-    if (tab === "client-detail" && typeof arg === "number") {
+    if (tab === "client-detail" && arg !== undefined) {
       setSelectedClientId(arg);
-    } else if (tab === "os-detail" && typeof arg === "number") {
+    } else if (tab === "os-detail" && arg !== undefined) {
       setSelectedOSId(arg);
     }
     setShowMobileSidebar(false);
@@ -378,7 +413,7 @@ export default function App() {
           </div>
 
           {/* User information display & Cohesive intelligent sync status widget */}
-          <div className="relative flex items-center">
+          <div className="relative flex items-center space-x-2">
             {/* Click-outside listener for dropdown closing */}
             {showSyncDropdown && (
               <div 
@@ -386,6 +421,46 @@ export default function App() {
                 onClick={() => setShowSyncDropdown(false)} 
               />
             )}
+
+            {/* PWA offline/sync status badge */}
+            <button
+              onClick={() => setShowPwaModal(true)}
+              className={`text-[10px] font-bold px-3 py-1 rounded-full flex items-center transition cursor-pointer select-none border shadow-xs hover:shadow-sm ${
+                pwaStatus.conflictCount > 0
+                  ? "bg-red-50 border-red-200 text-red-800 hover:bg-red-100/50"
+                  : pwaStatus.isSyncing
+                    ? "bg-indigo-50 border-indigo-200 text-indigo-800 hover:bg-indigo-100/50"
+                    : pwaStatus.pendingCount > 0
+                      ? "bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100/50"
+                      : !pwaStatus.isOnline
+                        ? "bg-gray-100 border-gray-300 text-gray-700 hover:bg-gray-200"
+                        : "bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100/50"
+              }`}
+              title="Ver status de sincronização e suporte offline"
+            >
+              <span className={`h-1.5 w-1.5 rounded-full mr-1.5 ${
+                pwaStatus.conflictCount > 0
+                  ? "bg-red-500 animate-pulse"
+                  : pwaStatus.isSyncing
+                    ? "bg-indigo-500"
+                    : pwaStatus.pendingCount > 0
+                      ? "bg-amber-500 animate-bounce"
+                      : !pwaStatus.isOnline
+                        ? "bg-gray-500"
+                        : "bg-emerald-500"
+              }`} />
+              
+              {pwaStatus.conflictCount > 0
+                ? `CONFLITOS (${pwaStatus.conflictCount})`
+                : pwaStatus.isSyncing
+                  ? "SINCRONIZANDO..."
+                  : pwaStatus.pendingCount > 0
+                    ? `PENDENTES (${pwaStatus.pendingCount})`
+                    : !pwaStatus.isOnline
+                      ? "OFFLINE"
+                      : "PWA SINCRONIZADO"
+              }
+            </button>
 
             <button
               onClick={() => {
@@ -613,6 +688,72 @@ export default function App() {
           onClick={() => setShowMobileSidebar(false)}
           className="fixed inset-0 bg-black/40 backdrop-blur-xs z-30 md:hidden"
         />
+      )}
+
+      {/* PWA Center Overlay Modal */}
+      {showPwaModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full overflow-hidden border border-gray-100 flex flex-col max-h-[90vh]">
+            <div className="px-5 py-3 border-b border-gray-150 flex justify-between items-center bg-gray-50">
+              <h3 className="font-bold text-gray-900 text-sm flex items-center space-x-1.5">
+                <Shield className="h-4.5 w-4.5 text-indigo-600" />
+                <span>Central de Sincronização & Offline (PWA)</span>
+              </h3>
+              <button 
+                onClick={() => setShowPwaModal(false)}
+                className="text-gray-400 hover:text-gray-600 font-bold text-sm cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="overflow-y-auto p-1">
+              <PwaStatusDashboard onClose={() => setShowPwaModal(false)} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PWA New Version Update Prompt (Etapa 10) */}
+      {needRefresh && (
+        <div className="fixed bottom-4 right-4 bg-white border-2 border-indigo-600 rounded-lg p-4 shadow-2xl z-50 max-w-sm flex flex-col space-y-3 animate-in slide-in-from-bottom-5 duration-350">
+          <div>
+            <h4 className="font-bold text-gray-900 text-xs flex items-center space-x-1">
+              <AlertCircle className="h-4 w-4 text-indigo-600 shrink-0" />
+              <span>Nova Versão Disponível!</span>
+            </h4>
+            <p className="text-[10px] text-gray-500 mt-1 leading-relaxed">
+              Uma nova versão do PK SIG foi carregada em segundo plano. Deseja atualizar o aplicativo agora para aplicar as melhorias?
+            </p>
+            {pwaStatus.pendingCount > 0 && (
+              <div className="mt-2.5 p-2 bg-amber-50 border border-amber-200 text-amber-800 rounded text-[9px] font-semibold flex items-start space-x-1">
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" />
+                <span>Atenção: Você tem <strong>{pwaStatus.pendingCount} alterações no dispositivo</strong> que ainda não foram enviadas. Sincronize antes de atualizar!</span>
+              </div>
+            )}
+          </div>
+          <div className="flex space-x-2 justify-end text-[10px]">
+            <button
+              onClick={() => setNeedRefresh(false)}
+              className="px-2.5 py-1.5 border border-gray-300 text-gray-600 font-bold rounded hover:bg-gray-50 transition cursor-pointer"
+            >
+              Depois
+            </button>
+            <button
+              onClick={() => {
+                if (pwaStatus.pendingCount > 0) {
+                  const confirmUpdate = window.confirm(
+                    `Você possui ${pwaStatus.pendingCount} alteração(ões) pendente(s) de sincronização no dispositivo. Se atualizar agora sem sincronizar, existe risco de perdas de dados offline. Deseja continuar com a atualização mesmo assim?`
+                  );
+                  if (!confirmUpdate) return;
+                }
+                updateServiceWorker(true);
+              }}
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded transition flex items-center space-x-1 cursor-pointer shadow-xs"
+            >
+              <span>Atualizar agora</span>
+            </button>
+          </div>
+        </div>
       )}
 
     </div>

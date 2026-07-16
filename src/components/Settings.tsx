@@ -1237,6 +1237,48 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
                 </p>
               </div>
 
+              {/* ARQUITETURA DE ARMAZENAMENTO COMPLETA E SEGURA - ETAPA 9 */}
+              <div className="bg-indigo-50/40 border border-indigo-150 rounded-lg p-4 space-y-3 text-xs leading-relaxed">
+                <h4 className="font-bold text-indigo-950 text-xs flex items-center">
+                  <Shield className="h-4 w-4 mr-1.5 text-indigo-700" />
+                  Arquitetura de Armazenamento PK SIG (PWA + Banco Híbrido)
+                </h4>
+                <p className="text-gray-600 text-[11px]">
+                  O PK SIG utiliza uma topologia híbrida de três camadas projetada para alta disponibilidade offline e segurança rígida das informações operacionais:
+                </p>
+                <div className="space-y-2.5 text-[10.5px]">
+                  <div className="flex items-start space-x-2">
+                    <span className="bg-indigo-200 text-indigo-800 h-4.5 w-4.5 text-[9px] font-bold rounded-full flex items-center justify-center shrink-0 mt-0.5">1</span>
+                    <div>
+                      <span className="font-bold text-gray-800">MySQL Remoto (Servidor Nuvem / Produção):</span>
+                      <p className="text-gray-500 text-[10px]">
+                        Banco definitivo hospedado na nuvem. O backend do PK SIG conecta-se de forma segura utilizando variáveis de ambiente privadas no servidor. 
+                        <strong> Nota de Segurança:</strong> Credenciais de banco de dados (Host, Usuário, Senha) nunca são enviadas ao navegador, garantindo blindagem absoluta de acesso.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start space-x-2">
+                    <span className="bg-indigo-200 text-indigo-800 h-4.5 w-4.5 text-[9px] font-bold rounded-full flex items-center justify-center shrink-0 mt-0.5">2</span>
+                    <div>
+                      <span className="font-bold text-gray-800">MySQL Local / SQLite:</span>
+                      <p className="text-gray-500 text-[10px]">
+                        Usado quando o backend do PK SIG é executado localmente. O sistema lê e grava registros em um arquivo SQLite em disco, possibilitando clones completos e resiliência offline.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start space-x-2">
+                    <span className="bg-indigo-200 text-indigo-800 h-4.5 w-4.5 text-[9px] font-bold rounded-full flex items-center justify-center shrink-0 mt-0.5">3</span>
+                    <div>
+                      <span className="font-bold text-gray-800">IndexedDB do Dispositivo (PWA Offline Cache):</span>
+                      <p className="text-gray-500 text-[10px]">
+                        O cache inteligente gerenciado pelo navegador no dispositivo do usuário. Mantém uma fila cronológica offline de alterações (`syncQueue`). 
+                        Se a conexão de internet oscilar ou cair temporariamente, o sistema salva as alterações imediatamente no IndexedDB local e as sincroniza de forma transparente e cronológica com o servidor remoto MySQL assim que restabelecer a rede.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* Status Banner */}
               <div className="bg-gray-50 border border-gray-200 rounded-md p-4 flex items-start space-x-3 text-xs">
                 <Server className="h-5 w-5 text-indigo-600 mt-0.5 shrink-0" />

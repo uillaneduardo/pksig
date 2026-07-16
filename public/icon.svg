@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#4f46e5" />
+    </linearGradient>
+    <linearGradient id="textGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="100%" stop-color="#e2e8f0" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <drop-shadow dx="0" dy="8" stdDeviation="12" flood-color="#4f46e5" flood-opacity="0.3" />
+    </filter>
+  </defs>
+  <!-- Background for maskable icon compliance -->
+  <rect width="512" height="512" rx="0" fill="#0e131f" />
+  <!-- Stylized modern tech shield -->
+  <g filter="url(#glow)">
+    <path d="M256,64 L396,110 C396,250 340,360 256,420 C172,360 116,250 116,110 Z" fill="url(#shieldGrad)" />
+  </g>
+  <!-- Inner shield line -->
+  <path d="M256,84 L376,124 C376,240 328,335 256,388 C184,335 136,240 136,124 Z" fill="none" stroke="#818cf8" stroke-width="4" opacity="0.4" />
+  <!-- Stylized "PK" letters -->
+  <text x="256" y="280" font-family="'Space Grotesk', 'Inter', sans-serif" font-weight="900" font-size="140" fill="url(#textGrad)" text-anchor="middle" letter-spacing="-5">PK</text>
+  <!-- Subtitle SIG -->
+  <text x="256" y="335" font-family="'JetBrains Mono', monospace" font-weight="700" font-size="36" fill="#a5b4fc" text-anchor="middle" letter-spacing="8">SIG</text>
+</svg>

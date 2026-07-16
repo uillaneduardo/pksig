@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { Client } from "../types";
 import { Search, UserPlus, FileText, Check, Trash2, ShieldAlert, ChevronLeft, ChevronRight, RefreshCw, Eye, AlertCircle } from "lucide-react";
+import { DataService } from "../lib/dataService";
 
 interface ClientListProps {
-  onSelectClient: (id: number) => void;
+  onSelectClient: (id: number | string) => void;
   currency: string;
 }
 
@@ -47,19 +48,18 @@ export default function ClientList({ onSelectClient, currency }: ClientListProps
   const fetchClients = async () => {
     setLoading(true);
     try {
-      const queryParams = new URLSearchParams({
-        q: search,
-        type: filterType,
-        status: filterStatus
-      });
-      const res = await fetch(`/api/clients?${queryParams}`);
-      if (res.ok) {
-        const data = await res.json();
-        setClients(data);
-        setTotalRecords(data.length);
+      const data = await DataService.listClients(search);
+      let filtered = data;
+      if (filterType) {
+        filtered = filtered.filter((c: any) => c.type === filterType);
       }
+      if (filterStatus) {
+        filtered = filtered.filter((c: any) => c.status === filterStatus);
+      }
+      setClients(filtered);
+      setTotalRecords(filtered.length);
     } catch (err) {
-      console.error("Failed to load clients", err);
+      console.error("Failed to load clients via DataService", err);
     } finally {
       setLoading(false);
     }
@@ -142,6 +142,7 @@ export default function ClientList({ onSelectClient, currency }: ClientListProps
     }
 
     setIsSubmitting(true);
+    setFormError("");
     try {
       const payload = {
         type, name, cpf_cnpj: cpfCnpj, rg_ie: rgIe, responsible, birth_date: birthDate || null,
@@ -149,14 +150,9 @@ export default function ClientList({ onSelectClient, currency }: ClientListProps
         complement, neighborhood, city, state, notes
       };
 
-      const res = await fetch("/api/clients", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json();
+      const data = await DataService.createClient(payload);
 
-      if (res.ok && data.success) {
+      if (data) {
         // Clean Form & Refresh
         setName(""); setCompanyTrade(""); setCpfCnpj(""); setRgIe(""); setResponsible(""); setBirthDate("");
         setEmail(""); setPhone(""); setWhatsapp(""); setZipCode(""); setStreet("");
@@ -165,16 +161,16 @@ export default function ClientList({ onSelectClient, currency }: ClientListProps
         setShowAddForm(false);
         fetchClients();
       } else {
-        setFormError(data.error || "Erro ao cadastrar cliente.");
+        setFormError("Erro ao cadastrar cliente.");
       }
-    } catch (err) {
-      setFormError("Erro de comunicação com o servidor.");
+    } catch (err: any) {
+      setFormError(err?.message || "Erro de comunicação com o servidor.");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleToggleStatus = async (id: number, currentStatus: string, e: React.MouseEvent) => {
+  const handleToggleStatus = async (id: number | string, currentStatus: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const newStatus = currentStatus === "ativo" ? "inativo" : "ativo";
     if (!window.confirm(`Deseja realmente alterar o status deste cliente para ${newStatus}?`)) {
@@ -182,16 +178,10 @@ export default function ClientList({ onSelectClient, currency }: ClientListProps
     }
 
     try {
-      const res = await fetch(`/api/clients/${id}/status`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus })
-      });
-      if (res.ok) {
-        fetchClients();
-      }
+      await DataService.updateClient(id, { status: newStatus });
+      fetchClients();
     } catch (err) {
-      console.error("Error toggling client status", err);
+      console.error("Error toggling client status via DataService", err);
     }
   };
 

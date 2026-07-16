@@ -170,9 +170,85 @@ async function checkSetupProtection(req: any, res: any, next: any) {
   next();
 }
 
+// Ensure Idempotency table exists for PWA offline requests
+async function ensureIdempotencyTable() {
+  try {
+    if (!isDatabaseConfigured()) return;
+    const dbConfig = getDatabaseConfig();
+    const isMysql = dbConfig?.mode === "remoto";
+
+    try {
+      await query("SELECT 1 FROM idempotency_keys LIMIT 1");
+    } catch (e) {
+      console.log("Creating idempotency_keys table for offline sync protection...");
+      if (isMysql) {
+        await execute(`
+          CREATE TABLE idempotency_keys (
+            \`key\` VARCHAR(100) PRIMARY KEY,
+            \`response_body\` LONGTEXT NOT NULL,
+            \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+      } else {
+        await execute(`
+          CREATE TABLE idempotency_keys (
+            \`key\` TEXT PRIMARY KEY,
+            \`response_body\` TEXT NOT NULL,
+            \`created_at\` DATETIME DEFAULT CURRENT_TIMESTAMP
+          )
+        `);
+      }
+      console.log("idempotency_keys table created successfully.");
+    }
+  } catch (err) {
+    console.error("Error ensuring idempotency_keys table:", err);
+  }
+}
+
+// Idempotency Middleware for replaying offline sync submissions safely
+async function idempotencyMiddleware(req: any, res: any, next: any) {
+  const key = req.headers["x-idempotency-key"] || req.query.idempotency_key;
+  if (!key) {
+    return next();
+  }
+
+  try {
+    await ensureIdempotencyTable();
+    const records = await query("SELECT response_body FROM idempotency_keys WHERE `key` = ?", [key]);
+    if (records && records.length > 0) {
+      console.log(`[Idempotency] Replaying cached response for key: ${key}`);
+      try {
+        const parsed = JSON.parse(records[0].response_body);
+        return res.json(parsed);
+      } catch (err) {
+        return res.send(records[0].response_body);
+      }
+    }
+
+    // Capture the JSON response to cache it
+    const originalJson = res.json;
+    res.json = function (body: any) {
+      res.json = originalJson;
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        execute(
+          "INSERT INTO idempotency_keys (`key`, `response_body`) VALUES (?, ?)",
+          [key, JSON.stringify(body)]
+        ).catch((err) => console.error("Failed to store idempotency response:", err));
+      }
+      return originalJson.call(this, body);
+    };
+
+    next();
+  } catch (err) {
+    console.error("Idempotency middleware error:", err);
+    next();
+  }
+}
+
 // Increase JSON payload limit to support base64 attachments
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
+app.use(idempotencyMiddleware);
 
 // Custom simple cookie parser middleware
 app.use((req: any, res: any, next) => {
@@ -3567,6 +3643,7 @@ async function startServer() {
   // Ensure table migration
   await ensureAdminSessionsTable();
   await ensureSequencesTable();
+  await ensureIdempotencyTable();
   await ensureAttachmentsDescriptionColumn();
   await ensurePwaColumns();
   await ensureFinancialTables();

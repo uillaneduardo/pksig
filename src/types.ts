@@ -1,7 +1,7 @@
 // PK SIG Shared TypeScript Types
 
 export interface Client {
-  id: number;
+  id: number | string;
   code: string;
   type: "PF" | "PJ";
   name: string;
@@ -26,11 +26,12 @@ export interface Client {
   equipment_count?: number;
   open_os_count?: number;
   last_service_date?: string;
+  pending?: boolean;
 }
 
 export interface Equipment {
-  id: number;
-  client_id: number;
+  id: number | string;
+  client_id: number | string;
   code: string;
   category_id: number;
   brand: string;
@@ -45,12 +46,13 @@ export interface Equipment {
   created_at: string;
   updated_at: string;
   category_name?: string;
+  pending?: boolean;
 }
 
 export interface ServiceOrder {
-  id: number;
-  client_id: number;
-  equipment_id: number;
+  id: number | string;
+  client_id: number | string;
+  equipment_id: number | string;
   code: string;
   technician_name?: string;
   status_id: number;
@@ -82,6 +84,7 @@ export interface ServiceOrder {
   equip_asset?: string;
   equip_category_id?: number;
   total_value?: number;
+  pending?: boolean;
 }
 
 export interface BudgetItem {

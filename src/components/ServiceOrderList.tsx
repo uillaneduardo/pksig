@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { ServiceOrder } from "../types";
 import { Search, FileText, ChevronLeft, ChevronRight, RefreshCw, Eye, AlertCircle, Clock, CheckCircle } from "lucide-react";
+import { DataService } from "../lib/dataService";
 
 interface ServiceOrderListProps {
-  onSelectOS: (id: number) => void;
+  onSelectOS: (id: number | string) => void;
   currency: string;
 }
 
@@ -29,25 +30,22 @@ export default function ServiceOrderList({ onSelectOS, currency }: ServiceOrderL
   const fetchOrders = async () => {
     setLoading(true);
     try {
-      const queryParams = new URLSearchParams({
-        q: search,
-        status: filterStatus
-      });
-      const res = await fetch(`/api/service-orders?${queryParams}`);
-      if (res.ok) {
-        const data = await res.json();
-        setOrders(data);
-        setTotalRecords(data.length);
-
-        // Compute local stats for KPIs
-        const total = data.length;
-        const open = data.filter((o: any) => o.status_name !== "Pronta" && o.status_name !== "Entregue" && o.status_name !== "Cancelada").length;
-        const ready = data.filter((o: any) => o.status_name === "Pronta").length;
-        const delivered = data.filter((o: any) => o.status_name === "Entregue").length;
-        setStats({ total, open, ready, delivered });
+      const data = await DataService.listServiceOrders(search);
+      let filtered = data;
+      if (filterStatus) {
+        filtered = filtered.filter((o: any) => String(o.status_id) === filterStatus || o.status_name === filterStatus);
       }
+      setOrders(filtered);
+      setTotalRecords(filtered.length);
+
+      // Compute local stats for KPIs
+      const total = filtered.length;
+      const open = filtered.filter((o: any) => o.status_name !== "Pronta" && o.status_name !== "Entregue" && o.status_name !== "Cancelada").length;
+      const ready = filtered.filter((o: any) => o.status_name === "Pronta").length;
+      const delivered = filtered.filter((o: any) => o.status_name === "Entregue").length;
+      setStats({ total, open, ready, delivered });
     } catch (err) {
-      console.error("Failed to load service orders", err);
+      console.error("Failed to load service orders via DataService", err);
     } finally {
       setLoading(false);
     }

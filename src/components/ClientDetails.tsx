@@ -5,11 +5,12 @@ import {
   DollarSign, ShieldCheck, Trash2, Calendar, Phone, Mail, MapPin, 
   HelpCircle, ChevronRight, AlertCircle, RefreshCw 
 } from "lucide-react";
+import { DataService } from "../lib/dataService";
 
 interface ClientDetailsProps {
-  clientId: number;
+  clientId: number | string;
   onBack: () => void;
-  onOpenOS: (osId: number) => void;
+  onOpenOS: (osId: number | string) => void;
   currency: string;
 }
 
@@ -69,19 +70,18 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
   const loadClientDetails = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/clients/${clientId}`);
-      if (res.ok) {
-        const data = await res.json();
+      const data = await DataService.getClient(clientId);
+      if (data) {
         setClient(data.client);
         setEquipments(data.equipments);
         setOrders(data.orders);
-        setGuides(data.guides);
-        setWarranties(data.warranties);
+        setGuides(data.guides || []);
+        setWarranties(data.warranties || []);
       } else {
         setErrorMsg("Falha ao carregar os dados do cliente.");
       }
-    } catch (err) {
-      setErrorMsg("Erro de comunicação.");
+    } catch (err: any) {
+      setErrorMsg(err?.message || "Erro de comunicação.");
     } finally {
       setLoading(false);
     }
@@ -117,19 +117,11 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
     setSuccessMsg("");
 
     try {
-      const res = await fetch(`/api/clients/${clientId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(client)
-      });
-      if (res.ok) {
-        setSuccessMsg("Dados salvos com sucesso.");
-        setTimeout(() => setSuccessMsg(""), 3000);
-      } else {
-        setErrorMsg("Erro ao salvar os dados.");
-      }
-    } catch (err) {
-      setErrorMsg("Falha de conexão com o servidor.");
+      await DataService.updateClient(clientId, client);
+      setSuccessMsg("Dados salvos com sucesso.");
+      setTimeout(() => setSuccessMsg(""), 3000);
+    } catch (err: any) {
+      setErrorMsg(err?.message || "Erro ao salvar os dados.");
     }
   };
 
@@ -143,35 +135,30 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
 
     try {
       const isEditing = !!editingEquipment;
-      const url = isEditing ? `/api/equipment/${editingEquipment.id}` : "/api/equipment";
-      const method = isEditing ? "PUT" : "POST";
+      const payload = {
+        client_id: clientId,
+        category_id: parseInt(eqCategory),
+        brand: eqBrand,
+        model: eqModel,
+        serial_number: eqSerial || null,
+        imei: eqImei || null,
+        asset_tag: eqAsset || null,
+        responsible: eqResponsible || null,
+        color: eqColor || null,
+        notes: eqNotes || null,
+        status: isEditing ? eqStatus : "Disponível"
+      };
 
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          client_id: clientId,
-          category_id: parseInt(eqCategory),
-          brand: eqBrand,
-          model: eqModel,
-          serial_number: eqSerial || null,
-          imei: eqImei || null,
-          asset_tag: eqAsset || null,
-          responsible: eqResponsible || null,
-          color: eqColor || null,
-          notes: eqNotes || null,
-          status: isEditing ? eqStatus : "Disponível"
-        })
-      });
-      if (res.ok) {
-        handleCloseEquipModal();
-        loadClientDetails();
+      if (isEditing) {
+        await DataService.updateEquipment(editingEquipment.id, payload);
       } else {
-        const data = await res.json().catch(() => ({}));
-        alert(data.error || "Erro ao salvar o equipamento");
+        await DataService.createEquipment(payload);
       }
-    } catch (err) {
-      alert("Erro ao conectar com o servidor");
+
+      handleCloseEquipModal();
+      loadClientDetails();
+    } catch (err: any) {
+      alert(err?.message || "Erro ao salvar o equipamento");
     }
   };
 
@@ -230,30 +217,26 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
     }
 
     try {
-      const res = await fetch("/api/service-orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          client_id: clientId,
-          equipment_id: parseInt(osEquipId),
-          technician_name: osTechnician,
-          problem_reported: osProblem,
-          reception_equipment_state: osEquipState,
-          reception_notes: osNotes,
-          accessories: osAccessories
-        })
+      const equipIdParsed = String(osEquipId).startsWith("equip_off_") ? osEquipId : parseInt(osEquipId);
+      const data = await DataService.createServiceOrder({
+        client_id: clientId,
+        equipment_id: equipIdParsed,
+        technician_name: osTechnician,
+        problem_reported: osProblem,
+        reception_equipment_state: osEquipState,
+        reception_notes: osNotes,
+        accessories: osAccessories
       });
-      if (res.ok) {
-        const data = await res.json();
+
+      if (data) {
         setShowAddOS(false);
         setOsEquipId(""); setOsProblem(""); setOsEquipState(""); setOsNotes(""); setOsAccessories([]);
         onOpenOS(data.osId);
       } else {
-        const data = await res.json().catch(() => ({}));
-        setOsError(data.error || "Erro ao abrir ordem de serviço. Verifique se os dados estão corretos.");
+        setOsError("Erro ao abrir ordem de serviço. Verifique se os dados estão corretos.");
       }
     } catch (err: any) {
-      setOsError(err?.message || "Falha ao conectar com o servidor para abrir ordem de serviço.");
+      setOsError(err?.message || "Falha ao abrir ordem de serviço.");
     }
   };
 
