@@ -19,7 +19,9 @@ import {
   getPool,
   verifyDatabaseCompatibility,
   runInTransaction,
-  verifyAndRepairDatabaseSchema
+  verifyAndRepairDatabaseSchema,
+  closePool,
+  recreateDatabaseFromZeroInternal
 } from "./src/lib/database.js";
 import { 
   createSession, 
@@ -493,7 +495,7 @@ app.post("/api/setup/install", checkSetupProtection, validateBody(setupInstallSc
 
     // 2. Install Schema (Skip if using existing compatible database)
     if (!useExistingDb) {
-      const installResult = await executeInstallSql();
+      const installResult = await recreateDatabaseFromZeroInternal();
       if (!installResult.success) {
         return res.status(500).json({ error: installResult.message });
       }
@@ -781,11 +783,28 @@ app.get("/api/database/verify", requireAuth, async (req: any, res: any) => {
 });
 
 // Reset and regenerate default system database
-app.post("/api/database/reset", requireAuth, async (req: any, res: any) => {
+async function handleDatabaseReset(req: any, res: any) {
+  const { confirm } = req.body;
+  if (!confirm) {
+    return res.status(400).json({ error: "É necessária uma confirmação explícita para recriar o banco de dados." });
+  }
+
   const config = getDatabaseConfig();
   if (!config) {
     return res.status(404).json({ error: "Banco de dados não configurado" });
   }
+
+  const dbName = config.database;
+  if (!dbName || dbName.trim() === "") {
+    return res.status(400).json({ error: "Nome do banco de dados na configuração é inválido ou vazio." });
+  }
+
+  const blocklist = ["mysql", "information_schema", "performance_schema", "sys"];
+  if (blocklist.includes(dbName.toLowerCase())) {
+    return res.status(400).json({ error: `Operação não permitida: o banco de dados '${dbName}' é reservado pelo sistema.` });
+  }
+
+  const steps: string[] = [];
 
   try {
     // 1. Fetch current admin details to preserve credentials
@@ -795,6 +814,7 @@ app.post("/api/database/reset", requireAuth, async (req: any, res: any) => {
         const userRows = await query("SELECT name, username, password_hash FROM admins WHERE username = ?", [req.session.username]);
         if (userRows && userRows.length > 0) {
           currentUser = userRows[0];
+          steps.push("Credenciais do administrador atual preservadas");
         }
       } catch (err) {
         console.warn("Could not retrieve current admin details to preserve:", err);
@@ -807,16 +827,15 @@ app.post("/api/database/reset", requireAuth, async (req: any, res: any) => {
       const companyRows = await query("SELECT * FROM company_settings LIMIT 1");
       if (companyRows && companyRows.length > 0) {
         currentCompany = companyRows[0];
+        steps.push("Configurações da empresa atual preservadas");
       }
     } catch (err) {
       console.warn("Could not retrieve current company settings to preserve:", err);
     }
 
-    // 3. Execute installation SQL to drop and recreate tables and insert default values
-    const installResult = await executeInstallSql();
-    if (!installResult.success) {
-      return res.status(500).json({ error: installResult.message || "Erro ao gerar as tabelas do sistema" });
-    }
+    // 3. Call internal database cleanup, migrations, and seed logic
+    const resetResult = await recreateDatabaseFromZeroInternal();
+    steps.push(...resetResult.steps);
 
     // 4. Restore preserved admin user
     if (currentUser) {
@@ -824,6 +843,7 @@ app.post("/api/database/reset", requireAuth, async (req: any, res: any) => {
         "INSERT INTO admins (name, username, password_hash) VALUES (?, ?, ?)",
         [currentUser.name, currentUser.username, currentUser.password_hash]
       );
+      steps.push("Usuário administrador restaurado");
     } else {
       // Fallback default admin
       const salt = bcrypt.genSaltSync(10);
@@ -832,6 +852,7 @@ app.post("/api/database/reset", requireAuth, async (req: any, res: any) => {
         "INSERT INTO admins (name, username, password_hash) VALUES (?, ?, ?)",
         ["Administrador", "admin", passwordHash]
       );
+      steps.push("Usuário administrador padrão criado como fallback");
     }
 
     // 5. Restore preserved company settings
@@ -850,23 +871,33 @@ app.post("/api/database/reset", requireAuth, async (req: any, res: any) => {
           currentCompany.notes
         ]
       );
+      steps.push("Configurações da empresa restauradas");
     } else {
       // Default placeholder if none existed
       await execute(
         `INSERT INTO company_settings (id, company_name) VALUES (1, ?)`,
         ["PK SIG Informática"]
       );
+      steps.push("Configurações da empresa padrão inicializadas");
     }
 
     return res.json({
       success: true,
-      message: "Todas as tabelas e dados padrão foram redefinidos com sucesso! Seu usuário e senha de acesso foram mantidos por segurança."
+      message: "Banco de dados recriado com sucesso do zero! As migrações foram executadas e os dados administrativos foram restaurados.",
+      steps
     });
+
   } catch (err: any) {
-    console.error("Failed to reset database:", err);
-    return res.status(500).json({ error: err.message || "Erro interno ao redefinir banco de dados" });
+    console.error("Critical error during database reset:", err);
+    return res.status(500).json({
+      error: err.message || "Erro crítico ao recriar o banco de dados.",
+      steps
+    });
   }
-});
+}
+
+app.post("/api/setup/database/reset", requireAuth, handleDatabaseReset);
+app.post("/api/database/reset", requireAuth, handleDatabaseReset);
 
 // ==========================================
 // 2. AUTHENTICATION ENDPOINTS

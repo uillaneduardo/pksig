@@ -255,9 +255,10 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
     setResetSuccess("");
     setResetError("");
     try {
-      const res = await fetch("/api/database/reset", {
+      const res = await fetch("/api/setup/database/reset", {
         method: "POST",
-        headers: { "Content-Type": "application/json" }
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: confirmResetWord })
       });
       const data = await res.json();
       if (res.ok && !data.error) {

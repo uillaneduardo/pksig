@@ -248,39 +248,8 @@ export async function getPool(): Promise<any> {
 }
 
 export async function executeInstallSql(): Promise<{ success: boolean; message: string }> {
-  try {
-    const sqlPath = path.join(process.cwd(), "database", "install.sql");
-    if (!fs.existsSync(sqlPath)) {
-      return { success: false, message: "Arquivo de instalação install.sql não encontrado" };
-    }
-
-    const rawSql = fs.readFileSync(sqlPath, "utf8");
-
-    const statements = rawSql
-      .split(/;(?=(?:[^'"`]*['"`][^'"`]*['"`])*[^'"`]*$)/g) // split on semicolons outside of quotes
-      .map((stmt) => stmt.trim())
-      .filter((stmt) => stmt.length > 0);
-
-    const activePool = await getPool();
-    const connection = await activePool.getConnection();
-    try {
-      await connection.query("SET FOREIGN_KEY_CHECKS = 0");
-      for (const statement of statements) {
-        if (statement.startsWith("--") || statement.startsWith("/*")) {
-          continue;
-        }
-        await connection.query(statement);
-      }
-      await connection.query("SET FOREIGN_KEY_CHECKS = 1");
-    } finally {
-      connection.release();
-    }
-
-    return { success: true, message: "Banco de dados estruturado com sucesso!" };
-  } catch (err: any) {
-    console.error("Installation script execution failed:", err);
-    return { success: false, message: `Erro ao executar scripts: ${err.message}` };
-  }
+  console.log("[Database] executeInstallSql has been routed to the migration engine. Schema is now managed exclusively by migrations.");
+  return verifyAndRepairDatabaseSchema();
 }
 
 export async function query<T = any>(sql: string, params?: any[]): Promise<T[]> {
@@ -644,4 +613,128 @@ export async function runInTransaction<T>(
   } else {
     throw new Error(`Transações não são suportadas pelo tipo de banco: ${type}`);
   }
+}
+
+export async function closePool(): Promise<void> {
+  if (pool) {
+    try {
+      await pool.end();
+    } catch (err) {
+      console.error("Error ending database pool:", err);
+    }
+    pool = null;
+  }
+  currentConfig = null;
+}
+
+export async function recreateDatabaseFromZeroInternal(): Promise<{ success: boolean; message: string; steps: string[] }> {
+  const config = getDatabaseConfig();
+  if (!config) {
+    throw new Error("Banco de dados não configurado");
+  }
+
+  const dbName = config.database;
+  if (!dbName || dbName.trim() === "") {
+    throw new Error("Nome do banco de dados na configuração é inválido ou vazio.");
+  }
+
+  const blocklist = ["mysql", "information_schema", "performance_schema", "sys"];
+  if (blocklist.includes(dbName.toLowerCase())) {
+    throw new Error(`Operação não permitida: o banco de dados '${dbName}' é reservado pelo sistema.`);
+  }
+
+  const steps: string[] = [];
+
+  // Close the current pool to release locks/connections
+  await closePool();
+  steps.push("Pool de conexões antigo encerrado com sucesso");
+
+  // Get a fresh pool and connection to perform cleanup
+  const activePool = await getPool();
+  const connection = await activePool.getConnection();
+
+  try {
+    // 1. Query all views in this database from information_schema
+    const [viewsRows] = await connection.query(
+      "SELECT table_name FROM information_schema.views WHERE table_schema = ?",
+      [dbName]
+    );
+    const views = (viewsRows as any[]).map(r => r.TABLE_NAME || r.table_name || Object.values(r)[0]);
+
+    // 2. Query all tables in this database from information_schema
+    const [tablesRows] = await connection.query(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = ? AND table_type = 'BASE TABLE'",
+      [dbName]
+    );
+    const tables = (tablesRows as any[]).map(r => r.TABLE_NAME || r.table_name || Object.values(r)[0]);
+
+    // 3. Disable foreign key checks
+    await connection.query("SET FOREIGN_KEY_CHECKS = 0");
+    steps.push("Verificação de chaves estrangeiras desativada temporariamente");
+
+    // 4. Drop views
+    for (const view of views) {
+      const escaped = "`" + view.replace(/`/g, "``") + "`";
+      await connection.query(`DROP VIEW IF EXISTS ${escaped}`);
+    }
+    if (views.length > 0) {
+      steps.push(`Removidas ${views.length} views: ${views.join(", ")}`);
+    } else {
+      steps.push("Nenhuma view encontrada para remoção");
+    }
+
+    // 5. Drop tables (includes schema_migrations because it's a BASE TABLE in this schema)
+    for (const table of tables) {
+      const escaped = "`" + table.replace(/`/g, "``") + "`";
+      await connection.query(`DROP TABLE IF EXISTS ${escaped}`);
+    }
+    if (tables.length > 0) {
+      steps.push(`Removidas ${tables.length} tabelas (incluindo histórico de migrações): ${tables.join(", ")}`);
+    } else {
+      steps.push("Nenhuma tabela encontrada para remoção");
+    }
+
+  } catch (err: any) {
+    throw new Error(`Falha ao limpar tabelas e views: ${err.message}`);
+  } finally {
+    // 6. Always re-enable foreign key checks
+    await connection.query("SET FOREIGN_KEY_CHECKS = 1").catch(err => {
+      console.error("Erro ao reativar FOREIGN_KEY_CHECKS:", err);
+    });
+    steps.push("Verificação de chaves estrangeiras reativada");
+    connection.release();
+  }
+
+  // 7. Run all migrations in chronological order
+  const repairResult = await verifyAndRepairDatabaseSchema();
+  if (!repairResult.success) {
+    throw new Error(`Falha ao executar as migrações após a limpeza: ${repairResult.message}`);
+  }
+  steps.push("Todas as migrações de banco de dados executadas com sucesso na ordem cronológica");
+
+  // 8. Execute seed.sql if it exists
+  const seedPath = path.join(process.cwd(), "database", "seed.sql");
+  if (fs.existsSync(seedPath)) {
+    try {
+      const seedSql = fs.readFileSync(seedPath, "utf8");
+      const seedStatements = seedSql
+        .split(/;(?=(?:[^'"`]*['"`][^'"`]*['"`])*[^'"`]*$)/g)
+        .map((stmt) => stmt.trim())
+        .filter((stmt) => stmt.length > 0);
+
+      for (const statement of seedStatements) {
+        if (statement.startsWith("--") || statement.startsWith("/*")) {
+          continue;
+        }
+        await execute(statement);
+      }
+      steps.push("Seed inicial de demonstração (seed.sql) executado com sucesso");
+    } catch (seedErr: any) {
+      throw new Error(`Falha ao executar seed.sql: ${seedErr.message}`);
+    }
+  } else {
+    steps.push("Seed de demonstração não encontrado, pulado");
+  }
+
+  return { success: true, message: "Banco de dados recriado com sucesso do zero!", steps };
 }
