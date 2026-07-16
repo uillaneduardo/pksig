@@ -16,7 +16,7 @@ import {
   executeInstallSql, 
   query, 
   execute,
-  cloneDatabase,
+  getPool,
   verifyDatabaseCompatibility,
   runInTransaction
 } from "./src/lib/database.js";
@@ -385,7 +385,7 @@ app.get("/api/status", async (req: any, res: any) => {
       connected: true,
       hasAdmin: admins.length > 0,
       mode: config?.mode,
-      type: config?.mode === "local" ? "sqlite" : (config?.type || "mysql"),
+      type: (config?.mode as string) === "local" ? "sqlite" : (config?.type || "mysql"),
       last_sync_at,
       last_sync_direction,
       companyName,
@@ -561,107 +561,137 @@ app.post("/api/setup/install", checkSetupProtection, validateBody(setupInstallSc
   }
 });
 
-// Clone database endpoint (online <-> local)
-app.post("/api/database/clone", requireAuth, async (req: any, res: any) => {
-  const { direction, customRemoteConfig } = req.body;
-  if (!direction || (direction !== "remote-to-local" && direction !== "local-to-remote")) {
-    return res.status(400).json({ error: "Direção de clonagem inválida" });
-  }
-
-  try {
-    const result = await cloneDatabase(direction, customRemoteConfig);
-    if (result.success) {
-      return res.json(result);
-    } else {
-      return res.status(500).json({ error: result.message });
-    }
-  } catch (err: any) {
-    console.error("Database clone error:", err);
-    return res.status(500).json({ error: err.message || "Erro interno ao clonar" });
-  }
-});
-
 // Get database configuration
 app.get("/api/database/config", requireAuth, (req: any, res: any) => {
   const config = getDatabaseConfig();
   if (!config) {
     return res.status(404).json({ error: "Banco de dados não configurado" });
   }
-  const responseConfig = { ...config };
+  const responseConfig = { ...config, mode: "remoto" };
   delete responseConfig.password;
   return res.json(responseConfig);
 });
 
-// Update active database mode or configuration
+// Update active database configuration (MySQL only)
 app.post("/api/database/config", requireAuth, async (req: any, res: any) => {
-  const { mode, type, host, port, database, user, password, ssl, certificate } = req.body;
-  if (!mode || (mode !== "local" && mode !== "remoto")) {
-    return res.status(400).json({ error: "Modo de banco de dados inválido. Escolha 'local' ou 'remoto'." });
-  }
+  const { type, host, port, database, user, password, ssl, certificate } = req.body;
 
   try {
     const oldConfig = getDatabaseConfig();
-    const wasLocal = !oldConfig || oldConfig.mode === "local";
 
     const currentConfig = oldConfig || {
-      mode: "local",
-      type: "sqlite",
-      host: "localhost",
-      port: 0,
-      database: "pksig.db",
-      user: "local",
+      mode: "remoto",
+      type: "mysql",
+      host: "",
+      port: 3306,
+      database: "pksig",
+      user: "root",
       ssl: false
     };
 
-    if (mode === "local") {
-      saveDatabaseConfig({
-        ...currentConfig,
-        mode: "local",
-        type: "sqlite"
-      });
-      return res.json({ success: true, message: "Banco de dados configurado para o modo Local (SQLite) com sucesso!" });
-    } else {
-      const newConfig: any = {
-        ...currentConfig,
-        mode: "remoto",
-        type: type || "mysql"
-      };
-      if (host !== undefined) newConfig.host = host;
-      if (port !== undefined) newConfig.port = parseInt(port);
-      if (database !== undefined) newConfig.database = database;
-      if (user !== undefined) newConfig.user = user;
-      if (password) {
-        newConfig.password = password; // Plain text here, will be encrypted by saveDatabaseConfig
-      }
-      if (ssl !== undefined) newConfig.ssl = !!ssl;
-      if (certificate !== undefined) newConfig.certificate = certificate;
-      
-      saveDatabaseConfig(newConfig);
-
-      // Automatically sync/clone from local SQLite to remote if transitioning from local to remote
-      if (wasLocal) {
-        try {
-          console.log("Auto-synchronizing local SQLite to newly configured remote database...");
-          // We pass newConfig to cloneDatabase so it uses the newly configured credentials
-          await cloneDatabase("local-to-remote", newConfig);
-          return res.json({ 
-            success: true, 
-            message: `Banco de dados configurado para o modo Remoto (${newConfig.type?.toUpperCase() || "MYSQL"}) com sucesso, e seus dados locais foram sincronizados automaticamente!` 
-          });
-        } catch (syncErr: any) {
-          console.warn("Failed to auto-synchronize during mode switch:", syncErr.message);
-          return res.json({ 
-            success: true, 
-            message: `Banco de dados configurado para o modo Remoto (${newConfig.type?.toUpperCase() || "MYSQL"}) com sucesso! No entanto, a sincronização automática dos seus dados locais falhou: ${syncErr.message}. Você pode tentar sincronizar manualmente abaixo.` 
-          });
-        }
-      }
-
-      return res.json({ success: true, message: `Banco de dados configurado para o modo Remoto (${newConfig.type?.toUpperCase() || "MYSQL"}) com sucesso!` });
+    const newConfig: any = {
+      ...currentConfig,
+      mode: "remoto",
+      type: type || "mysql"
+    };
+    if (host !== undefined) newConfig.host = host;
+    if (port !== undefined) newConfig.port = parseInt(port);
+    if (database !== undefined) newConfig.database = database;
+    if (user !== undefined) newConfig.user = user;
+    if (password) {
+      newConfig.password = password; // Plain text here, will be encrypted by saveDatabaseConfig
     }
+    if (ssl !== undefined) newConfig.ssl = !!ssl;
+    if (certificate !== undefined) newConfig.certificate = certificate;
+    
+    saveDatabaseConfig(newConfig);
+
+    return res.json({ success: true, message: `Banco de dados configurado para o modo Remoto (${newConfig.type?.toUpperCase() || "MYSQL"}) com sucesso!` });
   } catch (err: any) {
     console.error("Failed to save database config:", err);
     return res.status(500).json({ error: err.message || "Erro ao salvar configurações do banco de dados" });
+  }
+});
+
+// Export application configurations
+app.get("/api/settings/export", requireAuth, async (req: any, res: any) => {
+  try {
+    const tables = [
+      "system_settings",
+      "company_settings",
+      "equipment_categories",
+      "payment_methods",
+      "financial_categories",
+      "warranty_rules",
+      "reception_accessories",
+      "equipment_category_accessories"
+    ];
+    const exportData: any = {};
+    for (const table of tables) {
+      exportData[table] = await query(`SELECT * FROM \`${table}\``);
+    }
+    return res.json(exportData);
+  } catch (err: any) {
+    console.error("Export settings error:", err);
+    return res.status(500).json({ error: "Erro ao exportar configurações: " + err.message });
+  }
+});
+
+// Import application configurations
+app.post("/api/settings/import", requireAuth, async (req: any, res: any) => {
+  const data = req.body;
+  if (!data || typeof data !== "object") {
+    return res.status(400).json({ error: "Dados de importação inválidos" });
+  }
+
+  const tables = [
+    "system_settings",
+    "company_settings",
+    "equipment_categories",
+    "payment_methods",
+    "financial_categories",
+    "warranty_rules",
+    "reception_accessories",
+    "equipment_category_accessories"
+  ];
+
+  try {
+    const activePool = await getPool();
+    const connection = await activePool.getConnection();
+    try {
+      await connection.query("SET FOREIGN_KEY_CHECKS = 0");
+      for (const table of tables) {
+        if (!data[table] || !Array.isArray(data[table])) {
+          continue;
+        }
+        // Wipes existing data
+        await connection.query(`DELETE FROM \`${table}\``);
+        const rows = data[table];
+        if (rows.length === 0) continue;
+
+        for (const row of rows) {
+          const keys = Object.keys(row).filter(k => k.toLowerCase() !== "total_value");
+          const columns = keys.map(k => `\`${k}\``).join(", ");
+          const placeholders = keys.map(() => "?").join(", ");
+          const values = keys.map(k => {
+            const val = row[k];
+            if (typeof val === "boolean") return val ? 1 : 0;
+            if (val instanceof Date) {
+              return (val as any).toISOString().slice(0, 19).replace('T', ' ');
+            }
+            return val;
+          });
+          await connection.query(`INSERT INTO \`${table}\` (${columns}) VALUES (${placeholders})`, values);
+        }
+      }
+      await connection.query("SET FOREIGN_KEY_CHECKS = 1");
+    } finally {
+      connection.release();
+    }
+    return res.json({ success: true, message: "Configurações importadas com sucesso!" });
+  } catch (err: any) {
+    console.error("Import settings error:", err);
+    return res.status(500).json({ error: "Erro ao importar configurações: " + err.message });
   }
 });
 
