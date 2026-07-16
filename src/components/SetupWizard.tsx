@@ -14,6 +14,7 @@ export default function SetupWizard({ onCompleted }: SetupWizardProps) {
 
   // Connection fields
   const [mode, setMode] = useState<"local" | "remoto">("local");
+  const [dbType, setDbType] = useState<"sqlite" | "mysql" | "mariadb" | "postgresql" | "sqlserver">("mysql");
   const [host, setHost] = useState("127.0.0.1");
   const [port, setPort] = useState("3306");
   const [database, setDatabase] = useState("pksig");
@@ -59,7 +60,7 @@ export default function SetupWizard({ onCompleted }: SetupWizardProps) {
       const res = await fetch("/api/setup/test-connection", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, host, port, database, user, password, ssl, certificate })
+        body: JSON.stringify({ mode, type: dbType, host, port, database, user, password, ssl, certificate })
       });
       const data = await res.json();
       if (data.success) {
@@ -72,7 +73,7 @@ export default function SetupWizard({ onCompleted }: SetupWizardProps) {
           const compRes = await fetch("/api/setup/verify-compatibility", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ mode, host, port, database, user, password, ssl, certificate })
+            body: JSON.stringify({ mode, type: dbType, host, port, database, user, password, ssl, certificate })
           });
           const compData = await compRes.json();
           if (compData.success) {
@@ -114,7 +115,7 @@ export default function SetupWizard({ onCompleted }: SetupWizardProps) {
       const res = await fetch("/api/setup/create-database", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, host, port, database, user, password, ssl, certificate })
+        body: JSON.stringify({ mode, type: dbType, host, port, database, user, password, ssl, certificate })
       });
       const data = await res.json();
       if (data.success) {
@@ -137,7 +138,7 @@ export default function SetupWizard({ onCompleted }: SetupWizardProps) {
     
     try {
       const payload = {
-        connection: { mode, host, port, database, user, password, ssl },
+        connection: { mode, type: dbType, host, port, database, user, password, ssl },
         admin: { name: adminName, username: adminUser, password: adminPass },
         company: {
           name: companyName,
@@ -452,6 +453,31 @@ export default function SetupWizard({ onCompleted }: SetupWizardProps) {
                 </div>
               ) : (
                 <>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Tipo de Banco de Dados Remoto *</label>
+                    <select
+                      value={dbType}
+                      onChange={(e) => {
+                        const newType = e.target.value as any;
+                        setDbType(newType);
+                        if (newType === "mysql" || newType === "mariadb") {
+                          setPort("3306");
+                        } else if (newType === "postgresql") {
+                          setPort("5432");
+                        } else if (newType === "sqlserver") {
+                          setPort("1433");
+                        }
+                        setConnectionTested(false);
+                      }}
+                      className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+                    >
+                      <option value="mysql">MySQL</option>
+                      <option value="mariadb">MariaDB</option>
+                      <option value="postgresql">PostgreSQL (Planejado)</option>
+                      <option value="sqlserver">Microsoft SQL Server (Planejado)</option>
+                    </select>
+                  </div>
+
                   <div className="grid grid-cols-3 gap-3">
                     <div className="col-span-2">
                       <label className="block text-xs font-semibold text-gray-700 mb-1">Host / Servidor *</label>

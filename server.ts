@@ -52,6 +52,7 @@ const loginSchema = z.object({
 const setupInstallSchema = z.object({
   connection: z.object({
     mode: z.enum(["local", "remoto"]),
+    type: z.enum(["sqlite", "mysql", "mariadb", "postgresql", "sqlserver"]).optional(),
     host: z.string().optional().nullable().or(z.literal("")),
     port: z.string().optional().nullable().or(z.literal("")),
     database: z.string().min(1, "Nome do banco de dados é obrigatório"),
@@ -319,13 +320,14 @@ app.get("/api/status", async (req: any, res: any) => {
 
 // Test database connection
 app.post("/api/setup/test-connection", checkSetupProtection, async (req: any, res: any) => {
-  const { mode, host, port, database, user, password, ssl } = req.body;
+  const { mode, type, host, port, database, user, password, ssl } = req.body;
   if (mode !== "local" && (!host || !port || !database || !user)) {
     return res.status(400).json({ error: "Todos os campos de conexão são obrigatórios" });
   }
 
   const testResult = await testConnection({
     mode,
+    type: type || (mode === "local" ? "sqlite" : "mysql"),
     host: mode === "local" ? "localhost" : host,
     port: mode === "local" ? 0 : parseInt(port),
     database: mode === "local" ? "pksig.db" : database,
@@ -339,13 +341,14 @@ app.post("/api/setup/test-connection", checkSetupProtection, async (req: any, re
 
 // Create database automatically
 app.post("/api/setup/create-database", checkSetupProtection, async (req: any, res: any) => {
-  const { mode, host, port, database, user, password, ssl } = req.body;
+  const { mode, type, host, port, database, user, password, ssl } = req.body;
   if (mode !== "local" && (!host || !port || !database || !user)) {
     return res.status(400).json({ error: "Campos obrigatórios ausentes" });
   }
 
   const result = await createDatabaseAutomatically({
     mode,
+    type: type || (mode === "local" ? "sqlite" : "mysql"),
     host: mode === "local" ? "localhost" : host,
     port: mode === "local" ? 0 : parseInt(port),
     database: mode === "local" ? "pksig.db" : database,
@@ -359,13 +362,14 @@ app.post("/api/setup/create-database", checkSetupProtection, async (req: any, re
 
 // Verify database compatibility
 app.post("/api/setup/verify-compatibility", checkSetupProtection, async (req: any, res: any) => {
-  const { mode, host, port, database, user, password, ssl, certificate } = req.body;
+  const { mode, type, host, port, database, user, password, ssl, certificate } = req.body;
   if (mode !== "local" && (!host || !port || !database || !user)) {
     return res.status(400).json({ error: "Todos os campos de conexão são obrigatórios" });
   }
 
   const result = await verifyDatabaseCompatibility({
     mode,
+    type: type || (mode === "local" ? "sqlite" : "mysql"),
     host: mode === "local" ? "localhost" : host,
     port: mode === "local" ? 0 : parseInt(port),
     database: mode === "local" ? "pksig.db" : database,
@@ -383,15 +387,20 @@ app.post("/api/setup/install", checkSetupProtection, validateBody(setupInstallSc
   const { connection, admin, company, useExistingDb } = req.body;
 
   try {
+    const isRemoteIncomplete = connection.mode === "remoto" && (!connection.host || !connection.database);
+    const resolvedMode = isRemoteIncomplete ? "local" : connection.mode;
+    const resolvedType = resolvedMode === "local" ? "sqlite" : (connection.type || "mysql");
+
     // 1. Save Config First
     saveDatabaseConfig({
-      mode: connection.mode,
-      host: connection.mode === "local" ? "localhost" : connection.host,
-      port: connection.mode === "local" ? 0 : parseInt(connection.port),
-      database: connection.mode === "local" ? "pksig.db" : connection.database,
-      user: connection.mode === "local" ? "local" : connection.user,
-      password: connection.mode === "local" ? "" : connection.password,
-      ssl: connection.mode === "local" ? false : !!connection.ssl
+      mode: resolvedMode,
+      type: resolvedType,
+      host: resolvedMode === "local" ? "localhost" : connection.host,
+      port: resolvedMode === "local" ? 0 : parseInt(connection.port || "3306"),
+      database: resolvedMode === "local" ? "pksig.db" : connection.database,
+      user: resolvedMode === "local" ? "local" : connection.user,
+      password: resolvedMode === "local" ? "" : connection.password,
+      ssl: resolvedMode === "local" ? false : !!connection.ssl
     });
 
     // 2. Install Schema (Skip if using existing compatible database)
@@ -494,14 +503,18 @@ app.get("/api/database/config", requireAuth, (req: any, res: any) => {
 
 // Update active database mode or configuration
 app.post("/api/database/config", requireAuth, async (req: any, res: any) => {
-  const { mode, host, port, database, user, password, ssl, certificate } = req.body;
+  const { mode, type, host, port, database, user, password, ssl, certificate } = req.body;
   if (!mode || (mode !== "local" && mode !== "remoto")) {
     return res.status(400).json({ error: "Modo de banco de dados inválido. Escolha 'local' ou 'remoto'." });
   }
 
   try {
-    const currentConfig = getDatabaseConfig() || {
+    const oldConfig = getDatabaseConfig();
+    const wasLocal = !oldConfig || oldConfig.mode === "local";
+
+    const currentConfig = oldConfig || {
       mode: "local",
+      type: "sqlite",
       host: "localhost",
       port: 0,
       database: "pksig.db",
@@ -512,12 +525,15 @@ app.post("/api/database/config", requireAuth, async (req: any, res: any) => {
     if (mode === "local") {
       saveDatabaseConfig({
         ...currentConfig,
-        mode: "local"
+        mode: "local",
+        type: "sqlite"
       });
+      return res.json({ success: true, message: "Banco de dados configurado para o modo Local (SQLite) com sucesso!" });
     } else {
       const newConfig: any = {
         ...currentConfig,
-        mode: "remoto"
+        mode: "remoto",
+        type: type || "mysql"
       };
       if (host !== undefined) newConfig.host = host;
       if (port !== undefined) newConfig.port = parseInt(port);
@@ -530,9 +546,28 @@ app.post("/api/database/config", requireAuth, async (req: any, res: any) => {
       if (certificate !== undefined) newConfig.certificate = certificate;
       
       saveDatabaseConfig(newConfig);
-    }
 
-    return res.json({ success: true, message: `Banco de dados configurado para o modo ${mode === "local" ? "Local (SQLite)" : "Remoto (MySQL)"} com sucesso!` });
+      // Automatically sync/clone from local SQLite to remote if transitioning from local to remote
+      if (wasLocal) {
+        try {
+          console.log("Auto-synchronizing local SQLite to newly configured remote database...");
+          // We pass newConfig to cloneDatabase so it uses the newly configured credentials
+          await cloneDatabase("local-to-remote", newConfig);
+          return res.json({ 
+            success: true, 
+            message: `Banco de dados configurado para o modo Remoto (${newConfig.type?.toUpperCase() || "MYSQL"}) com sucesso, e seus dados locais foram sincronizados automaticamente!` 
+          });
+        } catch (syncErr: any) {
+          console.warn("Failed to auto-synchronize during mode switch:", syncErr.message);
+          return res.json({ 
+            success: true, 
+            message: `Banco de dados configurado para o modo Remoto (${newConfig.type?.toUpperCase() || "MYSQL"}) com sucesso! No entanto, a sincronização automática dos seus dados locais falhou: ${syncErr.message}. Você pode tentar sincronizar manualmente abaixo.` 
+          });
+        }
+      }
+
+      return res.json({ success: true, message: `Banco de dados configurado para o modo Remoto (${newConfig.type?.toUpperCase() || "MYSQL"}) com sucesso!` });
+    }
   } catch (err: any) {
     console.error("Failed to save database config:", err);
     return res.status(500).json({ error: err.message || "Erro ao salvar configurações do banco de dados" });

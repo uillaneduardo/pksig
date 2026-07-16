@@ -15,6 +15,7 @@ let currentConfig: any = null;
 
 export interface DatabaseConfig {
   mode: "local" | "remoto";
+  type?: "sqlite" | "mysql" | "mariadb" | "postgresql" | "sqlserver";
   host: string;
   port: number;
   database: string;
@@ -25,6 +26,182 @@ export interface DatabaseConfig {
   configDate?: string;
   lastTest?: string;
   dbVersion?: string;
+}
+
+export interface DatabaseDriver {
+  query<T = any>(sql: string, params?: any[]): Promise<T[]>;
+  execute(sql: string, params?: any[]): Promise<any>;
+  testConnection(): Promise<{ success: boolean; message: string }>;
+  createDatabaseAutomatically(): Promise<{ success: boolean; message: string }>;
+}
+
+export class SqliteDriver implements DatabaseDriver {
+  async query<T = any>(sql: string, params: any[] = []): Promise<T[]> {
+    return sqliteQuery<T>(sql, params);
+  }
+  async execute(sql: string, params: any[] = []): Promise<any> {
+    return sqliteExecute(sql, params);
+  }
+  async testConnection(): Promise<{ success: boolean; message: string }> {
+    try {
+      getSqliteDb();
+      return { success: true, message: "Banco de dados SQLite (Local) iniciado com sucesso!" };
+    } catch (err: any) {
+      return { success: false, message: `Erro ao iniciar SQLite: ${err.message}` };
+    }
+  }
+  async createDatabaseAutomatically(): Promise<{ success: boolean; message: string }> {
+    return { success: true, message: "Banco de dados SQLite local pronto!" };
+  }
+}
+
+export class MySqlDriver implements DatabaseDriver {
+  config: DatabaseConfig;
+  constructor(config: DatabaseConfig) {
+    this.config = config;
+  }
+  async query<T = any>(sql: string, params: any[] = []): Promise<T[]> {
+    const activePool = await getPool();
+    const [rows] = await activePool.query(sql, params);
+    return rows as T[];
+  }
+  async execute(sql: string, params: any[] = []): Promise<any> {
+    const activePool = await getPool();
+    const [result] = await activePool.execute(sql, params);
+    return result;
+  }
+  async testConnection(): Promise<{ success: boolean; message: string }> {
+    let tempPool: mysql.Pool | null = null;
+    try {
+      const connectionOptions: mysql.PoolOptions = {
+        host: this.config.host,
+        port: this.config.port,
+        user: this.config.user,
+        password: this.config.password && this.config.password.includes(":") ? decrypt(this.config.password) : this.config.password,
+        database: this.config.database,
+        connectTimeout: 8000,
+        ssl: this.config.ssl ? (this.config.certificate ? { ca: this.config.certificate } : { rejectUnauthorized: false }) : undefined,
+      };
+
+      tempPool = mysql.createPool(connectionOptions);
+      const connection = await tempPool.getConnection();
+      connection.release();
+      return { success: true, message: "Conexão estabelecida com sucesso com o MySQL!" };
+    } catch (err: any) {
+      console.error("Test connection failed:", err);
+      let msg = err.message || "Erro desconhecido ao conectar";
+      if (err.code === "ENOTFOUND" || err.code === "EAI_AGAIN") {
+        msg = "Servidor não encontrado (DNS/IP inválido)";
+      } else if (err.code === "ECONNREFUSED") {
+        msg = `Conexão recusada na porta ${this.config.port}`;
+      } else if (err.code === "ER_ACCESS_DENIED_ERROR") {
+        msg = "Acesso negado: Usuário ou senha incorretos";
+      } else if (err.code === "ER_BAD_DB_ERROR") {
+        msg = `O banco de dados "${this.config.database}" não existe no servidor`;
+      } else if (err.code === "ETIMEDOUT") {
+        msg = "Tempo limite excedido ao tentar conectar";
+      }
+      return { success: false, message: msg };
+    } finally {
+      if (tempPool) {
+        await tempPool.end().catch(console.error);
+      }
+    }
+  }
+  async createDatabaseAutomatically(): Promise<{ success: boolean; message: string }> {
+    let tempPool: mysql.Pool | null = null;
+    try {
+      const connectionOptions: mysql.PoolOptions = {
+        host: this.config.host,
+        port: this.config.port,
+        user: this.config.user,
+        password: this.config.password && this.config.password.includes(":") ? decrypt(this.config.password) : this.config.password,
+        connectTimeout: 8000,
+        ssl: this.config.ssl ? (this.config.certificate ? { ca: this.config.certificate } : { rejectUnauthorized: false }) : undefined,
+      };
+
+      tempPool = mysql.createPool(connectionOptions);
+      await tempPool.query(`CREATE DATABASE IF NOT EXISTS \`${this.config.database}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+      return { success: true, message: `Banco de dados "${this.config.database}" criado com sucesso!` };
+    } catch (err: any) {
+      console.error("Failed to create database:", err);
+      return { success: false, message: `Falha ao criar banco: ${err.message || "Erro de permissão"}` };
+    } finally {
+      if (tempPool) {
+        await tempPool.end().catch(console.error);
+      }
+    }
+  }
+}
+
+export class MariaDbDriver extends MySqlDriver {
+  override async testConnection(): Promise<{ success: boolean; message: string }> {
+    const testRes = await super.testConnection();
+    if (testRes.success) {
+      return { success: true, message: "Conectado ao MariaDB remoto com sucesso!" };
+    }
+    return testRes;
+  }
+}
+
+export class PostgreSqlDriver implements DatabaseDriver {
+  config: DatabaseConfig;
+  constructor(config: DatabaseConfig) {
+    this.config = config;
+  }
+  async query<T = any>(sql: string, params: any[] = []): Promise<T[]> {
+    throw new Error("O suporte nativo a PostgreSQL está planejado para uma versão futura. Configure o SQLite local ou o MySQL/MariaDB remoto.");
+  }
+  async execute(sql: string, params: any[] = []): Promise<any> {
+    throw new Error("O suporte nativo a PostgreSQL está planejado para uma versão futura. Configure o SQLite local ou o MySQL/MariaDB remoto.");
+  }
+  async testConnection(): Promise<{ success: boolean; message: string }> {
+    return { success: false, message: "Driver PostgreSQL planejado para futuras atualizações." };
+  }
+  async createDatabaseAutomatically(): Promise<{ success: boolean; message: string }> {
+    return { success: false, message: "Driver PostgreSQL planejado para futuras atualizações." };
+  }
+}
+
+export class SqlServerDriver implements DatabaseDriver {
+  config: DatabaseConfig;
+  constructor(config: DatabaseConfig) {
+    this.config = config;
+  }
+  async query<T = any>(sql: string, params: any[] = []): Promise<T[]> {
+    throw new Error("O suporte nativo a SQL Server está planejado para uma versão futura. Configure o SQLite local ou o MySQL/MariaDB remoto.");
+  }
+  async execute(sql: string, params: any[] = []): Promise<any> {
+    throw new Error("O suporte nativo a SQL Server está planejado para uma versão futura. Configure o SQLite local ou o MySQL/MariaDB remoto.");
+  }
+  async testConnection(): Promise<{ success: boolean; message: string }> {
+    return { success: false, message: "Driver SQL Server planejado para futuras atualizações." };
+  }
+  async createDatabaseAutomatically(): Promise<{ success: boolean; message: string }> {
+    return { success: false, message: "Driver SQL Server planejado para futuras atualizações." };
+  }
+}
+
+export function getDbDriver(): DatabaseDriver {
+  const config = getDatabaseConfig();
+  if (!config || config.mode === "local") {
+    return new SqliteDriver();
+  }
+  const type = config.type || "mysql";
+  switch (type) {
+    case "sqlite":
+      return new SqliteDriver();
+    case "mysql":
+      return new MySqlDriver(config);
+    case "mariadb":
+      return new MariaDbDriver(config);
+    case "postgresql":
+      return new PostgreSqlDriver(config);
+    case "sqlserver":
+      return new SqlServerDriver(config);
+    default:
+      return new MySqlDriver(config);
+  }
 }
 
 export function isDatabaseConfigured(): boolean {
@@ -222,81 +399,53 @@ export function sqliteExecute(sql: string, params: any[] = []): Promise<any> {
 }
 
 export async function testConnection(config: DatabaseConfig): Promise<{ success: boolean; message: string }> {
-  if (config.mode === "local") {
-    try {
-      getSqliteDb();
-      return { success: true, message: "Banco de dados SQLite (Local) iniciado com sucesso!" };
-    } catch (err: any) {
-      console.error("Test local SQLite connection failed:", err);
-      return { success: false, message: `Erro ao iniciar SQLite: ${err.message}` };
-    }
+  const type = config.mode === "local" ? "sqlite" : (config.type || "mysql");
+  let driver: DatabaseDriver;
+  switch (type) {
+    case "sqlite":
+      driver = new SqliteDriver();
+      break;
+    case "mysql":
+      driver = new MySqlDriver(config);
+      break;
+    case "mariadb":
+      driver = new MariaDbDriver(config);
+      break;
+    case "postgresql":
+      driver = new PostgreSqlDriver(config);
+      break;
+    case "sqlserver":
+      driver = new SqlServerDriver(config);
+      break;
+    default:
+      driver = new MySqlDriver(config);
   }
-
-  let tempPool: mysql.Pool | null = null;
-  try {
-    const connectionOptions: mysql.PoolOptions = {
-      host: config.host,
-      port: config.port,
-      user: config.user,
-      password: config.password && config.password.includes(":") ? decrypt(config.password) : config.password,
-      database: config.database,
-      connectTimeout: 8000,
-      ssl: config.ssl ? (config.certificate ? { ca: config.certificate } : { rejectUnauthorized: false }) : undefined,
-    };
-
-    tempPool = mysql.createPool(connectionOptions);
-    const connection = await tempPool.getConnection();
-    connection.release();
-    return { success: true, message: "Conexão estabelecida com sucesso com o MySQL!" };
-  } catch (err: any) {
-    console.error("Test connection failed:", err);
-    let msg = err.message || "Erro desconhecido ao conectar";
-    if (err.code === "ENOTFOUND" || err.code === "EAI_AGAIN") {
-      msg = "Servidor não encontrado (DNS/IP inválido)";
-    } else if (err.code === "ECONNREFUSED") {
-      msg = `Conexão recusada na porta ${config.port}`;
-    } else if (err.code === "ER_ACCESS_DENIED_ERROR") {
-      msg = "Acesso negado: Usuário ou senha incorretos";
-    } else if (err.code === "ER_BAD_DB_ERROR") {
-      msg = `O banco de dados "${config.database}" não existe no servidor`;
-    } else if (err.code === "ETIMEDOUT") {
-      msg = "Tempo limite excedido ao tentar conectar";
-    }
-    return { success: false, message: msg };
-  } finally {
-    if (tempPool) {
-      await tempPool.end().catch(console.error);
-    }
-  }
+  return driver.testConnection();
 }
 
 export async function createDatabaseAutomatically(config: DatabaseConfig): Promise<{ success: boolean; message: string }> {
-  if (config.mode === "local") {
-    return { success: true, message: "Banco de dados SQLite local pronto!" };
+  const type = config.mode === "local" ? "sqlite" : (config.type || "mysql");
+  let driver: DatabaseDriver;
+  switch (type) {
+    case "sqlite":
+      driver = new SqliteDriver();
+      break;
+    case "mysql":
+      driver = new MySqlDriver(config);
+      break;
+    case "mariadb":
+      driver = new MariaDbDriver(config);
+      break;
+    case "postgresql":
+      driver = new PostgreSqlDriver(config);
+      break;
+    case "sqlserver":
+      driver = new SqlServerDriver(config);
+      break;
+    default:
+      driver = new MySqlDriver(config);
   }
-
-  let tempPool: mysql.Pool | null = null;
-  try {
-    const connectionOptions: mysql.PoolOptions = {
-      host: config.host,
-      port: config.port,
-      user: config.user,
-      password: config.password && config.password.includes(":") ? decrypt(config.password) : config.password,
-      connectTimeout: 8000,
-      ssl: config.ssl ? (config.certificate ? { ca: config.certificate } : { rejectUnauthorized: false }) : undefined,
-    };
-
-    tempPool = mysql.createPool(connectionOptions);
-    await tempPool.query(`CREATE DATABASE IF NOT EXISTS \`${config.database}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
-    return { success: true, message: `Banco de dados "${config.database}" criado com sucesso!` };
-  } catch (err: any) {
-    console.error("Failed to create database:", err);
-    return { success: false, message: `Falha ao criar banco: ${err.message || "Erro de permissão"}` };
-  } finally {
-    if (tempPool) {
-      await tempPool.end().catch(console.error);
-    }
-  }
+  return driver.createDatabaseAutomatically();
 }
 
 export async function getPool(): Promise<mysql.Pool> {
@@ -447,23 +596,13 @@ export async function executeInstallSql(): Promise<{ success: boolean; message: 
 }
 
 export async function query<T = any>(sql: string, params?: any[]): Promise<T[]> {
-  const config = getDatabaseConfig();
-  if (config?.mode === "local") {
-    return sqliteQuery<T>(sql, params);
-  }
-  const activePool = await getPool();
-  const [rows] = await activePool.query(sql, params);
-  return rows as T[];
+  const driver = getDbDriver();
+  return driver.query<T>(sql, params);
 }
 
 export async function execute(sql: string, params?: any[]): Promise<any> {
-  const config = getDatabaseConfig();
-  if (config?.mode === "local") {
-    return sqliteExecute(sql, params);
-  }
-  const activePool = await getPool();
-  const [result] = await activePool.execute(sql, params);
-  return result;
+  const driver = getDbDriver();
+  return driver.execute(sql, params);
 }
 
 function sanitizeValue(val: any): any {
@@ -841,9 +980,9 @@ export async function runInTransaction<T>(
   callback: (exec: (sql: string, params?: any[]) => Promise<any>) => Promise<T>
 ): Promise<T> {
   const config = getDatabaseConfig();
-  const isMysql = config?.mode === "remoto";
+  const type = config?.mode === "local" ? "sqlite" : (config?.type || "mysql");
 
-  if (isMysql) {
+  if (type === "mysql" || type === "mariadb") {
     const activePool = await getPool();
     const connection = await activePool.getConnection();
     await connection.beginTransaction();
@@ -863,7 +1002,7 @@ export async function runInTransaction<T>(
     } finally {
       connection.release();
     }
-  } else {
+  } else if (type === "sqlite") {
     const db = getSqliteDb();
 
     const exec = (sql: string, params: any[] = []): Promise<any> => {
@@ -898,5 +1037,7 @@ export async function runInTransaction<T>(
       await exec("ROLLBACK").catch(console.error);
       throw err;
     }
+  } else {
+    throw new Error(`Transações não são suportadas pelo tipo de banco: ${type}`);
   }
 }

@@ -171,6 +171,7 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
   // Database configuration & cloning states
   const [dbConfig, setDbConfig] = useState<any>(null);
   const [remoteForm, setRemoteForm] = useState({
+    type: "mysql",
     host: "",
     port: "3306",
     database: "pksig",
@@ -254,7 +255,7 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
     if (dbConfig?.mode === targetMode) return;
 
     if (targetMode === "remoto" && !remoteForm.host) {
-      setCloneError("Para ativar o modo Remoto, preencha as credenciais do MySQL abaixo e teste a conexão primeiro.");
+      setCloneError("Para ativar o modo Remoto, preencha as credenciais do banco remoto abaixo e teste a conexão primeiro.");
       return;
     }
 
@@ -264,6 +265,7 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
     try {
       const payload: any = { mode: targetMode };
       if (targetMode === "remoto") {
+        payload.type = remoteForm.type;
         payload.host = remoteForm.host;
         payload.port = parseInt(remoteForm.port || "3306");
         payload.database = remoteForm.database;
@@ -305,6 +307,7 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
         setDbConfig(data);
         if (data.mode === "remoto") {
           setRemoteForm({
+            type: data.type || "mysql",
             host: data.host || "",
             port: String(data.port || "3306"),
             database: data.database || "pksig",
@@ -1505,11 +1508,31 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
 
                       {/* Remote Form Inputs */}
                       <div className="bg-white border border-gray-100 rounded-md p-4 space-y-4 text-xs">
-                        <h4 className="font-bold text-gray-900 text-xs border-b border-gray-100 pb-1.5">Conectar ao MySQL Remoto para Clonagem</h4>
+                        <h4 className="font-bold text-gray-900 text-xs border-b border-gray-100 pb-1.5">Conectar ao Banco de Dados Remoto</h4>
+                        
+                        <div>
+                          <label className="block text-gray-600 mb-0.5 font-semibold text-[10px]">Tipo de Banco de Dados Remoto</label>
+                          <select
+                            value={remoteForm.type}
+                            onChange={(e) => {
+                              const newType = e.target.value as any;
+                              let port = "3306";
+                              if (newType === "postgresql") port = "5432";
+                              else if (newType === "sqlserver") port = "1433";
+                              setRemoteForm({ ...remoteForm, type: newType, port });
+                            }}
+                            className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-xs bg-white focus:outline-none"
+                          >
+                            <option value="mysql">MySQL</option>
+                            <option value="mariadb">MariaDB</option>
+                            <option value="postgresql">PostgreSQL (Planejado)</option>
+                            <option value="sqlserver">Microsoft SQL Server (Planejado)</option>
+                          </select>
+                        </div>
                         
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                           <div className="md:col-span-2">
-                            <label className="block text-gray-600 mb-0.5 font-semibold text-[10px]">Host / Servidor MySQL</label>
+                            <label className="block text-gray-600 mb-0.5 font-semibold text-[10px]">Host / Servidor Remoto</label>
                             <input
                               type="text"
                               value={remoteForm.host}
