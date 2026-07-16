@@ -832,15 +832,15 @@ async function ensureSequencesTable() {
       if (isMysql) {
         await execute(`
           CREATE TABLE sequences (
-            type VARCHAR(50) PRIMARY KEY,
-            last_value INT NOT NULL DEFAULT 0
+            \`type\` VARCHAR(50) PRIMARY KEY,
+            \`last_value\` INT NOT NULL DEFAULT 0
           ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `);
       } else {
         await execute(`
           CREATE TABLE sequences (
-            type TEXT PRIMARY KEY,
-            last_value INTEGER NOT NULL DEFAULT 0
+            \`type\` TEXT PRIMARY KEY,
+            \`last_value\` INTEGER NOT NULL DEFAULT 0
           )
         `);
       }
@@ -862,7 +862,7 @@ async function ensureSequencesTable() {
         } catch (err) {
           // Table doesn't exist or is empty
         }
-        await execute("INSERT INTO sequences (type, last_value) VALUES (?, ?)", [ent.type, initialVal]);
+        await execute("INSERT INTO sequences (`type`, `last_value`) VALUES (?, ?)", [ent.type, initialVal]);
       }
       console.log("sequences table initialized successfully.");
     }
@@ -901,10 +901,10 @@ async function generateNextCode(type: "client" | "equipment" | "os" | "guide" | 
     }
 
     // Atomically increment the sequence counter
-    await execute("UPDATE sequences SET last_value = last_value + 1 WHERE type = ?", [type]);
+    await execute("UPDATE sequences SET `last_value` = `last_value` + 1 WHERE `type` = ?", [type]);
 
     // Retrieve the newly incremented sequence counter
-    const seqResult = await query("SELECT last_value FROM sequences WHERE type = ?", [type]);
+    const seqResult = await query("SELECT `last_value` FROM sequences WHERE `type` = ?", [type]);
     let nextNumber = seqResult[0]?.last_value;
 
     if (!nextNumber) {
@@ -918,9 +918,9 @@ async function generateNextCode(type: "client" | "equipment" | "os" | "guide" | 
       
       const isMysql = getDatabaseConfig()?.mode === "remoto";
       if (isMysql) {
-        await execute("INSERT IGNORE INTO sequences (type, last_value) VALUES (?, ?)", [type, nextNumber]);
+        await execute("INSERT IGNORE INTO sequences (`type`, `last_value`) VALUES (?, ?)", [type, nextNumber]);
       } else {
-        await execute("INSERT OR IGNORE INTO sequences (type, last_value) VALUES (?, ?)", [type, nextNumber]);
+        await execute("INSERT OR IGNORE INTO sequences (`type`, `last_value`) VALUES (?, ?)", [type, nextNumber]);
       }
     }
 
