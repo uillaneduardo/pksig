@@ -122,6 +122,9 @@ export function translateSqlForSqlite(sql: string): string {
   clean = clean.replace(/SET\s+FOREIGN_KEY_CHECKS\s*=\s*0/gi, "PRAGMA foreign_keys = OFF");
   clean = clean.replace(/SET\s+FOREIGN_KEY_CHECKS\s*=\s*1/gi, "PRAGMA foreign_keys = ON");
 
+  // Convert UNIQUE KEY syntax (e.g., UNIQUE KEY uq_name (col1, col2) -> UNIQUE (col1, col2))
+  clean = clean.replace(/UNIQUE\s+KEY\s+(?:\w+\s+)?\(([^)]+)\)/gi, "UNIQUE ($1)");
+
   // Handle datetime intervals in select/update queries
   clean = clean.replace(/NOW\(\)\s*-\s*INTERVAL\s*(\d+)\s*MINUTE/gi, "datetime('now', '-$1 minutes')");
   clean = clean.replace(/NOW\(\)\s*-\s*INTERVAL\s*(\d+)\s*HOUR/gi, "datetime('now', '-$1 hours')");
@@ -346,6 +349,29 @@ export async function executeInstallSql(): Promise<{ success: boolean; message: 
       .filter((stmt) => stmt.length > 0);
 
     if (isLocal) {
+      // Close existing connection if open
+      if (sqliteDb) {
+        try {
+          await new Promise<void>((resolve) => {
+            sqliteDb.close((err: any) => {
+              if (err) console.warn("Error closing database during reinstall:", err);
+              resolve();
+            });
+          });
+        } catch (e) {}
+        sqliteDb = null;
+      }
+
+      // Delete the existing SQLite file if it exists to ensure a fresh, clean install
+      if (fs.existsSync(SQLITE_DB_PATH)) {
+        try {
+          fs.unlinkSync(SQLITE_DB_PATH);
+          console.log("Deleted old SQLite database file for a clean reinstall.");
+        } catch (unlinkErr) {
+          console.error("Could not delete old SQLite file:", unlinkErr);
+        }
+      }
+
       const db = getSqliteDb();
       
       await new Promise<void>((resolve, reject) => {
