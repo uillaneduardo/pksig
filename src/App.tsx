@@ -1,3 +1,4 @@
+/// <reference types="vite-plugin-pwa/react" />
 import { useState, useEffect } from "react";
 import { 
   Shield, LayoutDashboard, Users, FileText, Settings as SettingsIcon, 
@@ -129,10 +130,25 @@ export default function App() {
 
   // Load configuration and session states
   const checkSystemStatus = async () => {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setDbConnected(false);
+      return;
+    }
     try {
       const res = await fetch("/api/status");
       if (res.ok) {
-        const data = await res.json();
+        const contentType = res.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+          console.warn("Expected JSON response from /api/status, received:", contentType);
+          return;
+        }
+        let data;
+        try {
+          data = await res.json();
+        } catch (parseErr) {
+          console.warn("Failed to parse system status JSON:", parseErr);
+          return;
+        }
         setConfigured(data.configured);
         setDbConnected(data.connected || false);
         setDbError(data.error || "");
@@ -160,22 +176,29 @@ export default function App() {
 
         if (data.configured && data.connected && data.hasAdmin) {
           // Verify current login session
-          const meRes = await fetch("/api/auth/me");
-          if (meRes.ok) {
-            const meData = await meRes.json();
-            if (meData.authenticated) {
-              setIsAuthenticated(true);
-              setCurrentUser(meData.user);
-              await fetchCsrfToken();
-            } else {
-              setIsAuthenticated(false);
-              setCurrentUser(null);
+          try {
+            const meRes = await fetch("/api/auth/me");
+            if (meRes.ok) {
+              const meContentType = meRes.headers.get("content-type");
+              if (meContentType && meContentType.includes("application/json")) {
+                const meData = await meRes.json();
+                if (meData.authenticated) {
+                  setIsAuthenticated(true);
+                  setCurrentUser(meData.user);
+                  await fetchCsrfToken();
+                } else {
+                  setIsAuthenticated(false);
+                  setCurrentUser(null);
+                }
+              }
             }
+          } catch (authErr) {
+            console.warn("Failed to fetch login session:", authErr);
           }
         }
       }
-    } catch (err) {
-      console.error("Error reading system status", err);
+    } catch (err: any) {
+      console.warn("Gracefully handled status check error:", err?.message || err);
     }
   };
 

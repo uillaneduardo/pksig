@@ -4,7 +4,7 @@ import {
   Settings as SettingsIcon, Save, Plus, Check, Trash2, 
   RefreshCw, DollarSign, Laptop, ShieldCheck, Tag, Loader, AlertCircle,
   Building, Edit, Database, Server, ArrowLeftRight, Download, Upload,
-  Smartphone
+  Smartphone, Shield
 } from "lucide-react";
 
 interface SettingsProps {

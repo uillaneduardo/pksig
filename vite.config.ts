@@ -53,6 +53,7 @@ export default defineConfig(() => {
         workbox: {
           globPatterns: ['**/*.{js,css,html,svg,png,woff,woff2,ttf,ico}'],
           navigateFallback: '/index.html',
+          navigateFallbackDenylist: [/^\/api/],
           runtimeCaching: [
             {
               // Cache GET API requests except auth-related ones
