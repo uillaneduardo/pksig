@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { 
   Shield, LayoutDashboard, Users, FileText, Settings as SettingsIcon, 
-  LogOut, AlertCircle, RefreshCw, ChevronRight, Menu, DollarSign
+  LogOut, AlertCircle, RefreshCw, ChevronRight, Menu, DollarSign,
+  ChevronLeft
 } from "lucide-react";
 
 // Components
@@ -38,6 +39,7 @@ export default function App() {
 
   // Mobile menu sidebar toggle state
   const [showMobileSidebar, setShowMobileSidebar] = useState<boolean>(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
 
   // Load configuration and session states
   const checkSystemStatus = async () => {
@@ -155,82 +157,136 @@ export default function App() {
     <div className="min-h-screen md:h-screen md:overflow-hidden bg-[#f3f4f6] flex flex-col md:flex-row font-sans text-xs antialiased overflow-x-hidden">
       
       {/* 1. SIDEBAR NAVIGATION - DEEP SLATE/NAVY VISUAL BRAND */}
-      <aside className={`w-64 bg-[#0e131f] text-gray-300 flex flex-col justify-between shrink-0 transition-transform md:translate-x-0 z-40 fixed inset-y-0 left-0 md:relative md:h-screen md:overflow-y-auto ${showMobileSidebar ? "translate-x-0" : "-translate-x-full"}`}>
+      <aside className={`bg-[#0e131f] text-gray-300 flex flex-col justify-between shrink-0 transition-all duration-300 md:translate-x-0 z-40 fixed inset-y-0 left-0 md:relative md:h-screen md:overflow-y-auto ${isSidebarCollapsed ? "md:w-16" : "md:w-64"} w-64 ${showMobileSidebar ? "translate-x-0" : "-translate-x-full"}`}>
         
         <div className="flex flex-col">
           {/* Logo brand */}
-          <div className="px-6 py-5 border-b border-gray-800/60 flex items-center space-x-3 bg-[#0a0e17]">
-            <Shield className="h-6 w-6 text-indigo-500 shrink-0" />
-            <div>
-              <h1 className="text-white text-sm font-black tracking-tight leading-none">PK SIG</h1>
-              <span className="text-[9px] text-gray-500 font-bold uppercase tracking-wider">Assistência Técnica</span>
+          <div className={`py-5 border-b border-gray-800/60 flex items-center justify-between bg-[#0a0e17] transition-all duration-300 ${isSidebarCollapsed ? "md:px-3 md:justify-center" : "px-6"}`}>
+            <div className={`flex items-center space-x-3 min-w-0 ${isSidebarCollapsed ? "md:hidden" : ""}`}>
+              <Shield className="h-6 w-6 text-indigo-500 shrink-0" />
+              <div className="whitespace-nowrap">
+                <h1 className="text-white text-sm font-black tracking-tight leading-none">PK SIG</h1>
+                <span className="text-[9px] text-gray-500 font-bold uppercase tracking-wider">Assistência Técnica</span>
+              </div>
             </div>
+
+            {/* Desktop collapsed expand button */}
+            {isSidebarCollapsed && (
+              <button 
+                onClick={() => setIsSidebarCollapsed(false)}
+                className="hidden md:flex p-1.5 hover:bg-gray-800 rounded text-indigo-400 hover:text-white cursor-pointer"
+                title="Expandir menu"
+              >
+                <ChevronRight className="h-5 w-5" />
+              </button>
+            )}
+
+            {/* Desktop expanded collapse button */}
+            {!isSidebarCollapsed && (
+              <button 
+                onClick={() => setIsSidebarCollapsed(true)}
+                className="hidden md:flex p-1 hover:bg-gray-800 rounded text-gray-400 hover:text-white cursor-pointer shrink-0"
+                title="Recolher menu"
+              >
+                <ChevronLeft className="h-4.5 w-4.5" />
+              </button>
+            )}
           </div>
 
           {/* Menus list */}
-          <nav className="p-4 space-y-1.5 flex-1">
-            <span className="block px-3 text-[9px] text-gray-600 uppercase font-black tracking-widest mb-2.5">Menu Principal</span>
+          <nav className={`space-y-1.5 flex-1 transition-all duration-300 ${isSidebarCollapsed ? "md:p-2" : "p-4"}`}>
+            <span className={`block px-3 text-[9px] text-gray-600 uppercase font-black tracking-widest mb-2.5 transition-opacity ${isSidebarCollapsed ? "md:hidden" : ""}`}>Menu Principal</span>
             
             <button
               onClick={() => navigateTo("dashboard")}
-              className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-md font-semibold transition cursor-pointer ${activeTab === "dashboard" ? "bg-indigo-600 text-white font-bold" : "hover:bg-gray-800/50 hover:text-white"}`}
+              className={`w-full flex items-center rounded-md font-semibold transition cursor-pointer ${
+                isSidebarCollapsed 
+                  ? "md:justify-center md:px-0 md:py-3 space-x-3 md:space-x-0" 
+                  : "space-x-3 px-3 py-2.5"
+              } ${activeTab === "dashboard" ? "bg-indigo-600 text-white font-bold" : "hover:bg-gray-800/50 hover:text-white"}`}
+              title={isSidebarCollapsed ? "Painel de Controle" : ""}
             >
               <LayoutDashboard className="h-4.5 w-4.5 shrink-0" />
-              <span>Painel de Controle</span>
+              <span className={isSidebarCollapsed ? "md:hidden" : ""}>Painel de Controle</span>
             </button>
 
             <button
               onClick={() => navigateTo("clients")}
-              className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-md font-semibold transition cursor-pointer ${activeTab === "clients" || activeTab === "client-detail" ? "bg-indigo-600 text-white font-bold" : "hover:bg-gray-800/50 hover:text-white"}`}
+              className={`w-full flex items-center rounded-md font-semibold transition cursor-pointer ${
+                isSidebarCollapsed 
+                  ? "md:justify-center md:px-0 md:py-3 space-x-3 md:space-x-0" 
+                  : "space-x-3 px-3 py-2.5"
+              } ${activeTab === "clients" || activeTab === "client-detail" ? "bg-indigo-600 text-white font-bold" : "hover:bg-gray-800/50 hover:text-white"}`}
+              title={isSidebarCollapsed ? "Clientes" : ""}
             >
               <Users className="h-4.5 w-4.5 shrink-0" />
-              <span>Clientes</span>
+              <span className={isSidebarCollapsed ? "md:hidden" : ""}>Clientes</span>
             </button>
 
             <button
               onClick={() => navigateTo("os-list")}
-              className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-md font-semibold transition cursor-pointer ${activeTab === "os-list" || activeTab === "os-detail" ? "bg-indigo-600 text-white font-bold" : "hover:bg-gray-800/50 hover:text-white"}`}
+              className={`w-full flex items-center rounded-md font-semibold transition cursor-pointer ${
+                isSidebarCollapsed 
+                  ? "md:justify-center md:px-0 md:py-3 space-x-3 md:space-x-0" 
+                  : "space-x-3 px-3 py-2.5"
+              } ${activeTab === "os-list" || activeTab === "os-detail" ? "bg-indigo-600 text-white font-bold" : "hover:bg-gray-800/50 hover:text-white"}`}
+              title={isSidebarCollapsed ? "Ordens de Serviço" : ""}
             >
               <FileText className="h-4.5 w-4.5 shrink-0" />
-              <span>Ordens de Serviço</span>
+              <span className={isSidebarCollapsed ? "md:hidden" : ""}>Ordens de Serviço</span>
             </button>
 
             <button
               onClick={() => navigateTo("financeiro")}
-              className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-md font-semibold transition cursor-pointer ${activeTab === "financeiro" ? "bg-indigo-600 text-white font-bold" : "hover:bg-gray-800/50 hover:text-white"}`}
+              className={`w-full flex items-center rounded-md font-semibold transition cursor-pointer ${
+                isSidebarCollapsed 
+                  ? "md:justify-center md:px-0 md:py-3 space-x-3 md:space-x-0" 
+                  : "space-x-3 px-3 py-2.5"
+              } ${activeTab === "financeiro" ? "bg-indigo-600 text-white font-bold" : "hover:bg-gray-800/50 hover:text-white"}`}
+              title={isSidebarCollapsed ? "Financeiro" : ""}
             >
               <DollarSign className="h-4.5 w-4.5 shrink-0" />
-              <span>Financeiro</span>
+              <span className={isSidebarCollapsed ? "md:hidden" : ""}>Financeiro</span>
             </button>
 
             <button
               onClick={() => navigateTo("settings")}
-              className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-md font-semibold transition cursor-pointer ${activeTab === "settings" ? "bg-indigo-600 text-white font-bold" : "hover:bg-gray-800/50 hover:text-white"}`}
+              className={`w-full flex items-center rounded-md font-semibold transition cursor-pointer ${
+                isSidebarCollapsed 
+                  ? "md:justify-center md:px-0 md:py-3 space-x-3 md:space-x-0" 
+                  : "space-x-3 px-3 py-2.5"
+              } ${activeTab === "settings" ? "bg-indigo-600 text-white font-bold" : "hover:bg-gray-800/50 hover:text-white"}`}
+              title={isSidebarCollapsed ? "Preferências" : ""}
             >
               <SettingsIcon className="h-4.5 w-4.5 shrink-0" />
-              <span>Preferências</span>
+              <span className={isSidebarCollapsed ? "md:hidden" : ""}>Preferências</span>
             </button>
           </nav>
         </div>
 
         {/* User profile details and Signout bottom row */}
-        <div className="p-4 border-t border-gray-800/60 bg-[#0a0e17] space-y-3">
-          <div className="flex items-center space-x-3 px-1">
-            <div className="h-8 w-8 bg-indigo-600/20 text-indigo-400 rounded-full flex items-center justify-center font-bold font-mono">
+        <div className={`border-t border-gray-800/60 bg-[#0a0e17] space-y-3 transition-all duration-300 ${isSidebarCollapsed ? "md:p-2" : "p-4"}`}>
+          <div className={`flex items-center px-1 ${isSidebarCollapsed ? "md:justify-center md:px-0" : "space-x-3"}`}>
+            <div className="h-8 w-8 bg-indigo-600/20 text-indigo-400 rounded-full flex items-center justify-center font-bold font-mono shrink-0" title={currentUser?.name}>
               {currentUser?.name?.slice(0, 2).toUpperCase()}
             </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-white text-xs font-bold truncate leading-tight">{currentUser?.name}</div>
-              <div className="text-[10px] text-gray-500 truncate mt-0.5">@{currentUser?.username}</div>
-            </div>
+            {!isSidebarCollapsed && (
+              <div className="min-w-0 flex-1">
+                <div className="text-white text-xs font-bold truncate leading-tight">{currentUser?.name}</div>
+                <div className="text-[10px] text-gray-500 truncate mt-0.5">@{currentUser?.username}</div>
+              </div>
+            )}
           </div>
 
           <button
             onClick={handleLogout}
-            className="w-full py-2 border border-gray-800 hover:border-red-900/60 hover:bg-red-950/20 hover:text-red-400 text-gray-400 rounded font-bold transition flex items-center justify-center space-x-2 cursor-pointer"
+            className={`w-full border border-gray-800 hover:border-red-900/60 hover:bg-red-950/20 hover:text-red-400 text-gray-400 rounded font-bold transition flex items-center justify-center cursor-pointer ${
+              isSidebarCollapsed ? "md:py-2.5" : "py-2 space-x-2"
+            }`}
+            title="Sair do Sistema"
           >
-            <LogOut className="h-3.5 w-3.5" />
-            <span>Sair do Sistema</span>
+            <LogOut className="h-3.5 w-3.5 shrink-0" />
+            {!isSidebarCollapsed && <span>Sair do Sistema</span>}
           </button>
         </div>
 
