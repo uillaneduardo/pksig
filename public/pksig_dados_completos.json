@@ -1,0 +1,1346 @@
+{
+  "admins": [
+    {
+      "id": "Uillan",
+      "name": "uillan",
+      "username": "$2b$10$4VIF66OaD3alNiZ8OmRiiuqvq0XGQ2uGJ/RWx2qzdPU9bTfys16Ui",
+      "password_hash": "2026-07-13 00:56:26",
+      "created_at": "2026-07-16 00:41:52",
+      "updated_at": "2026-07-16 00:41:52",
+      "last_login_at": null
+    }
+  ],
+  "admin_sessions": [],
+  "app_meta": [
+    {
+      "meta_key": "installed_at",
+      "meta_value": "2026-07-13 00:56:24",
+      "updated_at": "2026-07-13 00:56:24"
+    },
+    {
+      "meta_key": "version",
+      "meta_value": "1.0.0",
+      "updated_at": "2026-07-13 00:56:24"
+    }
+  ],
+  "attachments": [
+    {
+      "id": "VID_20260713_123740.mp4",
+      "service_order_id": "storage/attachments/1783958786740-VID_20260713_123740.mp4",
+      "filename": 25430358,
+      "file_path": "video/mp4",
+      "file_size": "2026-07-13 16:06:27",
+      "mime_type": null,
+      "uploaded_at": null,
+      "description": null
+    },
+    {
+      "id": "IMG_20260713_123734.jpg",
+      "service_order_id": "storage/attachments/1783958789094-IMG_20260713_123734.jpg",
+      "filename": 1096865,
+      "file_path": "image/jpeg",
+      "file_size": "2026-07-13 16:06:29",
+      "mime_type": null,
+      "uploaded_at": null,
+      "description": null
+    },
+    {
+      "id": "IMG_20260713_123732.jpg",
+      "service_order_id": "storage/attachments/1783958789990-IMG_20260713_123732.jpg",
+      "filename": 2016776,
+      "file_path": "image/jpeg",
+      "file_size": "2026-07-13 16:06:30",
+      "mime_type": null,
+      "uploaded_at": null,
+      "description": null
+    },
+    {
+      "id": "IMG_20260713_123731.jpg",
+      "service_order_id": "storage/attachments/1783958790552-IMG_20260713_123731.jpg",
+      "filename": 1997081,
+      "file_path": "image/jpeg",
+      "file_size": "2026-07-13 16:06:30",
+      "mime_type": null,
+      "uploaded_at": null,
+      "description": null
+    },
+    {
+      "id": "IMG_20260713_123729.jpg",
+      "service_order_id": "storage/attachments/1783958791928-IMG_20260713_123729.jpg",
+      "filename": 2251955,
+      "file_path": "image/jpeg",
+      "file_size": "2026-07-13 16:06:32",
+      "mime_type": null,
+      "uploaded_at": null,
+      "description": null
+    },
+    {
+      "id": "IMG_20260713_123728.jpg",
+      "service_order_id": "storage/attachments/1783958792455-IMG_20260713_123728.jpg",
+      "filename": 1962251,
+      "file_path": "image/jpeg",
+      "file_size": "2026-07-13 16:06:32",
+      "mime_type": null,
+      "uploaded_at": null,
+      "description": null
+    },
+    {
+      "id": "IMG_20260713_123727.jpg",
+      "service_order_id": "storage/attachments/1783958792873-IMG_20260713_123727.jpg",
+      "filename": 1021541,
+      "file_path": "image/jpeg",
+      "file_size": "2026-07-13 16:06:33",
+      "mime_type": null,
+      "uploaded_at": null,
+      "description": null
+    },
+    {
+      "id": "IMG_20260713_123725.jpg",
+      "service_order_id": "storage/attachments/1783958793994-IMG_20260713_123725.jpg",
+      "filename": 1881138,
+      "file_path": "image/jpeg",
+      "file_size": "2026-07-13 16:06:34",
+      "mime_type": null,
+      "uploaded_at": null,
+      "description": null
+    },
+    {
+      "id": "IMG_20260713_123711.jpg",
+      "service_order_id": "storage/attachments/1783958794580-IMG_20260713_123711.jpg",
+      "filename": 1857942,
+      "file_path": "image/jpeg",
+      "file_size": "2026-07-13 16:06:34",
+      "mime_type": null,
+      "uploaded_at": null,
+      "description": null
+    }
+  ],
+  "budget_items": [
+    {
+      "id": "Reparo de Placa",
+      "service_order_id": "Serviço",
+      "description": 1,
+      "type": 150,
+      "quantity": "2026-07-13 04:47:29",
+      "unit_value": null,
+      "created_at": null
+    },
+    {
+      "id": "SSD SATA 120GB",
+      "service_order_id": "Peça",
+      "description": 1,
+      "type": 150,
+      "quantity": "2026-07-13 04:47:49",
+      "unit_value": null,
+      "created_at": null
+    },
+    {
+      "id": "MEM RAM DDR3 8GB 1600MHZ PC3L",
+      "service_order_id": "Peça",
+      "description": 1,
+      "type": 200,
+      "quantity": "2026-07-13 04:48:23",
+      "unit_value": null,
+      "created_at": null
+    },
+    {
+      "id": "Formatação + Windows 10 + Office",
+      "service_order_id": "Serviço",
+      "description": 1,
+      "type": 0,
+      "quantity": "2026-07-13 04:49:53",
+      "unit_value": null,
+      "created_at": null
+    },
+    {
+      "id": "Instalação de Periférico Smartphone",
+      "service_order_id": "Peça",
+      "description": 1,
+      "type": 0,
+      "quantity": "2026-07-13 15:34:05",
+      "unit_value": null,
+      "created_at": null
+    },
+    {
+      "id": "Tela Xiaomi Redmi Note 13 4G Incell",
+      "service_order_id": "Peça",
+      "description": 1,
+      "type": 70,
+      "quantity": "2026-07-13 15:34:18",
+      "unit_value": null,
+      "created_at": null
+    },
+    {
+      "id": "Recondicionamento de Bateria",
+      "service_order_id": "Serviço",
+      "description": 1,
+      "type": 60,
+      "quantity": "2026-07-14 17:43:46",
+      "unit_value": null,
+      "created_at": null
+    }
+  ],
+  "clients": [
+    {
+      "id": "CLI-2026-000001",
+      "code": "PF",
+      "type": "Uillan Eduardo Lira da Silva",
+      "name": "093.706.904-33",
+      "cpf_cnpj": null,
+      "rg_ie": null,
+      "responsible": "1993-05-10",
+      "birth_date": "uillandr@gmail.com",
+      "email": "(81) 99565-5293",
+      "phone": "(81) 99565-5293",
+      "whatsapp": "54330-560",
+      "zip_code": "Rua Rui Barbosa",
+      "street": 340,
+      "number": null,
+      "complement": "Cajueiro Seco",
+      "neighborhood": "Jaboatão dos Guararapes",
+      "city": "PE",
+      "state": null,
+      "notes": "ativo",
+      "status": "2026-07-13 00:58:49",
+      "created_at": "2026-07-13 00:58:49",
+      "updated_at": null
+    },
+    {
+      "id": "CLI-2026-000002",
+      "code": "PF",
+      "type": "Gleison Vanderlei da Silva",
+      "name": "110.801.644-89",
+      "cpf_cnpj": null,
+      "rg_ie": null,
+      "responsible": null,
+      "birth_date": null,
+      "email": "(81) 99608-8394",
+      "phone": "(81) 99608-8394",
+      "whatsapp": "54352-150",
+      "zip_code": "Rua Buganville",
+      "street": 115,
+      "number": null,
+      "complement": "Muribeca",
+      "neighborhood": "Jaboatão dos Guararapes",
+      "city": "PE",
+      "state": null,
+      "notes": "ativo",
+      "status": "2026-07-13 03:58:53",
+      "created_at": "2026-07-13 03:58:53",
+      "updated_at": null
+    },
+    {
+      "id": "CLI-2026-000003",
+      "code": "PF",
+      "type": "Williane Pereira da Silva",
+      "name": "111.281.444-25",
+      "cpf_cnpj": null,
+      "rg_ie": null,
+      "responsible": null,
+      "birth_date": null,
+      "email": "(81) 99655-3523",
+      "phone": "(81) 99655-3523",
+      "whatsapp": "54330-775",
+      "zip_code": "Rua Nova Piedade",
+      "street": 470,
+      "number": null,
+      "complement": "Cajueiro Seco",
+      "neighborhood": "Jaboatão dos Guararapes",
+      "city": "PE",
+      "state": null,
+      "notes": "ativo",
+      "status": "2026-07-13 06:34:55",
+      "created_at": "2026-07-13 06:34:55",
+      "updated_at": null
+    },
+    {
+      "id": "CLI-2026-000004",
+      "code": "PF",
+      "type": "Sidynei Tiago Basílio de Oliveira",
+      "name": "059.951.454-01",
+      "cpf_cnpj": null,
+      "rg_ie": null,
+      "responsible": "1985-04-29",
+      "birth_date": "advtiagobasilio@gmail.com",
+      "email": "(81) 99922-6397",
+      "phone": "(81) 99922-6397",
+      "whatsapp": "34360-160",
+      "zip_code": "Rua Arraial do Bom Jesus",
+      "street": 100,
+      "number": null,
+      "complement": "Marcos Freire",
+      "neighborhood": "Jaboatão dos Guararapes",
+      "city": "PE",
+      "state": null,
+      "notes": "ativo",
+      "status": "2026-07-13 15:22:09",
+      "created_at": "2026-07-13 16:05:16",
+      "updated_at": null
+    },
+    {
+      "id": "CLI-2026-000005",
+      "code": "PF",
+      "type": "Adriano Arlindo de Moura",
+      "name": "022.653.284-48",
+      "cpf_cnpj": null,
+      "rg_ie": null,
+      "responsible": null,
+      "birth_date": "adrianoarlindodemoura99@gmail.com",
+      "email": "(81) 99945-4455",
+      "phone": "(81) 99945-4455",
+      "whatsapp": "54360-070",
+      "zip_code": "Rua Forte do Brum",
+      "street": 40,
+      "number": null,
+      "complement": "Marcos Freire",
+      "neighborhood": "Jaboatão dos Guararapes",
+      "city": "PE",
+      "state": null,
+      "notes": "ativo",
+      "status": "2026-07-13 16:36:04",
+      "created_at": "2026-07-13 16:36:04",
+      "updated_at": null
+    },
+    {
+      "id": "CLI-2026-000006",
+      "code": "PF",
+      "type": "Cassia Maria Rodrigues",
+      "name": "070.535.734-19",
+      "cpf_cnpj": null,
+      "rg_ie": null,
+      "responsible": null,
+      "birth_date": null,
+      "email": "(81) 99721-3532",
+      "phone": "(81) 99721-3532",
+      "whatsapp": "54420-140",
+      "zip_code": "Rua Guanambi",
+      "street": 819,
+      "number": "Bloco 2, apto 301",
+      "complement": "Piedade",
+      "neighborhood": "Jaboatão dos Guararapes",
+      "city": "PE",
+      "state": "RESIDENCIAL CORAIS F",
+      "notes": "ativo",
+      "status": "2026-07-14 17:30:23",
+      "created_at": "2026-07-14 17:30:23",
+      "updated_at": null
+    }
+  ],
+  "company_settings": [
+    {
+      "id": "UILLAN EDUARDO LIRA DA SILVA",
+      "company_name": "PKSIG",
+      "trade_name": 24889125000182,
+      "tax_id": null,
+      "phone": 81995655293,
+      "whatsapp": "uillandr@gmail.com",
+      "email": "Rua Rui Barbosa, 340, Cajueiro Seco, Jaboatão dos Guararapes, Pernambuco, Brasil",
+      "address_text": null,
+      "logo_path": null,
+      "notes": "2026-07-13 06:26:40",
+      "updated_at": null
+    }
+  ],
+  "equipments": [
+    {
+      "id": "EQP-2026-000001",
+      "client_id": 1,
+      "code": "Acer",
+      "category_id": "Aspire ES1-411",
+      "brand": null,
+      "model": null,
+      "serial_number": null,
+      "imei": "Uillan Eduardo",
+      "asset_tag": "Preto",
+      "responsible": "Com marcas de uso, sinal de que entrou em contato com água, bastante sujo.",
+      "color": "Disponível",
+      "notes": "2026-07-13 04:02:05",
+      "status": "2026-07-13 05:47:21",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "id": "EQP-2026-000002",
+      "client_id": 2,
+      "code": "Xiaomi",
+      "category_id": "Redmi Note 13 4G",
+      "brand": "60203/04WW00357",
+      "model": 868796072822160,
+      "serial_number": null,
+      "imei": "Uillan",
+      "asset_tag": "Preto",
+      "responsible": "Marcas de uso. Cor preta. Conservado.",
+      "color": "Em manutenção",
+      "notes": "2026-07-13 15:28:39",
+      "status": "2026-07-13 15:29:36",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "id": "EQP-2026-000003",
+      "client_id": 6,
+      "code": "Sem Marca",
+      "category_id": "Não Informado",
+      "brand": null,
+      "model": null,
+      "serial_number": null,
+      "imei": "Adriano",
+      "asset_tag": "Preto",
+      "responsible": "Usada. Marcas de Uso",
+      "color": "Em manutenção",
+      "notes": "2026-07-13 16:43:25",
+      "status": "2026-07-13 16:48:22",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "id": "EQP-2026-000004",
+      "client_id": 9,
+      "code": "Amazon Kindle",
+      "category_id": "7th Gen",
+      "brand": null,
+      "model": null,
+      "serial_number": null,
+      "imei": null,
+      "asset_tag": "Preto",
+      "responsible": "Conservado, com caixa.",
+      "color": "Disponível",
+      "notes": "2026-07-14 17:38:17",
+      "status": "2026-07-14 17:43:28",
+      "created_at": null,
+      "updated_at": null
+    }
+  ],
+  "equipment_categories": [
+    {
+      "id": "Notebook",
+      "name": 1,
+      "active": "2026-07-13 03:49:30",
+      "created_at": "Notebook",
+      "notes": null
+    },
+    {
+      "id": "Celular Android",
+      "name": 1,
+      "active": "2026-07-13 03:49:49",
+      "created_at": null,
+      "notes": null
+    },
+    {
+      "id": "Celular Apple",
+      "name": 1,
+      "active": "2026-07-13 03:49:56",
+      "created_at": null,
+      "notes": null
+    },
+    {
+      "id": "Desktop",
+      "name": 1,
+      "active": "2026-07-13 03:50:04",
+      "created_at": null,
+      "notes": null
+    },
+    {
+      "id": "Impressora",
+      "name": 1,
+      "active": "2026-07-13 03:50:22",
+      "created_at": null,
+      "notes": null
+    },
+    {
+      "id": "Máquina de Fumaça",
+      "name": 1,
+      "active": "2026-07-13 16:36:57",
+      "created_at": null,
+      "notes": null
+    },
+    {
+      "id": "Iluminação",
+      "name": 1,
+      "active": "2026-07-13 16:37:07",
+      "created_at": null,
+      "notes": null
+    },
+    {
+      "id": "Traje de Festa",
+      "name": 1,
+      "active": "2026-07-13 16:37:16",
+      "created_at": null,
+      "notes": null
+    },
+    {
+      "id": "Ebook",
+      "name": 1,
+      "active": "2026-07-14 17:26:23",
+      "created_at": "Leitor de livros digital.",
+      "notes": null
+    },
+    {
+      "id": "Macbook",
+      "name": 1,
+      "active": "2026-07-15 02:42:59",
+      "created_at": null,
+      "notes": null
+    },
+    {
+      "id": "Ipad",
+      "name": 1,
+      "active": "2026-07-15 02:43:07",
+      "created_at": null,
+      "notes": null
+    },
+    {
+      "id": "Iphone",
+      "name": 1,
+      "active": "2026-07-15 02:43:13",
+      "created_at": null,
+      "notes": null
+    }
+  ],
+  "financial_categories": [
+    {
+      "id": "Ordem de Serviço",
+      "name": "entrada",
+      "type": 1,
+      "active": "2026-07-14 16:53:10",
+      "created_at": null
+    },
+    {
+      "id": "Venda de Produto",
+      "name": "entrada",
+      "type": 1,
+      "active": "2026-07-14 16:53:10",
+      "created_at": null
+    },
+    {
+      "id": "Outras Receitas",
+      "name": "entrada",
+      "type": 1,
+      "active": "2026-07-14 16:53:10",
+      "created_at": null
+    },
+    {
+      "id": "Compra de Peças",
+      "name": "saida",
+      "type": 1,
+      "active": "2026-07-14 16:53:10",
+      "created_at": null
+    },
+    {
+      "id": "Aluguel / Condomínio",
+      "name": "saida",
+      "type": 1,
+      "active": "2026-07-14 16:53:10",
+      "created_at": null
+    },
+    {
+      "id": "Salários e Pró-labore",
+      "name": "saida",
+      "type": 1,
+      "active": "2026-07-14 16:53:10",
+      "created_at": null
+    },
+    {
+      "id": "Energia",
+      "name": "saida",
+      "type": 1,
+      "active": "2026-07-14 16:53:10",
+      "created_at": null
+    },
+    {
+      "id": "Impostos e Taxas",
+      "name": "saida",
+      "type": 1,
+      "active": "2026-07-14 16:53:11",
+      "created_at": null
+    },
+    {
+      "id": "Outras Despesas",
+      "name": "saida",
+      "type": 1,
+      "active": "2026-07-14 16:53:11",
+      "created_at": null
+    },
+    {
+      "id": "Transporte",
+      "name": "saida",
+      "type": 1,
+      "active": "2026-07-14 17:11:46",
+      "created_at": null
+    },
+    {
+      "id": "Prestação de Serviço",
+      "name": "entrada",
+      "type": 1,
+      "active": "2026-07-14 17:12:13",
+      "created_at": null
+    },
+    {
+      "id": "Água",
+      "name": "saida",
+      "type": 1,
+      "active": "2026-07-15 02:41:58",
+      "created_at": null
+    },
+    {
+      "id": "Internet",
+      "name": "saida",
+      "type": 1,
+      "active": "2026-07-15 02:42:03",
+      "created_at": null
+    }
+  ],
+  "financial_transactions": [
+    {
+      "id": "Pagamento da OS OS-2026-000001 - Gleison Vanderlei da Silva (Pix)",
+      "description": "entrada",
+      "type": 500,
+      "amount": "2026-07-14",
+      "transaction_date": null,
+      "category_id": 17,
+      "os_id": "2026-07-14 17:18:37",
+      "created_at": "2026-07-14 17:18:37",
+      "updated_at": 6,
+      "payment_id": null
+    },
+    {
+      "id": "Uber 11.07.2026",
+      "description": "saida",
+      "type": 99,
+      "amount": "2026-07-11",
+      "transaction_date": 10,
+      "category_id": null,
+      "os_id": "2026-07-14 17:19:21",
+      "created_at": "2026-07-14 17:19:21",
+      "updated_at": null,
+      "payment_id": null
+    },
+    {
+      "id": "Pagamento da OS OS-2026-000004 - Cassia Maria Rodrigues  (Pix)",
+      "description": "entrada",
+      "type": 60,
+      "amount": "2026-07-14",
+      "transaction_date": null,
+      "category_id": 20,
+      "os_id": "2026-07-14 17:44:02",
+      "created_at": "2026-07-14 17:44:02",
+      "updated_at": 7,
+      "payment_id": null
+    }
+  ],
+  "login_attempts": [
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-13 00:56:36",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-13 03:45:30",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-13 03:49:06",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-13 04:09:47",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-13 04:27:11",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-13 05:27:18",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-13 05:31:14",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-13 05:33:36",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-13 05:46:20",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "192.168.0.3",
+      "ip_address": "2026-07-13 05:53:20",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-13 06:02:29",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-13 06:06:42",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "192.168.0.3",
+      "ip_address": "2026-07-13 06:07:16",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-13 06:24:32",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-13 06:36:38",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-13 15:08:30",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "192.168.15.99",
+      "ip_address": "2026-07-13 15:45:24",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-13 16:08:22",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "192.168.15.99",
+      "ip_address": "2026-07-13 16:09:12",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-14 14:18:49",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-14 14:54:55",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-14 16:53:19",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-14 17:11:08",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-15 19:54:21",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-15 23:11:54",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-15 23:52:37",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-15 23:55:48",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-15 23:57:10",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-16 00:11:55",
+      "attempted_at": 1,
+      "success": null
+    },
+    {
+      "id": "uillan",
+      "username": "127.0.0.1",
+      "ip_address": "2026-07-16 00:41:52",
+      "attempted_at": 1,
+      "success": null
+    }
+  ],
+  "payments": [
+    {
+      "id": "2026-07-14",
+      "payment_guide_id": 1,
+      "installment_id": "Pix",
+      "amount": null,
+      "payment_date": "2026-07-14 17:18:37",
+      "method_id": null,
+      "method_name": null,
+      "notes": null,
+      "created_at": null
+    },
+    {
+      "id": "2026-07-14",
+      "payment_guide_id": 1,
+      "installment_id": "Pix",
+      "amount": null,
+      "payment_date": "2026-07-14 17:44:02",
+      "method_id": null,
+      "method_name": null,
+      "notes": null,
+      "created_at": null
+    }
+  ],
+  "payment_guides": [
+    {
+      "id": "GUIA-2026-000001",
+      "client_id": 500,
+      "service_order_id": 2,
+      "code": 1,
+      "total_amount": "2026-07-13",
+      "expected_method_id": "2026-06-03",
+      "installments_count": 500,
+      "issue_date": 0,
+      "due_date": "Quitada",
+      "paid_amount": "R$ 597,16 parcelado em 6x",
+      "balance_amount": "2026-07-13 05:18:43",
+      "status": "2026-07-14 17:18:37",
+      "notes": null,
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "id": "GUIA-2026-000002",
+      "client_id": 70,
+      "service_order_id": 2,
+      "code": 1,
+      "total_amount": "2026-07-13",
+      "expected_method_id": "2026-07-14",
+      "installments_count": 0,
+      "issue_date": 70,
+      "due_date": "",
+      "paid_amount": "PAGBANK",
+      "balance_amount": "2026-07-13 15:35:45",
+      "status": "2026-07-15 19:59:48",
+      "notes": null,
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "id": "GUIA-2026-000003",
+      "client_id": 60,
+      "service_order_id": 1,
+      "code": 1,
+      "total_amount": "2026-07-14",
+      "expected_method_id": "2026-07-14",
+      "installments_count": 60,
+      "issue_date": 0,
+      "due_date": "Quitada",
+      "paid_amount": null,
+      "balance_amount": "2026-07-14 17:43:58",
+      "status": "2026-07-14 17:44:03",
+      "notes": null,
+      "created_at": null,
+      "updated_at": null
+    }
+  ],
+  "payment_installments": [
+    {
+      "id": "2026-07-13",
+      "payment_guide_id": "Pago",
+      "installment_number": 500,
+      "amount": "2026-07-14",
+      "due_date": "2026-07-13 05:18:43",
+      "status": "2026-07-14 17:18:37",
+      "paid_amount": null,
+      "paid_date": null,
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "id": "2026-07-13",
+      "payment_guide_id": "Pendente",
+      "installment_number": 0,
+      "amount": null,
+      "due_date": "2026-07-13 15:35:45",
+      "status": "2026-07-15 19:59:48",
+      "paid_amount": null,
+      "paid_date": null,
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "id": "2026-07-14",
+      "payment_guide_id": "Pago",
+      "installment_number": 60,
+      "amount": "2026-07-14",
+      "due_date": "2026-07-14 17:43:58",
+      "status": "2026-07-14 17:44:03",
+      "paid_amount": null,
+      "paid_date": null,
+      "created_at": null,
+      "updated_at": null
+    }
+  ],
+  "payment_methods": [
+    {
+      "id": "Pix",
+      "name": 0,
+      "allows_installments": 1,
+      "max_installments": null,
+      "notes": 1,
+      "active": "2026-07-13 03:50:29",
+      "created_at": null
+    },
+    {
+      "id": "Cartão de Crédito",
+      "name": 1,
+      "allows_installments": 12,
+      "max_installments": null,
+      "notes": 1,
+      "active": "2026-07-13 03:50:49",
+      "created_at": null
+    },
+    {
+      "id": "Cartão de Débito",
+      "name": 0,
+      "allows_installments": 1,
+      "max_installments": null,
+      "notes": 1,
+      "active": "2026-07-13 03:51:01",
+      "created_at": null
+    },
+    {
+      "id": "Espécie",
+      "name": 0,
+      "allows_installments": 1,
+      "max_installments": null,
+      "notes": 1,
+      "active": "2026-07-13 03:51:09",
+      "created_at": null
+    },
+    {
+      "id": "Espécie Parcelado",
+      "name": 1,
+      "allows_installments": 12,
+      "max_installments": null,
+      "notes": 1,
+      "active": "2026-07-13 03:51:24",
+      "created_at": null
+    }
+  ],
+  "reception_accessories": [
+    {
+      "id": "Cabo Alimentação",
+      "name": 1,
+      "active": "2026-07-13 03:53:20",
+      "created_at": null
+    },
+    {
+      "id": "Cabo USB",
+      "name": 1,
+      "active": "2026-07-13 03:53:25",
+      "created_at": null
+    },
+    {
+      "id": "Fonte/Carregador",
+      "name": 1,
+      "active": "2026-07-13 03:53:33",
+      "created_at": null
+    },
+    {
+      "id": "Capa",
+      "name": 1,
+      "active": "2026-07-13 03:53:36",
+      "created_at": null
+    },
+    {
+      "id": "Cartão SIM",
+      "name": 1,
+      "active": "2026-07-13 03:53:47",
+      "created_at": null
+    },
+    {
+      "id": "Cartão SD",
+      "name": 1,
+      "active": "2026-07-13 03:54:09",
+      "created_at": null
+    },
+    {
+      "id": "Teclado",
+      "name": 1,
+      "active": "2026-07-13 03:54:13",
+      "created_at": null
+    },
+    {
+      "id": "Mouse",
+      "name": 1,
+      "active": "2026-07-13 03:54:17",
+      "created_at": null
+    },
+    {
+      "id": "Controle",
+      "name": 1,
+      "active": "2026-07-13 16:48:32",
+      "created_at": null
+    },
+    {
+      "id": "PowerBank",
+      "name": 1,
+      "active": "2026-07-14 17:14:50",
+      "created_at": null
+    },
+    {
+      "id": "Caixa",
+      "name": 1,
+      "active": "2026-07-14 17:38:41",
+      "created_at": null
+    }
+  ],
+  "sequences": [
+    {
+      "type": "client",
+      "last_value": 6
+    },
+    {
+      "type": "equipment",
+      "last_value": 4
+    },
+    {
+      "type": "guide",
+      "last_value": 3
+    },
+    {
+      "type": "os",
+      "last_value": 4
+    },
+    {
+      "type": "warranty",
+      "last_value": 2
+    }
+  ],
+  "service_orders": [
+    {
+      "id": "OS-2026-000001",
+      "client_id": "Suporte TI (Administrador)",
+      "equipment_id": 7,
+      "code": "Entregue",
+      "technician_name": "2026-07-13 04:27:31",
+      "status_id": "2026-06-15",
+      "status_name": "2026-07-13 05:47:20",
+      "entry_date": "Notebook não liga e teclado não funciona. Cliente usa teclado e mouse externo.",
+      "promise_date": "Placa em estado de intermitência.\nLeitor de CD/DVD oxidado.\nHD com badblocks, não foi possível realizar leitura e recuperação de dados.",
+      "completion_date": "Sujeira em excesso.\nOxidação.",
+      "problem_reported": "Reparo de Placa.\nManutenção Preventiva\nInstalação de SSD + Windows 10 + Pacote Office\nInstalação de Memória RAM DDR3 8gb",
+      "technical_defect": "SSD 120GB SATA\nMEM RAM DDR3 8GB 1600MHZ PC3L",
+      "technical_diagnosis": null,
+      "technical_service_recommended": null,
+      "technical_parts_needed": "Notebook com bastante sujeira externa e interna. Marcas de uso e sinal de que entrou em contato com líquido. Ver fotos.",
+      "technical_estimated_hours": null,
+      "technical_notes": "2026-07-13 04:27:31",
+      "reception_equipment_state": "2026-07-13 05:47:21",
+      "reception_notes": null,
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "id": "OS-2026-000002",
+      "client_id": "Uillan Eduardo",
+      "equipment_id": 8,
+      "code": "Cancelada",
+      "technician_name": "2026-07-13 15:29:36",
+      "status_id": "2026-07-14",
+      "status_name": null,
+      "entry_date": "Tela não dá imagem após queda. Sai som normal.",
+      "promise_date": "Tela com trinco interno visivel. Aparelho sai som normal e vibra.",
+      "completion_date": "Tela danificada após queda.\nNão foi possível testar os demais periféricos.",
+      "problem_reported": "Troca de Tela.",
+      "technical_defect": "1 x Tela Xiaomi Redmi Note 13 4G.",
+      "technical_diagnosis": 48,
+      "technical_service_recommended": "Cliente trouxe a peça.",
+      "technical_parts_needed": "Conservado. Marcas de uso. Tela trincada.",
+      "technical_estimated_hours": null,
+      "technical_notes": "2026-07-13 15:29:36",
+      "reception_equipment_state": "2026-07-15 20:00:35",
+      "reception_notes": null,
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "id": "OS-2026-000003",
+      "client_id": "Uillan Eduardo",
+      "equipment_id": 1,
+      "code": "Recebida",
+      "technician_name": "2026-07-13 16:48:21",
+      "status_id": null,
+      "status_name": null,
+      "entry_date": "Liga mas ao apertar o comando a fumaça não sai.",
+      "promise_date": null,
+      "completion_date": null,
+      "problem_reported": null,
+      "technical_defect": null,
+      "technical_diagnosis": null,
+      "technical_service_recommended": null,
+      "technical_parts_needed": null,
+      "technical_estimated_hours": null,
+      "technical_notes": "2026-07-13 16:48:21",
+      "reception_equipment_state": "2026-07-13 16:48:21",
+      "reception_notes": null,
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "id": "OS-2026-000004",
+      "client_id": "Suporte TI (Administrador)",
+      "equipment_id": 7,
+      "code": "Entregue",
+      "technician_name": "2026-07-14 17:39:25",
+      "status_id": null,
+      "status_name": "2026-07-14 20:43:28",
+      "entry_date": "Não carrega. Não acende led de carregamento quando conectado ao carregador.",
+      "promise_date": "Bateria ruim. Necessário repor ou recondicinoar.",
+      "completion_date": "Conector de Carga ok.\nBateria não retém carga ou reconhece quando está no carregador.\nRealizado testes com outras baterias.",
+      "problem_reported": "Troca de Bateria.\nRecondicionamento de Bateria.",
+      "technical_defect": "Bateria para Kindle MC-265360-03 7th 8th geração sy69jl wp63gw",
+      "technical_diagnosis": 48,
+      "technical_service_recommended": null,
+      "technical_parts_needed": "Conservado. Poucas marcas de uso.",
+      "technical_estimated_hours": null,
+      "technical_notes": "2026-07-14 17:39:25",
+      "reception_equipment_state": "2026-07-14 17:44:20",
+      "reception_notes": null,
+      "created_at": null,
+      "updated_at": null
+    }
+  ],
+  "service_order_accessories": [
+    {
+      "service_order_id": "Cabo Alimentação",
+      "accessory_name": null
+    },
+    {
+      "service_order_id": "Fonte/Carregador",
+      "accessory_name": null
+    },
+    {
+      "service_order_id": "Capa",
+      "accessory_name": null
+    },
+    {
+      "service_order_id": "Cabo Alimentação",
+      "accessory_name": null
+    },
+    {
+      "service_order_id": "Caixa",
+      "accessory_name": null
+    }
+  ],
+  "service_order_statuses": [
+    {
+      "id": "Recebida",
+      "name": 1,
+      "position": 1,
+      "is_system": 1,
+      "active": null
+    },
+    {
+      "id": "Em análise",
+      "name": 2,
+      "position": 1,
+      "is_system": 1,
+      "active": null
+    },
+    {
+      "id": "Aguardando aprovação",
+      "name": 3,
+      "position": 1,
+      "is_system": 1,
+      "active": null
+    },
+    {
+      "id": "Aguardando peça",
+      "name": 4,
+      "position": 1,
+      "is_system": 1,
+      "active": null
+    },
+    {
+      "id": "Em manutenção",
+      "name": 5,
+      "position": 1,
+      "is_system": 1,
+      "active": null
+    },
+    {
+      "id": "Pronta",
+      "name": 6,
+      "position": 1,
+      "is_system": 1,
+      "active": null
+    },
+    {
+      "id": "Entregue",
+      "name": 7,
+      "position": 1,
+      "is_system": 1,
+      "active": null
+    },
+    {
+      "id": "Cancelada",
+      "name": 8,
+      "position": 1,
+      "is_system": 1,
+      "active": null
+    }
+  ],
+  "system_settings": [
+    {
+      "id": "PK SIG",
+      "system_name": "R$",
+      "currency": "DD/MM/YYYY",
+      "date_format": "America/Sao_Paulo",
+      "timezone": 15,
+      "records_per_page": "CLI",
+      "prefix_client": "EQP",
+      "prefix_equipment": "OS",
+      "prefix_os": "GUIA",
+      "prefix_guide": "GAR",
+      "prefix_warranty": 1,
+      "include_year_in_code": 6,
+      "digits_count": "2026-07-14 14:56:09",
+      "updated_at": 2,
+      "default_delay_alert_days": 0,
+      "default_tax_rate": "PKSIG - Gerenciamento de OS",
+      "pwa_name": "PKSIG",
+      "pwa_short_name": "Sistema de Gerenciamento de Ordem de Serviço para Assistência Técnica",
+      "pwa_description": "#1a5fb4",
+      "pwa_theme_color": "#ffffff",
+      "pwa_background_color": "standalone",
+      "pwa_display": null,
+      "pwa_icon_url": null
+    }
+  ],
+  "warranties": [
+    {
+      "id": "GAR-2026-000001",
+      "client_id": "2026-06-13",
+      "equipment_id": "2026-09-11",
+      "service_order_id": "Vigente",
+      "code": "cert-GAR-2026-000001.pdf",
+      "start_date": "2026-07-13 05:47:34",
+      "end_date": "2026-07-13 05:47:34",
+      "status": null,
+      "pdf_reference": null,
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "id": "GAR-2026-000002",
+      "client_id": "2026-07-14",
+      "equipment_id": "2026-10-12",
+      "service_order_id": "Vigente",
+      "code": "cert-GAR-2026-000002.pdf",
+      "start_date": "2026-07-14 17:44:11",
+      "end_date": "2026-07-14 17:44:11",
+      "status": null,
+      "pdf_reference": null,
+      "created_at": null,
+      "updated_at": null
+    }
+  ],
+  "warranty_rules": [
+    {
+      "id": "Garantia Padrão",
+      "name": 90,
+      "duration_days": null,
+      "category_id": null,
+      "service_type": 1,
+      "active": "2026-07-13 03:52:52",
+      "created_at": "Garantia 90 dias",
+      "terms_description": null
+    },
+    {
+      "id": "Sem Garantia",
+      "name": 90,
+      "duration_days": null,
+      "category_id": null,
+      "service_type": 1,
+      "active": "2026-07-13 03:53:09",
+      "created_at": "Sem Garantia.",
+      "terms_description": null
+    }
+  ]
+}

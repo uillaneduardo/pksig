@@ -695,6 +695,72 @@ app.post("/api/settings/import", requireAuth, async (req: any, res: any) => {
   }
 });
 
+// Import complete SQL backup file
+app.post("/api/database/import-sql", requireAuth, async (req: any, res: any) => {
+  const { sql } = req.body;
+  if (!sql || typeof sql !== "string") {
+    return res.status(400).json({ error: "Conteúdo SQL inválido" });
+  }
+
+  try {
+    const activePool = await getPool();
+    const connection = await activePool.getConnection();
+    
+    const statements = sql
+      .split(/;(?=(?:[^'"`]*['"`][^'"`]*['"`])*[^'"`]*$)/g) // split on semicolons outside quotes
+      .map((stmt) => stmt.trim())
+      .filter((stmt) => stmt.length > 0);
+
+    let successCount = 0;
+    let failureCount = 0;
+    const errors: string[] = [];
+
+    try {
+      await connection.query("SET FOREIGN_KEY_CHECKS = 0");
+      for (const statement of statements) {
+        // Filter lines to ignore comments
+        const cleanStatement = statement
+          .split("\n")
+          .filter(line => !line.trim().startsWith("--") && !line.trim().startsWith("/*") && !line.trim().startsWith("#"))
+          .join("\n")
+          .trim();
+
+        if (cleanStatement.length === 0) {
+          continue;
+        }
+
+        try {
+          await connection.query(cleanStatement);
+          successCount++;
+        } catch (err: any) {
+          failureCount++;
+          errors.push(`Erro na query: "${cleanStatement.slice(0, 100)}..." -> ${err.message}`);
+        }
+      }
+      await connection.query("SET FOREIGN_KEY_CHECKS = 1");
+    } finally {
+      connection.release();
+    }
+
+    if (failureCount > 0) {
+      return res.json({
+        success: true,
+        message: `Importação parcial realizada com ${successCount} queries bem-sucedidas. Ocorreram ${failureCount} erros na importação.`,
+        errors: errors.slice(0, 10)
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: `Backup .SQL importado com sucesso total! ${successCount} queries executadas no banco ativo.`
+    });
+
+  } catch (err: any) {
+    console.error("SQL Import route failed:", err);
+    return res.status(500).json({ error: `Falha na restauração do backup SQL: ${err.message}` });
+  }
+});
+
 // Verify the integrity and compatibility of the active database
 app.get("/api/database/verify", requireAuth, async (req: any, res: any) => {
   const config = getDatabaseConfig();

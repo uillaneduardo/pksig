@@ -1,0 +1,361 @@
+{
+  "system_settings": [
+    {
+      "id": "PK SIG",
+      "system_name": "R$",
+      "currency": "DD/MM/YYYY",
+      "date_format": "America/Sao_Paulo",
+      "timezone": 15,
+      "records_per_page": "CLI",
+      "prefix_client": "EQP",
+      "prefix_equipment": "OS",
+      "prefix_os": "GUIA",
+      "prefix_guide": "GAR",
+      "prefix_warranty": 1,
+      "include_year_in_code": 6,
+      "digits_count": "2026-07-14 14:56:09",
+      "updated_at": 2,
+      "default_delay_alert_days": 0,
+      "default_tax_rate": "PKSIG - Gerenciamento de OS",
+      "pwa_name": "PKSIG",
+      "pwa_short_name": "Sistema de Gerenciamento de Ordem de Serviço para Assistência Técnica",
+      "pwa_description": "#1a5fb4",
+      "pwa_theme_color": "#ffffff",
+      "pwa_background_color": "standalone",
+      "pwa_display": null,
+      "pwa_icon_url": null
+    }
+  ],
+  "company_settings": [
+    {
+      "id": "UILLAN EDUARDO LIRA DA SILVA",
+      "company_name": "PKSIG",
+      "trade_name": 24889125000182,
+      "tax_id": null,
+      "phone": 81995655293,
+      "whatsapp": "uillandr@gmail.com",
+      "email": "Rua Rui Barbosa, 340, Cajueiro Seco, Jaboatão dos Guararapes, Pernambuco, Brasil",
+      "address_text": null,
+      "logo_path": null,
+      "notes": "2026-07-13 06:26:40",
+      "updated_at": null
+    }
+  ],
+  "equipment_categories": [
+    {
+      "id": "Notebook",
+      "name": 1,
+      "active": "2026-07-13 03:49:30",
+      "created_at": "Notebook",
+      "notes": null
+    },
+    {
+      "id": "Celular Android",
+      "name": 1,
+      "active": "2026-07-13 03:49:49",
+      "created_at": null,
+      "notes": null
+    },
+    {
+      "id": "Celular Apple",
+      "name": 1,
+      "active": "2026-07-13 03:49:56",
+      "created_at": null,
+      "notes": null
+    },
+    {
+      "id": "Desktop",
+      "name": 1,
+      "active": "2026-07-13 03:50:04",
+      "created_at": null,
+      "notes": null
+    },
+    {
+      "id": "Impressora",
+      "name": 1,
+      "active": "2026-07-13 03:50:22",
+      "created_at": null,
+      "notes": null
+    },
+    {
+      "id": "Máquina de Fumaça",
+      "name": 1,
+      "active": "2026-07-13 16:36:57",
+      "created_at": null,
+      "notes": null
+    },
+    {
+      "id": "Iluminação",
+      "name": 1,
+      "active": "2026-07-13 16:37:07",
+      "created_at": null,
+      "notes": null
+    },
+    {
+      "id": "Traje de Festa",
+      "name": 1,
+      "active": "2026-07-13 16:37:16",
+      "created_at": null,
+      "notes": null
+    },
+    {
+      "id": "Ebook",
+      "name": 1,
+      "active": "2026-07-14 17:26:23",
+      "created_at": "Leitor de livros digital.",
+      "notes": null
+    },
+    {
+      "id": "Macbook",
+      "name": 1,
+      "active": "2026-07-15 02:42:59",
+      "created_at": null,
+      "notes": null
+    },
+    {
+      "id": "Ipad",
+      "name": 1,
+      "active": "2026-07-15 02:43:07",
+      "created_at": null,
+      "notes": null
+    },
+    {
+      "id": "Iphone",
+      "name": 1,
+      "active": "2026-07-15 02:43:13",
+      "created_at": null,
+      "notes": null
+    }
+  ],
+  "payment_methods": [
+    {
+      "id": "Pix",
+      "name": 0,
+      "allows_installments": 1,
+      "max_installments": null,
+      "notes": 1,
+      "active": "2026-07-13 03:50:29",
+      "created_at": null
+    },
+    {
+      "id": "Cartão de Crédito",
+      "name": 1,
+      "allows_installments": 12,
+      "max_installments": null,
+      "notes": 1,
+      "active": "2026-07-13 03:50:49",
+      "created_at": null
+    },
+    {
+      "id": "Cartão de Débito",
+      "name": 0,
+      "allows_installments": 1,
+      "max_installments": null,
+      "notes": 1,
+      "active": "2026-07-13 03:51:01",
+      "created_at": null
+    },
+    {
+      "id": "Espécie",
+      "name": 0,
+      "allows_installments": 1,
+      "max_installments": null,
+      "notes": 1,
+      "active": "2026-07-13 03:51:09",
+      "created_at": null
+    },
+    {
+      "id": "Espécie Parcelado",
+      "name": 1,
+      "allows_installments": 12,
+      "max_installments": null,
+      "notes": 1,
+      "active": "2026-07-13 03:51:24",
+      "created_at": null
+    }
+  ],
+  "financial_categories": [
+    {
+      "id": "Ordem de Serviço",
+      "name": "entrada",
+      "type": 1,
+      "active": "2026-07-14 16:53:10",
+      "created_at": null
+    },
+    {
+      "id": "Venda de Produto",
+      "name": "entrada",
+      "type": 1,
+      "active": "2026-07-14 16:53:10",
+      "created_at": null
+    },
+    {
+      "id": "Outras Receitas",
+      "name": "entrada",
+      "type": 1,
+      "active": "2026-07-14 16:53:10",
+      "created_at": null
+    },
+    {
+      "id": "Compra de Peças",
+      "name": "saida",
+      "type": 1,
+      "active": "2026-07-14 16:53:10",
+      "created_at": null
+    },
+    {
+      "id": "Aluguel / Condomínio",
+      "name": "saida",
+      "type": 1,
+      "active": "2026-07-14 16:53:10",
+      "created_at": null
+    },
+    {
+      "id": "Salários e Pró-labore",
+      "name": "saida",
+      "type": 1,
+      "active": "2026-07-14 16:53:10",
+      "created_at": null
+    },
+    {
+      "id": "Energia",
+      "name": "saida",
+      "type": 1,
+      "active": "2026-07-14 16:53:10",
+      "created_at": null
+    },
+    {
+      "id": "Impostos e Taxas",
+      "name": "saida",
+      "type": 1,
+      "active": "2026-07-14 16:53:11",
+      "created_at": null
+    },
+    {
+      "id": "Outras Despesas",
+      "name": "saida",
+      "type": 1,
+      "active": "2026-07-14 16:53:11",
+      "created_at": null
+    },
+    {
+      "id": "Transporte",
+      "name": "saida",
+      "type": 1,
+      "active": "2026-07-14 17:11:46",
+      "created_at": null
+    },
+    {
+      "id": "Prestação de Serviço",
+      "name": "entrada",
+      "type": 1,
+      "active": "2026-07-14 17:12:13",
+      "created_at": null
+    },
+    {
+      "id": "Água",
+      "name": "saida",
+      "type": 1,
+      "active": "2026-07-15 02:41:58",
+      "created_at": null
+    },
+    {
+      "id": "Internet",
+      "name": "saida",
+      "type": 1,
+      "active": "2026-07-15 02:42:03",
+      "created_at": null
+    }
+  ],
+  "warranty_rules": [
+    {
+      "id": "Garantia Padrão",
+      "name": 90,
+      "duration_days": null,
+      "category_id": null,
+      "service_type": 1,
+      "active": "2026-07-13 03:52:52",
+      "created_at": "Garantia 90 dias",
+      "terms_description": null
+    },
+    {
+      "id": "Sem Garantia",
+      "name": 90,
+      "duration_days": null,
+      "category_id": null,
+      "service_type": 1,
+      "active": "2026-07-13 03:53:09",
+      "created_at": "Sem Garantia.",
+      "terms_description": null
+    }
+  ],
+  "reception_accessories": [
+    {
+      "id": "Cabo Alimentação",
+      "name": 1,
+      "active": "2026-07-13 03:53:20",
+      "created_at": null
+    },
+    {
+      "id": "Cabo USB",
+      "name": 1,
+      "active": "2026-07-13 03:53:25",
+      "created_at": null
+    },
+    {
+      "id": "Fonte/Carregador",
+      "name": 1,
+      "active": "2026-07-13 03:53:33",
+      "created_at": null
+    },
+    {
+      "id": "Capa",
+      "name": 1,
+      "active": "2026-07-13 03:53:36",
+      "created_at": null
+    },
+    {
+      "id": "Cartão SIM",
+      "name": 1,
+      "active": "2026-07-13 03:53:47",
+      "created_at": null
+    },
+    {
+      "id": "Cartão SD",
+      "name": 1,
+      "active": "2026-07-13 03:54:09",
+      "created_at": null
+    },
+    {
+      "id": "Teclado",
+      "name": 1,
+      "active": "2026-07-13 03:54:13",
+      "created_at": null
+    },
+    {
+      "id": "Mouse",
+      "name": 1,
+      "active": "2026-07-13 03:54:17",
+      "created_at": null
+    },
+    {
+      "id": "Controle",
+      "name": 1,
+      "active": "2026-07-13 16:48:32",
+      "created_at": null
+    },
+    {
+      "id": "PowerBank",
+      "name": 1,
+      "active": "2026-07-14 17:14:50",
+      "created_at": null
+    },
+    {
+      "id": "Caixa",
+      "name": 1,
+      "active": "2026-07-14 17:38:41",
+      "created_at": null
+    }
+  ],
+  "equipment_category_accessories": []
+}

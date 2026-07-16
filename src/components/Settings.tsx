@@ -184,6 +184,52 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
   const [importLoading, setImportLoading] = useState(false);
   const [importSuccess, setImportSuccess] = useState("");
   const [importError, setImportError] = useState("");
+
+  const [sqlLoading, setSqlLoading] = useState(false);
+  const [sqlSuccess, setSqlSuccess] = useState("");
+  const [sqlError, setSqlError] = useState("");
+
+  const handleImportSql = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setSqlLoading(true);
+    setSqlSuccess("");
+    setSqlError("");
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const sqlText = event.target?.result as string;
+        const res = await fetch("/api/database/import-sql", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ sql: sqlText })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setSqlSuccess(data.message || "Backup .SQL importado com sucesso!");
+          if (data.errors && data.errors.length > 0) {
+            setSqlError("Alguns comandos falharam:\n" + data.errors.join("\n"));
+          }
+          loadSettingsData();
+          if (onDatabaseUpdated) {
+            onDatabaseUpdated();
+          }
+        } else {
+          setSqlError(data.error || "Erro ao importar dados SQL.");
+        }
+      } catch (err: any) {
+        setSqlError("Erro de conexão ou leitura do arquivo: " + err.message);
+      } finally {
+        setSqlLoading(false);
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const [testSuccess, setTestSuccess] = useState("");
   const [testError, setTestError] = useState("");
   const [testingConnection, setTestingConnection] = useState(false);
@@ -1468,6 +1514,66 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
                         accept=".json"
                         onChange={handleImportSettings}
                         disabled={importLoading}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              {/* BACKUP COMPLETO DATABASE .SQL */}
+              <div className="bg-white border border-gray-200 rounded-md p-4 space-y-4 shadow-sm">
+                <div className="border-b border-gray-100 pb-2">
+                  <h4 className="font-bold text-gray-800 text-xs flex items-center space-x-1.5">
+                    <Database className="h-4.5 w-4.5 text-blue-600 mr-2" />
+                    <span>Importar Backup de Banco de Dados (.SQL)</span>
+                  </h4>
+                  <p className="text-gray-400 text-[10px] mt-0.5">
+                    Restaure ou migre um banco de dados completo contendo tabelas de clientes, ordens de serviço, acessórios, categorias, pagamentos e checklists utilizando um dump SQL do MySQL ou MariaDB.
+                  </p>
+                </div>
+
+                {sqlSuccess && (
+                  <div className="p-3 bg-blue-50 border border-blue-200 text-blue-800 text-xs rounded-md flex items-start space-x-2">
+                    <Check className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-bold">Sucesso!</p>
+                      <p className="text-[10px] mt-0.5">{sqlSuccess}</p>
+                    </div>
+                  </div>
+                )}
+
+                {sqlError && (
+                  <div className="p-3 bg-red-50 border border-red-200 text-red-800 text-xs rounded-md flex items-start space-x-2">
+                    <AlertCircle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-bold">Importação Parcial ou Falha</p>
+                      <pre className="text-[9px] mt-1 whitespace-pre-wrap font-mono max-h-32 overflow-y-auto bg-white/50 p-1.5 border border-red-100 rounded">
+                        {sqlError}
+                      </pre>
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-1">
+                  <div className="border border-gray-200 rounded p-4 flex flex-col justify-between space-y-3 bg-gray-50/30">
+                    <div className="space-y-1">
+                      <h5 className="font-bold text-xs text-gray-900 flex items-center">
+                        <Upload className="h-4 w-4 text-blue-600 mr-1.5" />
+                        Carregar Backup SQL do Banco de Dados
+                      </h5>
+                      <p className="text-gray-500 text-[10.5px] leading-relaxed">
+                        Selecione um arquivo de despejo de dados <strong>.sql</strong> (como um dump gerado pelo phpMyAdmin). Este recurso desabilitará temporariamente a checagem de chaves estrangeiras para carregar e relacionar todos os dados corretamente.
+                      </p>
+                    </div>
+                    <label className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer text-center">
+                      {sqlLoading ? <Loader className="animate-spin h-3.5 w-3.5" /> : <Upload className="h-3.5 w-3.5" />}
+                      <span>{sqlLoading ? "Executando queries SQL..." : "Selecionar e Importar Backup (.SQL)"}</span>
+                      <input
+                        type="file"
+                        accept=".sql"
+                        onChange={handleImportSql}
+                        disabled={sqlLoading}
                         className="hidden"
                       />
                     </label>
