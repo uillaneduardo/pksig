@@ -288,6 +288,18 @@ app.get("/api/status", async (req: any, res: any) => {
       console.error("Error reading company settings in status endpoint:", e);
     }
 
+    let last_sync_at = null;
+    let last_sync_direction = null;
+    try {
+      const metaRows = await query("SELECT meta_key, meta_value FROM app_meta WHERE meta_key IN ('last_sync_at', 'last_sync_direction')");
+      for (const row of metaRows) {
+        if (row.meta_key === "last_sync_at") last_sync_at = row.meta_value;
+        if (row.meta_key === "last_sync_direction") last_sync_direction = row.meta_value;
+      }
+    } catch (e: any) {
+      console.warn("Could not read sync metadata from app_meta:", e.message);
+    }
+
     const token = req.cookies.session_token;
     const session = token ? await getSession(token) : null;
     const isAuthenticated = !!session;
@@ -297,6 +309,9 @@ app.get("/api/status", async (req: any, res: any) => {
       connected: true,
       hasAdmin: admins.length > 0,
       mode: config?.mode,
+      type: config?.mode === "local" ? "sqlite" : (config?.type || "mysql"),
+      last_sync_at,
+      last_sync_direction,
       companyName,
       tradeName
     };

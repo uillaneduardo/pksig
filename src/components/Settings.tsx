@@ -11,6 +11,7 @@ interface SettingsProps {
   onUpdateCurrency: (currency: string) => void;
   currency: string;
   onCompanyUpdated?: () => void;
+  onDatabaseUpdated?: () => void;
 }
 
 // Helpers for input masks
@@ -46,7 +47,7 @@ const formatPhone = (value: string) => {
   }
 };
 
-export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated }: SettingsProps) {
+export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated, onDatabaseUpdated }: SettingsProps) {
   const [activeSection, setActiveSection] = useState<"geral" | "categorias" | "pagamentos" | "garantias" | "acessorios" | "empresa" | "armazenamento" | "pwa" | "financeiro">("geral");
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -371,6 +372,9 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated 
         setCloneSuccess(data.message || "Clonagem realizada com sucesso!");
         if (direction === "remote-to-local") {
           loadSettingsData();
+        }
+        if (onDatabaseUpdated) {
+          onDatabaseUpdated();
         }
       } else {
         setCloneError(data.error || data.message || "Falha ao executar clonagem.");

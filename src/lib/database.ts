@@ -763,10 +763,33 @@ export async function cloneDatabase(
       customCreated = true;
     } else {
       const config = getDatabaseConfig();
-      if (!config || config.mode !== "remoto") {
+      if (!config) {
         return { success: false, message: "O banco de dados remoto (MySQL) não está configurado." };
       }
-      remotePool = await getPool();
+      
+      if (config.mode === "remoto") {
+        remotePool = await getPool();
+      } else {
+        // If we are in local mode but have remote credentials saved
+        if (!config.host || config.host === "localhost" || !config.user || config.user === "local") {
+          return { success: false, message: "As credenciais do banco de dados remoto não estão configuradas." };
+        }
+        const decrytedPassword = config.password && config.password.includes(":") 
+          ? decrypt(config.password) 
+          : config.password;
+        remotePool = mysql.createPool({
+          host: config.host,
+          port: config.port || 3306,
+          user: config.user,
+          password: decrytedPassword,
+          database: config.database,
+          ssl: config.ssl ? (config.certificate ? { ca: config.certificate } : { rejectUnauthorized: false }) : undefined,
+          connectionLimit: 5,
+          waitForConnections: true,
+          queueLimit: 0
+        });
+        customCreated = true;
+      }
     }
 
     if (direction === "remote-to-local") {
@@ -820,6 +843,33 @@ export async function cloneDatabase(
         await writeToSqlite(table, rows);
       }
 
+      // Record sync metadata to both SQLite and Remote MySQL
+      const nowStr = new Date().toISOString();
+      const dbInstance = getSqliteDb();
+      await new Promise<void>((resolve, reject) => {
+        dbInstance.serialize(() => {
+          dbInstance.run("DELETE FROM app_meta WHERE meta_key = 'last_sync_at'");
+          dbInstance.run("INSERT INTO app_meta (meta_key, meta_value) VALUES ('last_sync_at', ?)", [nowStr]);
+          dbInstance.run("DELETE FROM app_meta WHERE meta_key = 'last_sync_direction'");
+          dbInstance.run("INSERT INTO app_meta (meta_key, meta_value) VALUES ('last_sync_direction', ?)", [direction], (err) => {
+            if (err) reject(err);
+            else resolve();
+          });
+        });
+      });
+
+      const connMeta = await remotePool.getConnection();
+      try {
+        await connMeta.query("DELETE FROM app_meta WHERE meta_key = 'last_sync_at'");
+        await connMeta.query("INSERT INTO app_meta (meta_key, meta_value) VALUES ('last_sync_at', ?)", [nowStr]);
+        await connMeta.query("DELETE FROM app_meta WHERE meta_key = 'last_sync_direction'");
+        await connMeta.query("INSERT INTO app_meta (meta_key, meta_value) VALUES ('last_sync_direction', ?)", [direction]);
+      } catch (metaErr: any) {
+        console.warn("Could not save sync metadata on remote MySQL during clone:", metaErr.message);
+      } finally {
+        connMeta.release();
+      }
+
       return { success: true, message: "Base de dados online clonada para a base local com sucesso!" };
 
     } else {
@@ -856,6 +906,33 @@ export async function cloneDatabase(
       for (const table of tables) {
         const rows = await readAllFromSqlite(table);
         await writeToMysql(remotePool, table, rows);
+      }
+
+      // Record sync metadata to both SQLite and Remote MySQL
+      const nowStr = new Date().toISOString();
+      const dbInstance = getSqliteDb();
+      await new Promise<void>((resolve, reject) => {
+        dbInstance.serialize(() => {
+          dbInstance.run("DELETE FROM app_meta WHERE meta_key = 'last_sync_at'");
+          dbInstance.run("INSERT INTO app_meta (meta_key, meta_value) VALUES ('last_sync_at', ?)", [nowStr]);
+          dbInstance.run("DELETE FROM app_meta WHERE meta_key = 'last_sync_direction'");
+          dbInstance.run("INSERT INTO app_meta (meta_key, meta_value) VALUES ('last_sync_direction', ?)", [direction], (err) => {
+            if (err) reject(err);
+            else resolve();
+          });
+        });
+      });
+
+      const connMeta = await remotePool.getConnection();
+      try {
+        await connMeta.query("DELETE FROM app_meta WHERE meta_key = 'last_sync_at'");
+        await connMeta.query("INSERT INTO app_meta (meta_key, meta_value) VALUES ('last_sync_at', ?)", [nowStr]);
+        await connMeta.query("DELETE FROM app_meta WHERE meta_key = 'last_sync_direction'");
+        await connMeta.query("INSERT INTO app_meta (meta_key, meta_value) VALUES ('last_sync_direction', ?)", [direction]);
+      } catch (metaErr: any) {
+        console.warn("Could not save sync metadata on remote MySQL during clone:", metaErr.message);
+      } finally {
+        connMeta.release();
       }
 
       return { success: true, message: "Base de dados local clonada para a base online com sucesso!" };

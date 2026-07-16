@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { 
   Shield, LayoutDashboard, Users, FileText, Settings as SettingsIcon, 
   LogOut, AlertCircle, RefreshCw, ChevronRight, Menu, DollarSign,
-  ChevronLeft
+  ChevronLeft, Database, Cloud, Upload, Download, Check, AlertTriangle
 } from "lucide-react";
 import { fetchCsrfToken } from "./lib/api";
 
@@ -23,6 +23,56 @@ export default function App() {
   const [dbConnected, setDbConnected] = useState<boolean>(false);
   const [dbError, setDbError] = useState<string>("");
   const [hasAdmin, setHasAdmin] = useState<boolean>(false);
+
+  // Database mode & sync states
+  const [dbMode, setDbMode] = useState<"local" | "remoto">("local");
+  const [dbType, setDbType] = useState<string>("sqlite");
+  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
+  const [lastSyncDirection, setLastSyncDirection] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [showSyncDropdown, setShowSyncDropdown] = useState<boolean>(false);
+  const [syncError, setSyncError] = useState<string>("");
+  const [syncSuccess, setSyncSuccess] = useState<string>("");
+
+  const formatSyncDate = (dateStr: string | null) => {
+    if (!dateStr) return "Nunca sincronizado";
+    try {
+      const date = new Date(dateStr);
+      const day = String(date.getDate()).padStart(2, "0");
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const year = date.getFullYear();
+      const hours = String(date.getHours()).padStart(2, "0");
+      const minutes = String(date.getMinutes()).padStart(2, "0");
+      return `${day}/${month}/${year} às ${hours}:${minutes}`;
+    } catch (e) {
+      return "Formato inválido";
+    }
+  };
+
+  const handleQuickSync = async (direction: "remote-to-local" | "local-to-remote") => {
+    setIsSyncing(true);
+    setSyncError("");
+    setSyncSuccess("");
+    try {
+      const res = await fetch("/api/database/clone", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ direction })
+      });
+      const data = await res.json();
+      if (res.ok && !data.error) {
+        setSyncSuccess(direction === "local-to-remote" ? "Sincronizado com sucesso (Envio)!" : "Sincronizado com sucesso (Baixar)!");
+        await checkSystemStatus();
+        setTimeout(() => setSyncSuccess(""), 4000);
+      } else {
+        setSyncError(data.error || data.message || "Erro na sincronização");
+      }
+    } catch (err: any) {
+      setSyncError("Erro de rede ao sincronizar");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   // Auth state
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
@@ -52,6 +102,19 @@ export default function App() {
         setDbConnected(data.connected || false);
         setDbError(data.error || "");
         setHasAdmin(data.hasAdmin || false);
+
+        if (data.mode !== undefined) {
+          setDbMode(data.mode);
+        }
+        if (data.type !== undefined) {
+          setDbType(data.type);
+        }
+        if (data.last_sync_at !== undefined) {
+          setLastSyncAt(data.last_sync_at);
+        }
+        if (data.last_sync_direction !== undefined) {
+          setLastSyncDirection(data.last_sync_direction);
+        }
 
         if (data.tradeName !== undefined) {
           setTradeName(data.tradeName);
@@ -83,6 +146,9 @@ export default function App() {
 
   useEffect(() => {
     checkSystemStatus();
+    // Periodically update status to keep sync and mode information refreshed and accurate (every 30s)
+    const interval = setInterval(checkSystemStatus, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -311,12 +377,171 @@ export default function App() {
             <span className="text-gray-500 font-bold uppercase tracking-wider text-[11px] hidden md:inline">{tradeName || companyName || "Ambiente Administrativo"}</span>
           </div>
 
-          {/* User information display */}
-          <div className="flex items-center space-x-4">
-            <span className="text-[10px] bg-green-50 text-green-700 font-bold px-2 py-0.5 rounded-full flex items-center">
-              <span className="h-1.5 w-1.5 bg-green-500 rounded-full mr-1.5 animate-pulse" />
-              SISTEMA ONLINE
-            </span>
+          {/* User information display & Cohesive intelligent sync status widget */}
+          <div className="relative flex items-center">
+            {/* Click-outside listener for dropdown closing */}
+            {showSyncDropdown && (
+              <div 
+                className="fixed inset-0 z-40 cursor-default" 
+                onClick={() => setShowSyncDropdown(false)} 
+              />
+            )}
+
+            <button
+              onClick={() => {
+                setShowSyncDropdown(!showSyncDropdown);
+                setSyncError("");
+                setSyncSuccess("");
+              }}
+              className={`text-[10px] font-bold px-3 py-1 rounded-full flex items-center transition cursor-pointer select-none border shadow-xs hover:shadow-sm ${
+                !dbConnected 
+                  ? "bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100/50" 
+                  : dbMode === "remoto" 
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100/50" 
+                    : "bg-sky-50 border-sky-200 text-sky-800 hover:bg-sky-100/50"
+              }`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full mr-1.5 ${
+                !dbConnected 
+                  ? "bg-amber-500 animate-pulse" 
+                  : dbMode === "remoto" 
+                    ? "bg-emerald-500 animate-pulse" 
+                    : "bg-sky-500"
+              }`} />
+              
+              {!dbConnected 
+                ? "ERRO DE CONEXÃO" 
+                : dbMode === "remoto" 
+                  ? "SISTEMA ONLINE (NUVEM)" 
+                  : "SISTEMA LOCAL (OFFLINE)"
+              }
+            </button>
+
+            {/* Dropdown panel */}
+            {showSyncDropdown && (
+              <div className="absolute right-0 top-full mt-2 w-76 bg-white rounded-lg shadow-lg border border-gray-100 p-4 space-y-3 z-50 text-xs text-gray-700 font-sans animate-in fade-in slide-in-from-top-1 duration-150">
+                
+                {/* Header */}
+                <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                  <div className="flex items-center space-x-1.5">
+                    <Database className="h-4 w-4 text-gray-500 shrink-0" />
+                    <span className="font-bold text-gray-900 text-xs uppercase tracking-tight">Status de Conexão</span>
+                  </div>
+                  <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold ${
+                    dbConnected ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
+                  }`}>
+                    {dbConnected ? "Ativo" : "Offline"}
+                  </span>
+                </div>
+
+                {/* Database info list */}
+                <div className="space-y-1.5 bg-gray-50 rounded-md p-2.5 border border-gray-100">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500 font-medium">Modo Ativo:</span>
+                    <span className="font-bold text-gray-900 capitalize">
+                      {dbMode === "local" ? "Local (SQLite)" : "Nuvem (MySQL/MariaDB)"}
+                    </span>
+                  </div>
+                  
+                  {dbMode === "remoto" && dbConnected && (
+                    <div className="text-[10px] text-gray-500 flex flex-col space-y-0.5 border-t border-gray-200/60 pt-1.5 mt-1">
+                      <span className="truncate"><strong>Servidor:</strong> {dbType?.toUpperCase()}</span>
+                      <span className="truncate"><strong>Diretório:</strong> Remoto</span>
+                    </div>
+                  )}
+
+                  {dbMode === "local" && (
+                    <div className="border-t border-gray-200/60 pt-1.5 mt-1 space-y-1">
+                      <div className="flex justify-between text-[10px]">
+                        <span className="text-gray-500">Última Sincronização:</span>
+                        <span className="font-semibold text-gray-700 truncate max-w-[130px] text-right" title={formatSyncDate(lastSyncAt)}>
+                          {lastSyncAt ? new Date(lastSyncAt).toLocaleDateString("pt-BR") + " " + new Date(lastSyncAt).toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit"}) : "Nunca"}
+                        </span>
+                      </div>
+                      {lastSyncDirection && (
+                        <div className="flex justify-between text-[10px]">
+                          <span className="text-gray-500">Fluxo:</span>
+                          <span className="font-semibold text-gray-700 font-mono">
+                            {lastSyncDirection === "local-to-remote" ? "Local → Nuvem" : "Nuvem → Local"}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Operations Section */}
+                <div className="space-y-2 pt-1">
+                  <h5 className="font-bold text-[10px] text-gray-400 uppercase tracking-wider">Ações de Sincronização</h5>
+                  
+                  {dbMode === "local" ? (
+                    <div className="grid grid-cols-1 gap-2">
+                      <button
+                        onClick={() => handleQuickSync("local-to-remote")}
+                        disabled={isSyncing || !dbConnected}
+                        className="w-full flex items-center justify-center space-x-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-bold transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-xs"
+                      >
+                        {isSyncing ? (
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Upload className="h-3.5 w-3.5 shrink-0" />
+                        )}
+                        <span>Enviar Dados para Nuvem</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleQuickSync("remote-to-local")}
+                        disabled={isSyncing || !dbConnected}
+                        className="w-full flex items-center justify-center space-x-1.5 px-3 py-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 rounded font-bold transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-xs"
+                      >
+                        {isSyncing ? (
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Download className="h-3.5 w-3.5 shrink-0" />
+                        )}
+                        <span>Baixar Dados da Nuvem</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-[10px] text-emerald-600 font-medium leading-relaxed bg-emerald-50/50 p-2 border border-emerald-100 rounded">
+                        Você está conectado em tempo real à nuvem. Todas as alterações são salvas instantaneamente.
+                      </p>
+                      
+                      <button
+                        onClick={() => handleQuickSync("remote-to-local")}
+                        disabled={isSyncing || !dbConnected}
+                        className="w-full flex items-center justify-center space-x-1.5 px-3 py-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 rounded font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-xs"
+                        title="Baixa cópia da nuvem para o banco SQLite local por segurança"
+                      >
+                        {isSyncing ? (
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Download className="h-3.5 w-3.5 shrink-0 text-gray-500" />
+                        )}
+                        <span>Fazer Cópia Local (Backup)</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Notifications & Messages */}
+                {syncError && (
+                  <div className="bg-red-50 text-red-700 p-2 rounded text-[10px] font-semibold border border-red-200 flex items-start space-x-1 max-h-24 overflow-y-auto">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                    <span>{syncError}</span>
+                  </div>
+                )}
+
+                {syncSuccess && (
+                  <div className="bg-emerald-50 text-emerald-700 p-2 rounded text-[10px] font-bold border border-emerald-200 flex items-center space-x-1.5">
+                    <Check className="h-3.5 w-3.5 shrink-0" />
+                    <span>{syncSuccess}</span>
+                  </div>
+                )}
+
+              </div>
+            )}
           </div>
 
         </header>
@@ -368,6 +593,7 @@ export default function App() {
               onUpdateCurrency={setCurrency} 
               currency={currency} 
               onCompanyUpdated={checkSystemStatus}
+              onDatabaseUpdated={checkSystemStatus}
             />
           )}
 
