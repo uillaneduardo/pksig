@@ -2,6 +2,7 @@ import mysql from "mysql2/promise";
 import fs from "fs";
 import path from "path";
 import { encrypt, decrypt } from "./crypto.js";
+import { updateStepStatus, updateOperation, getOperation } from "./operationProgress.js";
 
 const CONFIG_FILE = path.join(process.cwd(), "storage", "config", "database.json");
 
@@ -347,7 +348,7 @@ export async function verifyDatabaseCompatibility(config: DatabaseConfig): Promi
   };
 }
 
-export async function verifyAndRepairDatabaseSchema(): Promise<{ success: boolean; message: string }> {
+export async function verifyAndRepairDatabaseSchema(operationId?: string): Promise<{ success: boolean; message: string }> {
   try {
     const config = getDatabaseConfig();
     if (!config) {
@@ -357,6 +358,11 @@ export async function verifyAndRepairDatabaseSchema(): Promise<{ success: boolea
     const type = config.type || "mysql";
 
     console.log(`[Database Migration Engine] Running migrations for ${type}...`);
+
+    if (operationId) {
+      updateStepStatus(operationId, "Localizando migrations", "running");
+      updateOperation(operationId, { message: "Verificando diretório de migrações..." });
+    }
 
     // Ensure migrations directory exists
     const migrationsDir = path.join(process.cwd(), "database", "migrations");
@@ -415,13 +421,44 @@ export async function verifyAndRepairDatabaseSchema(): Promise<{ success: boolea
       }
     }
 
+    if (operationId) {
+      updateStepStatus(operationId, "Localizando migrations", "success");
+    }
+
     // 4. Run pending migrations
-    for (const file of migrationFiles) {
+    if (operationId) {
+      updateStepStatus(operationId, "Aplicando migrations", "running");
+    }
+
+    // Prepare migration status array for result
+    const migrationsStatus: { name: string; status: "pending" | "running" | "success" | "failed"; error?: string }[] = migrationFiles.map((file) => ({
+      name: file,
+      status: appliedSet.has(file) ? ("success" as const) : ("pending" as const),
+    }));
+
+    if (operationId) {
+      updateOperation(operationId, {
+        result: { ...(getOperation(operationId)?.result || {}), migrations: migrationsStatus },
+      });
+    }
+
+    for (let i = 0; i < migrationFiles.length; i++) {
+      const file = migrationFiles[i];
       if (appliedSet.has(file)) {
         continue;
       }
 
       console.log(`[Database Migration Engine] Applying migration: ${file}...`);
+      
+      // Update migration status to running
+      migrationsStatus[i].status = "running" as const;
+      if (operationId) {
+        updateOperation(operationId, {
+          message: `Aplicando migração ${i + 1} de ${migrationFiles.length}: ${file}`,
+          result: { ...(getOperation(operationId)?.result || {}), migrations: migrationsStatus },
+        });
+      }
+
       const filePath = path.join(migrationsDir, file);
       const sqlContent = fs.readFileSync(filePath, "utf8");
 
@@ -443,18 +480,52 @@ export async function verifyAndRepairDatabaseSchema(): Promise<{ success: boolea
         // Record as applied
         await execute("INSERT INTO schema_migrations (version) VALUES (?)", [file]);
         console.log(`[Database Migration Engine] Migration ${file} applied successfully.`);
+        
+        migrationsStatus[i].status = "success" as const;
+        if (operationId) {
+          updateOperation(operationId, {
+            result: { ...(getOperation(operationId)?.result || {}), migrations: migrationsStatus },
+          });
+        }
       } catch (migrationErr: any) {
         console.error(`[Database Migration Engine] Error applying migration ${file}:`, migrationErr.message);
+        migrationsStatus[i].status = "failed" as const;
+        migrationsStatus[i].error = migrationErr.message;
+        if (operationId) {
+          updateOperation(operationId, {
+            result: { ...(getOperation(operationId)?.result || {}), migrations: migrationsStatus },
+          });
+          updateStepStatus(operationId, "Aplicando migrations", "failed", migrationErr.message);
+        }
         throw new Error(`Falha na migração ${file}: ${migrationErr.message}`);
       }
     }
 
+    if (operationId) {
+      updateStepStatus(operationId, "Aplicando migrations", "success");
+    }
+
     // 5. Ensure master seed values are present
+    if (operationId) {
+      updateStepStatus(operationId, "Inserindo dados iniciais", "running");
+      updateOperation(operationId, { message: "Inserindo dados e tabelas padrões..." });
+    }
+
     await ensureMasterSeedData();
+
+    if (operationId) {
+      updateStepStatus(operationId, "Inserindo dados iniciais", "success");
+    }
 
     return { success: true, message: "Migrações do banco de dados executadas com sucesso!" };
   } catch (err: any) {
     console.error("[Database Migration Engine] Migration check failed:", err);
+    if (operationId) {
+      const activeStep = getOperation(operationId)?.steps?.find(s => s.status === "running")?.name;
+      if (activeStep) {
+        updateStepStatus(operationId, activeStep, "failed", err.message);
+      }
+    }
     return { success: false, message: `Falha nas migrações do banco: ${err.message}` };
   }
 }
@@ -627,33 +698,98 @@ export async function closePool(): Promise<void> {
   currentConfig = null;
 }
 
-export async function recreateDatabaseFromZeroInternal(): Promise<{ success: boolean; message: string; steps: string[] }> {
+export async function recreateDatabaseFromZeroInternal(operationId?: string): Promise<{ success: boolean; message: string; steps: string[] }> {
   const config = getDatabaseConfig();
   if (!config) {
+    if (operationId) {
+      updateStepStatus(operationId, "Validando configurações", "failed", "Banco de dados não configurado");
+    }
     throw new Error("Banco de dados não configurado");
   }
 
   const dbName = config.database;
   if (!dbName || dbName.trim() === "") {
+    if (operationId) {
+      updateStepStatus(operationId, "Validando configurações", "failed", "Nome do banco de dados na configuração é inválido ou vazio.");
+    }
     throw new Error("Nome do banco de dados na configuração é inválido ou vazio.");
   }
 
   const blocklist = ["mysql", "information_schema", "performance_schema", "sys"];
   if (blocklist.includes(dbName.toLowerCase())) {
+    if (operationId) {
+      updateStepStatus(operationId, "Validando configurações", "failed", "Banco de dados de sistema não permitido.");
+    }
     throw new Error(`Operação não permitida: o banco de dados '${dbName}' é reservado pelo sistema.`);
+  }
+
+  if (operationId) {
+    updateStepStatus(operationId, "Validando configurações", "success");
   }
 
   const steps: string[] = [];
 
+  // Step 2: Verificando conexão com o MySQL
+  if (operationId) {
+    updateStepStatus(operationId, "Verificando conexão com o MySQL", "running");
+    updateOperation(operationId, { message: "Testando a conexão com o banco MySQL..." });
+  }
+  try {
+    const activePool = await getPool();
+    const connection = await activePool.getConnection();
+    connection.release();
+    if (operationId) {
+      updateStepStatus(operationId, "Verificando conexão com o MySQL", "success");
+    }
+  } catch (connErr: any) {
+    if (operationId) {
+      updateStepStatus(operationId, "Verificando conexão com o MySQL", "failed", connErr.message);
+    }
+    throw connErr;
+  }
+
+  // Step 3: Verificando permissões
+  if (operationId) {
+    updateStepStatus(operationId, "Verificando permissões", "running");
+    updateOperation(operationId, { message: "Validando privilégios e permissões de acesso..." });
+  }
+  try {
+    await query("SHOW GRANTS");
+    if (operationId) {
+      updateStepStatus(operationId, "Verificando permissões", "success");
+    }
+  } catch (permErr: any) {
+    console.warn("Permission warning during reset:", permErr);
+    if (operationId) {
+      updateStepStatus(operationId, "Verificando permissões", "success"); // proceed anyway
+    }
+  }
+
+  // Step 4: Preparando recriação do banco
+  if (operationId) {
+    updateStepStatus(operationId, "Preparando recriação do banco", "running");
+    updateOperation(operationId, { message: "Fechando conexões antigas do pool de banco..." });
+  }
+
   // Close the current pool to release locks/connections
   await closePool();
   steps.push("Pool de conexões antigo encerrado com sucesso");
+
+  if (operationId) {
+    updateStepStatus(operationId, "Preparando recriação do banco", "success");
+  }
 
   // Get a fresh pool and connection to perform cleanup
   const activePool = await getPool();
   const connection = await activePool.getConnection();
 
   try {
+    // Step 5: Removendo views existentes
+    if (operationId) {
+      updateStepStatus(operationId, "Removendo views existentes", "running");
+      updateOperation(operationId, { message: "Descobrindo e removendo views..." });
+    }
+
     // 1. Query all views in this database from information_schema
     const [viewsRows] = await connection.query(
       "SELECT table_name FROM information_schema.views WHERE table_schema = ?",
@@ -661,18 +797,11 @@ export async function recreateDatabaseFromZeroInternal(): Promise<{ success: boo
     );
     const views = (viewsRows as any[]).map(r => r.TABLE_NAME || r.table_name || Object.values(r)[0]);
 
-    // 2. Query all tables in this database from information_schema
-    const [tablesRows] = await connection.query(
-      "SELECT table_name FROM information_schema.tables WHERE table_schema = ? AND table_type = 'BASE TABLE'",
-      [dbName]
-    );
-    const tables = (tablesRows as any[]).map(r => r.TABLE_NAME || r.table_name || Object.values(r)[0]);
-
-    // 3. Disable foreign key checks
+    // Disable foreign key checks
     await connection.query("SET FOREIGN_KEY_CHECKS = 0");
     steps.push("Verificação de chaves estrangeiras desativada temporariamente");
 
-    // 4. Drop views
+    // Drop views
     for (const view of views) {
       const escaped = "`" + view.replace(/`/g, "``") + "`";
       await connection.query(`DROP VIEW IF EXISTS ${escaped}`);
@@ -683,7 +812,24 @@ export async function recreateDatabaseFromZeroInternal(): Promise<{ success: boo
       steps.push("Nenhuma view encontrada para remoção");
     }
 
-    // 5. Drop tables (includes schema_migrations because it's a BASE TABLE in this schema)
+    if (operationId) {
+      updateStepStatus(operationId, "Removendo views existentes", "success");
+    }
+
+    // Step 6: Removendo tabelas existentes
+    if (operationId) {
+      updateStepStatus(operationId, "Removendo tabelas existentes", "running");
+      updateOperation(operationId, { message: "Descobrindo e removendo tabelas..." });
+    }
+
+    // 2. Query all tables in this database from information_schema
+    const [tablesRows] = await connection.query(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = ? AND table_type = 'BASE TABLE'",
+      [dbName]
+    );
+    const tables = (tablesRows as any[]).map(r => r.TABLE_NAME || r.table_name || Object.values(r)[0]);
+
+    // Drop tables (includes schema_migrations because it's a BASE TABLE in this schema)
     for (const table of tables) {
       const escaped = "`" + table.replace(/`/g, "``") + "`";
       await connection.query(`DROP TABLE IF EXISTS ${escaped}`);
@@ -694,10 +840,20 @@ export async function recreateDatabaseFromZeroInternal(): Promise<{ success: boo
       steps.push("Nenhuma tabela encontrada para remoção");
     }
 
+    if (operationId) {
+      updateStepStatus(operationId, "Removendo tabelas existentes", "success");
+    }
+
   } catch (err: any) {
+    if (operationId) {
+      const activeStep = getOperation(operationId)?.steps?.find(s => s.status === "running")?.name;
+      if (activeStep) {
+        updateStepStatus(operationId, activeStep, "failed", err.message);
+      }
+    }
     throw new Error(`Falha ao limpar tabelas e views: ${err.message}`);
   } finally {
-    // 6. Always re-enable foreign key checks
+    // Always re-enable foreign key checks
     await connection.query("SET FOREIGN_KEY_CHECKS = 1").catch(err => {
       console.error("Erro ao reativar FOREIGN_KEY_CHECKS:", err);
     });
@@ -705,14 +861,40 @@ export async function recreateDatabaseFromZeroInternal(): Promise<{ success: boo
     connection.release();
   }
 
-  // 7. Run all migrations in chronological order
-  const repairResult = await verifyAndRepairDatabaseSchema();
+  // 7, 8, 9. Run all migrations in chronological order
+  const repairResult = await verifyAndRepairDatabaseSchema(operationId);
   if (!repairResult.success) {
     throw new Error(`Falha ao executar as migrações após a limpeza: ${repairResult.message}`);
   }
   steps.push("Todas as migrações de banco de dados executadas com sucesso na ordem cronológica");
 
-  // 8. Execute seed.sql if it exists
+  // Step 10: Validando tabelas criadas
+  if (operationId) {
+    updateStepStatus(operationId, "Validando tabelas criadas", "running");
+    updateOperation(operationId, { message: "Checando estrutura de tabelas criada..." });
+  }
+  try {
+    const finalTables = await query("SHOW TABLES");
+    if (finalTables.length === 0) {
+      throw new Error("Nenhuma tabela encontrada após migrações.");
+    }
+    if (operationId) {
+      updateStepStatus(operationId, "Validando tabelas criadas", "success");
+    }
+  } catch (valErr: any) {
+    if (operationId) {
+      updateStepStatus(operationId, "Validando tabelas criadas", "failed", valErr.message);
+    }
+    throw valErr;
+  }
+
+  // Step 11: Finalizando configuração
+  if (operationId) {
+    updateStepStatus(operationId, "Finalizando configuração", "running");
+    updateOperation(operationId, { message: "Concluindo configurações e salvando metadados..." });
+  }
+
+  // Execute seed.sql if it exists
   const seedPath = path.join(process.cwd(), "database", "seed.sql");
   if (fs.existsSync(seedPath)) {
     try {

@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { EquipmentCategory, PaymentMethod, WarrantyRule } from "../types";
+import { useOperationProgress } from "../hooks/useOperationProgress";
+import { ProgressModal } from "./OperationProgress";
 import { 
   Settings as SettingsIcon, Save, Plus, Check, Trash2, 
   RefreshCw, DollarSign, Laptop, ShieldCheck, Tag, Loader, AlertCircle,
@@ -245,6 +247,54 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [confirmResetWord, setConfirmResetWord] = useState("");
 
+  // Operation Progress State & Hook Integrations
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [isSimulateModalOpen, setIsSimulateModalOpen] = useState(false);
+
+  const {
+    progress: resetProgress,
+    error: resetProgressError,
+    startPolling: startResetProgressPolling,
+    reset: resetResetProgress
+  } = useOperationProgress(null, {
+    onSuccess: async () => {
+      setResetSuccess("Banco de dados recriado do zero com sucesso! As migrações foram aplicadas.");
+      await handleVerifyDbIntegrity();
+      setTimeout(() => {
+        window.location.reload();
+      }, 2500);
+    },
+    onFailure: (prog) => {
+      setResetError(prog.error || "Falha crítica durante a recriação do banco de dados.");
+    }
+  });
+
+  const {
+    progress: simProgress,
+    error: simProgressError,
+    startPolling: startSimProgressPolling,
+    reset: resetSimProgress
+  } = useOperationProgress(null);
+
+  const handleStartSimulation = async (scenario: "success" | "fail" | "indeterminate") => {
+    setIsSimulateModalOpen(true);
+    try {
+      const res = await fetch("/api/operations/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scenario })
+      });
+      const data = await res.json();
+      if (res.ok && data.operationId) {
+        startSimProgressPolling(data.operationId);
+      } else {
+        alert(data.error || "Erro ao iniciar simulação.");
+      }
+    } catch (err) {
+      alert("Falha ao comunicar com o servidor.");
+    }
+  };
+
   const handleResetDatabase = async () => {
     if (confirmResetWord.trim().toUpperCase() !== "REDEFINIR") {
       setResetError("Digite a palavra REDEFINIR para confirmar que deseja apagar os dados.");
@@ -261,14 +311,11 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
         body: JSON.stringify({ confirm: confirmResetWord })
       });
       const data = await res.json();
-      if (res.ok && !data.error) {
-        setResetSuccess(data.message || "Banco de dados redefinido com sucesso!");
+      if (res.ok && data.operationId) {
+        setIsResetModalOpen(true);
         setShowResetConfirm(false);
         setConfirmResetWord("");
-        await handleVerifyDbIntegrity();
-        setTimeout(() => {
-          window.location.reload();
-        }, 2000);
+        startResetProgressPolling(data.operationId);
       } else {
         setResetError(data.error || "Erro ao redefinir o banco de dados.");
       }
@@ -1671,6 +1718,84 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
                   </div>
                 )}
               </div>
+
+              {/* DEMO & TESTING REUSABLE PROGRESS TRACKING PANELS */}
+              <div className="bg-white border border-gray-150 rounded-lg p-5 space-y-4 shadow-xs">
+                <div>
+                  <h4 className="font-bold text-gray-800 text-xs flex items-center">
+                    <RefreshCw className="h-4 w-4 mr-2 text-blue-600 animate-spin-slow" />
+                    Simulador do Motor de Feedback Reutilizável (Polimento Visual)
+                  </h4>
+                  <p className="text-gray-400 text-[10px] mt-0.5 leading-relaxed">
+                    Testes práticos de interface e polling em tempo real (intervalo de 800ms) sem necessidade de redefinir o banco físico. Conectado ao endpoint centralizado de monitoramento de tarefas.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                  <button
+                    onClick={() => handleStartSimulation("success")}
+                    className="p-3 bg-blue-50/50 hover:bg-blue-50 border border-blue-150 hover:border-blue-300 text-blue-700 rounded-lg text-left transition cursor-pointer flex flex-col justify-between h-24"
+                  >
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-blue-500">Fluxo Nominal</div>
+                    <div>
+                      <span className="font-bold text-xs block text-blue-900">Backup Completo</span>
+                      <span className="text-[9.5px] text-blue-600/80">4 etapas consecutivas com sucesso.</span>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => handleStartSimulation("fail")}
+                    className="p-3 bg-red-50/50 hover:bg-red-50 border border-red-150 hover:border-red-300 text-red-700 rounded-lg text-left transition cursor-pointer flex flex-col justify-between h-24"
+                  >
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-red-500">Fluxo com Falha</div>
+                    <div>
+                      <span className="font-bold text-xs block text-red-900">Relatório de Vendas</span>
+                      <span className="text-[9.5px] text-red-600/80">Etapa 2 falha com sugestão de recuperação.</span>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => handleStartSimulation("indeterminate")}
+                    className="p-3 bg-amber-50/50 hover:bg-amber-50 border border-amber-150 hover:border-amber-300 text-amber-700 rounded-lg text-left transition cursor-pointer flex flex-col justify-between h-24"
+                  >
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-amber-500 font-mono">Sem total conhecido</div>
+                    <div>
+                      <span className="font-bold text-xs block text-amber-900">Sincronização PWA</span>
+                      <span className="text-[9.5px] text-amber-600/80">Barra indeterminada e mensagens fluídas.</span>
+                    </div>
+                  </button>
+                </div>
+
+                <div className="bg-gray-50 rounded border border-gray-150 p-3 text-[10px] text-gray-500 space-y-1">
+                  <p className="font-bold text-gray-700">Guia rápido de integração para novas rotas de background:</p>
+                  <p className="leading-relaxed">
+                    1. No backend, use <code className="bg-gray-200 px-1 py-0.2 rounded font-mono">createOperation(type, title, totalSteps?, stepNames?)</code> para criar e iniciar sua tarefa.<br />
+                    2. Retorne o <code className="bg-gray-200 px-1 py-0.2 rounded font-mono">operationId</code> imediatamente. Execute as etapas de forma assíncrona em segundo plano.<br />
+                    3. No frontend, invoque <code className="bg-gray-200 px-1 py-0.2 rounded font-mono">useOperationProgress()</code> passando o ID e renderize o componente reutilizável <code className="bg-gray-200 px-1 py-0.2 rounded font-mono">&lt;ProgressModal /&gt;</code>.
+                  </p>
+                </div>
+              </div>
+
+              {/* MODALS RENDERING */}
+              <ProgressModal
+                isOpen={isResetModalOpen}
+                progress={resetProgress}
+                error={resetProgressError}
+                onClose={() => {
+                  setIsResetModalOpen(false);
+                  resetResetProgress();
+                }}
+              />
+
+              <ProgressModal
+                isOpen={isSimulateModalOpen}
+                progress={simProgress}
+                error={simProgressError}
+                onClose={() => {
+                  setIsSimulateModalOpen(false);
+                  resetSimProgress();
+                }}
+              />
             </div>
           )}
 

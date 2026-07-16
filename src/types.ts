@@ -226,3 +226,29 @@ export interface DatabaseConfig {
   password?: string;
   ssl?: boolean;
 }
+
+export type OperationStatus = "pending" | "running" | "success" | "warning" | "failed" | "cancelled";
+
+export interface OperationStep {
+  name: string;
+  status: "pending" | "running" | "success" | "failed";
+  error?: string;
+}
+
+export interface OperationProgress {
+  operationId: string;
+  type: string;
+  title: string;
+  status: OperationStatus;
+  currentStep: number;
+  totalSteps?: number;
+  completedSteps?: number;
+  percentage?: number;
+  message: string;
+  startedAt: string;
+  finishedAt?: string;
+  error?: string;
+  result?: any;
+  steps?: OperationStep[];
+}
+

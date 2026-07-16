@@ -30,6 +30,14 @@ import {
   cleanExpiredSessions,
   destroyAllUserSessions
 } from "./src/lib/session.js";
+import {
+  createOperation,
+  updateOperation,
+  updateStepStatus,
+  failOperation,
+  successOperation,
+  getOperation
+} from "./src/lib/operationProgress.js";
 
 // ==========================================
 // Zod Input Validation Schemas & Middleware
@@ -804,40 +812,59 @@ async function handleDatabaseReset(req: any, res: any) {
     return res.status(400).json({ error: `Operação não permitida: o banco de dados '${dbName}' é reservado pelo sistema.` });
   }
 
-  const steps: string[] = [];
-
-  try {
-    // 1. Fetch current admin details to preserve credentials
-    let currentUser: any = null;
-    if (req.session && req.session.username) {
-      try {
-        const userRows = await query("SELECT name, username, password_hash FROM admins WHERE username = ?", [req.session.username]);
-        if (userRows && userRows.length > 0) {
-          currentUser = userRows[0];
-          steps.push("Credenciais do administrador atual preservadas");
-        }
-      } catch (err) {
-        console.warn("Could not retrieve current admin details to preserve:", err);
-      }
-    }
-
-    // 2. Fetch current company settings to preserve if possible
-    let currentCompany: any = null;
+  let currentUser: any = null;
+  if (req.session && req.session.username) {
     try {
-      const companyRows = await query("SELECT * FROM company_settings LIMIT 1");
-      if (companyRows && companyRows.length > 0) {
-        currentCompany = companyRows[0];
-        steps.push("Configurações da empresa atual preservadas");
+      const userRows = await query("SELECT name, username, password_hash FROM admins WHERE username = ?", [req.session.username]);
+      if (userRows && userRows.length > 0) {
+        currentUser = userRows[0];
       }
     } catch (err) {
-      console.warn("Could not retrieve current company settings to preserve:", err);
+      console.warn("Could not retrieve current admin details to preserve:", err);
     }
+  }
 
-    // 3. Call internal database cleanup, migrations, and seed logic
-    const resetResult = await recreateDatabaseFromZeroInternal();
+  let currentCompany: any = null;
+  try {
+    const companyRows = await query("SELECT * FROM company_settings LIMIT 1");
+    if (companyRows && companyRows.length > 0) {
+      currentCompany = companyRows[0];
+    }
+  } catch (err) {
+    console.warn("Could not retrieve current company settings to preserve:", err);
+  }
+
+  const op = createOperation("database_reset", "Recriação do Banco de Dados", 11, [
+    "Validando configurações",
+    "Verificando conexão com o MySQL",
+    "Verificando permissões",
+    "Preparando recriação do banco",
+    "Removendo views existentes",
+    "Removendo tabelas existentes",
+    "Localizando migrations",
+    "Aplicando migrations",
+    "Inserindo dados iniciais",
+    "Validando tabelas criadas",
+    "Finalizando configuração"
+  ]);
+
+  runDatabaseResetBackground(op.operationId, currentUser, currentCompany).catch((err) => {
+    console.error("Critical error in background database reset execution:", err);
+  });
+
+  return res.json({
+    success: true,
+    operationId: op.operationId,
+    message: "Operação de recriação do banco de dados iniciada com sucesso."
+  });
+}
+
+async function runDatabaseResetBackground(operationId: string, currentUser: any, currentCompany: any) {
+  const steps: string[] = [];
+  try {
+    const resetResult = await recreateDatabaseFromZeroInternal(operationId);
     steps.push(...resetResult.steps);
 
-    // 4. Restore preserved admin user
     if (currentUser) {
       await execute(
         "INSERT INTO admins (name, username, password_hash) VALUES (?, ?, ?)",
@@ -845,7 +872,6 @@ async function handleDatabaseReset(req: any, res: any) {
       );
       steps.push("Usuário administrador restaurado");
     } else {
-      // Fallback default admin
       const salt = bcrypt.genSaltSync(10);
       const passwordHash = bcrypt.hashSync("admin", salt);
       await execute(
@@ -855,25 +881,23 @@ async function handleDatabaseReset(req: any, res: any) {
       steps.push("Usuário administrador padrão criado como fallback");
     }
 
-    // 5. Restore preserved company settings
     if (currentCompany) {
       await execute(
         `INSERT INTO company_settings (id, company_name, trade_name, tax_id, phone, whatsapp, email, address_text, notes)
          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          currentCompany.company_name,
-          currentCompany.trade_name,
-          currentCompany.tax_id,
-          currentCompany.phone,
-          currentCompany.whatsapp,
-          currentCompany.email,
-          currentCompany.address_text,
-          currentCompany.notes
-        ]
+         [
+           currentCompany.company_name,
+           currentCompany.trade_name,
+           currentCompany.tax_id,
+           currentCompany.phone,
+           currentCompany.whatsapp,
+           currentCompany.email,
+           currentCompany.address_text,
+           currentCompany.notes
+         ]
       );
       steps.push("Configurações da empresa restauradas");
     } else {
-      // Default placeholder if none existed
       await execute(
         `INSERT INTO company_settings (id, company_name) VALUES (1, ?)`,
         ["PK SIG Informática"]
@@ -881,23 +905,124 @@ async function handleDatabaseReset(req: any, res: any) {
       steps.push("Configurações da empresa padrão inicializadas");
     }
 
-    return res.json({
-      success: true,
-      message: "Banco de dados recriado com sucesso do zero! As migrações foram executadas e os dados administrativos foram restaurados.",
-      steps
-    });
+    updateStepStatus(operationId, "Finalizando configuração", "success");
+    successOperation(operationId, { steps }, "Banco de dados recriado com sucesso! As migrações foram aplicadas e os dados de configuração foram restaurados.");
 
   } catch (err: any) {
-    console.error("Critical error during database reset:", err);
-    return res.status(500).json({
-      error: err.message || "Erro crítico ao recriar o banco de dados.",
-      steps
-    });
+    console.error("Error in background database reset:", err);
+    const op = getOperation(operationId);
+    if (op && op.steps) {
+      const activeStep = op.steps.find(s => s.status === "running")?.name;
+      if (activeStep) {
+        updateStepStatus(operationId, activeStep, "failed", err.message);
+      }
+    }
+    failOperation(operationId, err.message || "Erro crítico ao recriar o banco de dados.", { steps });
   }
 }
 
 app.post("/api/setup/database/reset", requireAuth, handleDatabaseReset);
 app.post("/api/database/reset", requireAuth, handleDatabaseReset);
+
+// Operations polling endpoints
+app.get("/api/operations/:operationId", (req: any, res: any) => {
+  const { operationId } = req.params;
+  const op = getOperation(operationId);
+  if (!op) {
+    return res.status(404).json({ error: "Operação não encontrada" });
+  }
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  return res.json(op);
+});
+
+// Mock/test endpoint to run various simulation scenarios
+app.post("/api/operations/test", (req: any, res: any) => {
+  const { scenario } = req.body; // "success" | "fail" | "indeterminate"
+  
+  let title = "Backup de Segurança";
+  let type = "backup_generation";
+  let stepNames = ["Verificando arquivos", "Processando dados", "Sincronizando com nuvem", "Finalizando"];
+  let totalSteps = 4;
+
+  if (scenario === "indeterminate") {
+    title = "Sincronização PWA Offline";
+    type = "pwa_sync";
+    stepNames = [];
+    totalSteps = 0;
+  } else if (scenario === "fail") {
+    title = "Geração de Relatório de Vendas";
+    type = "report_generation";
+    stepNames = ["Verificando arquivos", "Processando dados", "Finalizando"];
+    totalSteps = 3;
+  }
+
+  const op = createOperation(
+    type, 
+    title, 
+    totalSteps > 0 ? totalSteps : undefined, 
+    stepNames.length > 0 ? stepNames : undefined
+  );
+
+  const runSimulation = async () => {
+    const opId = op.operationId;
+    try {
+      if (scenario === "indeterminate") {
+        updateOperation(opId, { message: "Procurando alterações locais pendentes..." });
+        await new Promise((r) => setTimeout(r, 1200));
+        
+        updateOperation(opId, { message: "Sincronizando 12 novos registros de ordens..." });
+        await new Promise((r) => setTimeout(r, 1200));
+        
+        updateOperation(opId, { message: "Atualizando cache de fotos e anexos locais..." });
+        await new Promise((r) => setTimeout(r, 1200));
+
+        successOperation(opId, { syncedCount: 12 }, "Sincronização PWA concluída com sucesso!");
+      } else {
+        // Step 1
+        updateStepStatus(opId, "Verificando arquivos", "running");
+        updateOperation(opId, { message: "Varrendo banco local e arquivos..." });
+        await new Promise((r) => setTimeout(r, 1000));
+        updateStepStatus(opId, "Verificando arquivos", "success");
+
+        // Step 2
+        updateStepStatus(opId, "Processando dados", "running");
+        updateOperation(opId, { message: "Processando as tabelas e gerando hashes..." });
+        await new Promise((r) => setTimeout(r, 1200));
+        
+        if (scenario === "fail") {
+          updateStepStatus(opId, "Processando dados", "failed", "Conexão interrompida inesperadamente pelo servidor.");
+          failOperation(opId, "Falha no processamento: Conexão interrompida inesperadamente.");
+          return;
+        }
+        updateStepStatus(opId, "Processando dados", "success");
+
+        // Step 3
+        updateStepStatus(opId, "Sincronizando com nuvem", "running");
+        updateOperation(opId, { message: "Transferindo pacotes criptografados..." });
+        await new Promise((r) => setTimeout(r, 1200));
+        updateStepStatus(opId, "Sincronizando com nuvem", "success");
+
+        // Step 4
+        updateStepStatus(opId, "Finalizando", "running");
+        updateOperation(opId, { message: "Consolidando logs e salvando histórico..." });
+        await new Promise((r) => setTimeout(r, 1000));
+        updateStepStatus(opId, "Finalizando", "success");
+
+        successOperation(opId, { backupSize: "14.2 MB", filename: "backup_pksig_2026.sql" }, "Backup gerado com sucesso!");
+      }
+    } catch (e: any) {
+      failOperation(opId, e.message);
+    }
+  };
+
+  runSimulation().catch(console.error);
+
+  return res.json({
+    success: true,
+    operationId: op.operationId,
+    message: "Operação simulada de teste iniciada com sucesso."
+  });
+});
 
 // ==========================================
 // 2. AUTHENTICATION ENDPOINTS
