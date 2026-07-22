@@ -3198,12 +3198,34 @@ app.post("/api/settings/warranty-rules", requireAuth, async (req: any, res: any)
     } catch (e) {}
 
     await execute(
-      "INSERT INTO warranty_rules (name, duration_days, terms_description, active) VALUES (?, ?, ?, 1) ON DUPLICATE KEY UPDATE duration_days = ?, terms_description = ?, active = 1",
-      [name, parseInt(duration_days), terms_description || null, parseInt(duration_days), terms_description || null]
+      "INSERT INTO warranty_rules (name, duration_days, terms_description, active) VALUES (?, ?, ?, 1)",
+      [name, parseInt(duration_days), terms_description || null]
     );
     return res.json({ success: true });
   } catch (err: any) {
     console.error("POST /api/settings/warranty-rules error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Settings: Update Warranty Rule
+app.put("/api/settings/warranty-rules/:id", requireAuth, async (req: any, res: any) => {
+  const { id } = req.params;
+  const { name, duration_days, terms_description } = req.body;
+  if (!name || !duration_days) return res.status(400).json({ error: "Nome e duração são obrigatórios" });
+
+  try {
+    try {
+      await execute("ALTER TABLE warranty_rules ADD COLUMN terms_description TEXT");
+    } catch (e) {}
+
+    await execute(
+      "UPDATE warranty_rules SET name = ?, duration_days = ?, terms_description = ? WHERE id = ?",
+      [name, parseInt(duration_days), terms_description || null, id]
+    );
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error("PUT /api/settings/warranty-rules/:id error:", err);
     return res.status(500).json({ error: err.message });
   }
 });

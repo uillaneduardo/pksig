@@ -156,6 +156,7 @@ export interface WarrantyRule {
   id: number;
   name: string;
   duration_days: number;
+  terms_description?: string;
   category_id?: number;
   service_type?: string;
   active: boolean;

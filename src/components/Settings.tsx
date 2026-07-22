@@ -156,6 +156,7 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
   const [editingCategory, setEditingCategory] = useState<EquipmentCategory | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [warrantyRules, setWarrantyRules] = useState<WarrantyRule[]>([]);
+  const [editingWarrantyRule, setEditingWarrantyRule] = useState<WarrantyRule | null>(null);
   const [accessories, setAccessories] = useState<any[]>([]);
 
   // Inline additions
@@ -702,14 +703,33 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
     }
   };
 
-  // Add Warranty Rule
+  const handleEditWarrantyClick = (rule: WarrantyRule) => {
+    setEditingWarrantyRule(rule);
+    setNewWarrName(rule.name);
+    setNewWarrDays(String(rule.duration_days));
+    setNewWarrDesc(rule.terms_description || "");
+  };
+
+  const handleCancelEditWarranty = () => {
+    setEditingWarrantyRule(null);
+    setNewWarrName("");
+    setNewWarrDays("90");
+    setNewWarrDesc("");
+  };
+
+  // Add/Update Warranty Rule
   const handleAddWarranty = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newWarrName) return;
 
     try {
-      const res = await fetch("/api/settings/warranty-rules", {
-        method: "POST",
+      const url = editingWarrantyRule
+        ? `/api/settings/warranty-rules/${editingWarrantyRule.id}`
+        : "/api/settings/warranty-rules";
+      const method = editingWarrantyRule ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: newWarrName,
@@ -718,13 +738,17 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
         })
       });
       if (res.ok) {
+        setEditingWarrantyRule(null);
         setNewWarrName("");
         setNewWarrDays("90");
         setNewWarrDesc("");
         loadSettingsData();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        alert(errData.error || "Erro ao salvar termo de garantia.");
       }
     } catch (err) {
-      alert("Erro ao adicionar termo de garantia.");
+      alert("Erro ao salvar termo de garantia.");
     }
   };
 
@@ -1143,7 +1167,20 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
           {activeSection === "garantias" && (
             <div className="space-y-6">
               <form onSubmit={handleAddWarranty} className="space-y-3 bg-gray-50/50 p-4 border border-gray-200 rounded-md">
-                <h4 className="font-bold text-gray-950 uppercase tracking-wider text-[10px]">+ Adicionar Nova Regra de Garantia</h4>
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold text-gray-950 uppercase tracking-wider text-[10px]">
+                    {editingWarrantyRule ? "Editar Termo de Garantia" : "+ Adicionar Nova Regra de Garantia"}
+                  </h4>
+                  {editingWarrantyRule && (
+                    <button
+                      type="button"
+                      onClick={handleCancelEditWarranty}
+                      className="text-xs text-gray-500 hover:text-gray-700 underline"
+                    >
+                      Cancelar Edição
+                    </button>
+                  )}
+                </div>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="col-span-2">
@@ -1179,12 +1216,21 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
                   />
                 </div>
 
-                <div className="flex justify-end pt-1">
+                <div className="flex justify-end gap-2 pt-1">
+                  {editingWarrantyRule && (
+                    <button
+                      type="button"
+                      onClick={handleCancelEditWarranty}
+                      className="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold rounded text-xs"
+                    >
+                      Cancelar
+                    </button>
+                  )}
                   <button
                     type="submit"
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded"
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded text-xs"
                   >
-                    Salvar Regra de Garantia
+                    {editingWarrantyRule ? "Atualizar Regra" : "Salvar Regra de Garantia"}
                   </button>
                 </div>
               </form>
@@ -1214,7 +1260,16 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
                               {w.active ? "Ativo" : "Inativo"}
                             </span>
                           </td>
-                          <td className="p-3 text-right">
+                          <td className="p-3 text-right space-x-2">
+                            <button
+                              type="button"
+                              onClick={() => handleEditWarrantyClick(w)}
+                              className="px-2 py-1 bg-white hover:bg-gray-50 text-gray-600 hover:text-indigo-600 font-bold border border-gray-200 rounded text-[10px] transition cursor-pointer"
+                              title="Editar Regra de Garantia"
+                            >
+                              <Edit className="h-3 w-3 inline mr-1" />
+                              Editar
+                            </button>
                             <button
                               onClick={() => handleToggleActive("warranty_rules", w.id, w.active)}
                               className={`px-2.5 py-1 rounded text-[10px] font-bold border transition cursor-pointer ${w.active ? "border-red-200 text-red-600 hover:bg-red-50" : "border-green-200 text-green-600 hover:bg-green-50"}`}
