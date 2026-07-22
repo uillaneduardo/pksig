@@ -1220,46 +1220,62 @@ async function generateNextCode(type: "client" | "equipment" | "os" | "guide" | 
     };
 
     let prefix = "";
+    let tableName = "";
     if (type === "client") {
       prefix = settings.prefix_client;
+      tableName = "clients";
     } else if (type === "equipment") {
       prefix = settings.prefix_equipment;
+      tableName = "equipments";
     } else if (type === "os") {
       prefix = settings.prefix_os;
+      tableName = "service_orders";
     } else if (type === "guide") {
       prefix = settings.prefix_guide;
+      tableName = "payment_guides";
     } else if (type === "warranty") {
       prefix = settings.prefix_warranty;
-    }
-
-    // Atomically increment the sequence counter
-    await execute("UPDATE sequences SET `last_value` = `last_value` + 1 WHERE `type` = ?", [type]);
-
-    // Retrieve the newly incremented sequence counter
-    const seqResult = await query("SELECT `last_value` FROM sequences WHERE `type` = ?", [type]);
-    let nextNumber = seqResult[0]?.last_value;
-
-    if (!nextNumber) {
-      // Emergency fallback in case the type was somehow not seeded
-      const countTable = type === "client" ? "clients" :
-                         type === "equipment" ? "equipments" :
-                         type === "os" ? "service_orders" :
-                         type === "guide" ? "payment_guides" : "warranties";
-      const countResult = await query(`SELECT COUNT(*) as total FROM ${countTable}`);
-      nextNumber = (countResult[0]?.total || 0) + 1;
-      
-      const isMysql = getDatabaseConfig()?.mode === "remoto";
-      if (isMysql) {
-        await execute("INSERT IGNORE INTO sequences (`type`, `last_value`) VALUES (?, ?)", [type, nextNumber]);
-      } else {
-        await execute("INSERT OR IGNORE INTO sequences (`type`, `last_value`) VALUES (?, ?)", [type, nextNumber]);
-      }
+      tableName = "warranties";
     }
 
     const yearSuffix = settings.include_year_in_code ? `-${new Date().getFullYear()}` : "";
-    const paddedNumber = String(nextNumber).padStart(settings.digits_count, "0");
 
-    return `${prefix}${yearSuffix}-${paddedNumber}`;
+    // Loop until we find a code that does not collide with existing database records
+    while (true) {
+      // Atomically increment the sequence counter
+      await execute("UPDATE sequences SET `last_value` = `last_value` + 1 WHERE `type` = ?", [type]);
+
+      // Retrieve the newly incremented sequence counter
+      const seqResult = await query("SELECT `last_value` FROM sequences WHERE `type` = ?", [type]);
+      let nextNumber = seqResult[0]?.last_value;
+
+      if (!nextNumber) {
+        // Emergency fallback in case the type was somehow not seeded
+        const countResult = await query(`SELECT COUNT(*) as total FROM ${tableName}`);
+        nextNumber = (countResult[0]?.total || 0) + 1;
+        
+        const isMysql = getDatabaseConfig()?.mode === "remoto";
+        if (isMysql) {
+          await execute("INSERT IGNORE INTO sequences (`type`, `last_value`) VALUES (?, ?)", [type, nextNumber]);
+        } else {
+          await execute("INSERT OR IGNORE INTO sequences (`type`, `last_value`) VALUES (?, ?)", [type, nextNumber]);
+        }
+      }
+
+      const paddedNumber = String(nextNumber).padStart(settings.digits_count, "0");
+      const candidateCode = `${prefix}${yearSuffix}-${paddedNumber}`;
+
+      // Verify whether this candidateCode already exists in the target table
+      try {
+        const existing = await query(`SELECT 1 FROM ${tableName} WHERE code = ? LIMIT 1`, [candidateCode]);
+        if (existing.length === 0) {
+          return candidateCode;
+        }
+      } catch (checkErr) {
+        // If column or table check fails, return candidateCode safely
+        return candidateCode;
+      }
+    }
   } finally {
     release();
   }
