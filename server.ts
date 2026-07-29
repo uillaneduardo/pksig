@@ -1057,7 +1057,7 @@ app.post("/api/auth/login", validateBody(loginSchema), async (req: any, res: any
     }
 
     const admins = await query(
-      "SELECT * FROM admins WHERE LOWER(username) = ? OR LOWER(email) = ?",
+      "SELECT * FROM admins WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?) LIMIT 1",
       [cleanIdentifier, cleanIdentifier]
     );
     const admin = admins[0];
@@ -1118,7 +1118,7 @@ app.post("/api/auth/forgot-password", async (req: any, res: any) => {
 
   try {
     const cleanEmail = email.trim().toLowerCase();
-    const admins = await query("SELECT id, name, username, email FROM admins WHERE LOWER(email) = ? AND active = 1", [cleanEmail]);
+    const admins = await query("SELECT id, name, username, email FROM admins WHERE LOWER(email) = LOWER(?) AND active = 1 LIMIT 1", [cleanEmail]);
     const admin = admins[0];
 
     // Always return generic response to avoid user enumeration attacks

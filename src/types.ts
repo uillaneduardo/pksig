@@ -206,12 +206,28 @@ export interface SystemStatus {
   user?: string;
 }
 
+export interface Admin {
+  id: number;
+  name: string;
+  username: string;
+  email: string | null;
+  phone?: string | null;
+  active: number | boolean;
+  email_verified_at?: string | null;
+  password_changed_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  last_login_at?: string | null;
+}
+
 export interface AppStatus {
   authenticated: boolean;
   user?: {
     id: number;
     username: string;
     name: string;
+    email?: string | null;
+    phone?: string | null;
   };
   companyName: string;
   systemName: string;

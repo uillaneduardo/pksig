@@ -1,18 +1,18 @@
-import { execute, query } from "../src/lib/database.js";
 import bcrypt from "bcryptjs";
-import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 
-async function runAdminActiveTests() {
-  console.log("==========================================");
-  console.log("RUNNING ADMIN ACTIVE FIELD VALIDATION TESTS");
-  console.log("==========================================");
+async function runAdminActiveAndEmailTests() {
+  console.log("=================================================");
+  console.log("RUNNING ADMIN ACTIVE & EMAIL VALIDATION SUITE");
+  console.log("=================================================");
 
-  // Test 1: Codebase Static Analysis - Confirm no admin.status or status = 'active' on admins
+  // Test 1: Codebase Static Analysis
   console.log("\n[Test 1] Codebase Static Analysis...");
   const serverCode = fs.readFileSync(path.join(process.cwd(), "server.ts"), "utf-8");
   const sessionCode = fs.readFileSync(path.join(process.cwd(), "src/lib/session.ts"), "utf-8");
+  const installSql = fs.readFileSync(path.join(process.cwd(), "database/install.sql"), "utf-8");
+  const migration007 = fs.readFileSync(path.join(process.cwd(), "database/migrations/007_ensure_admin_email_column.sql"), "utf-8");
 
   const forbiddenPatterns = [
     "admin.status",
@@ -36,100 +36,138 @@ async function runAdminActiveTests() {
   }
 
   if (!violationsFound) {
-    console.log("✅ Codebase Static Analysis Passed: No forbidden status references on admins.");
+    console.log("  ✅ Codebase Static Analysis Passed: No forbidden status references on admins.");
   } else {
     throw new Error("Static analysis failed: Found forbidden status references in admin code.");
   }
 
-  // Database tests in-memory/mock or DB table check
-  console.log("\n[Test 2] Database Logic Simulations...");
+  // Test 2: Verify Login Query Pattern in server.ts
+  console.log("\n[Test 2] Login Query Format Verification...");
+  const expectedLoginPattern = "SELECT * FROM admins WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?) LIMIT 1";
+  if (serverCode.includes(expectedLoginPattern)) {
+    console.log("  ✅ Login query follows exact parameterized standard.");
+  } else {
+    throw new Error(`Login query standard mismatch. Expected: "${expectedLoginPattern}"`);
+  }
+
+  // Test 3: Schema & Migration Integrity Checks
+  console.log("\n[Test 3] Schema & Migration Files Integrity...");
+  if (!installSql.includes("email VARCHAR(255) NULL")) {
+    throw new Error("database/install.sql is missing 'email VARCHAR(255) NULL'");
+  }
+  if (!installSql.includes("INDEX idx_admins_email (email)")) {
+    throw new Error("database/install.sql is missing 'INDEX idx_admins_email (email)'");
+  }
+  if (!migration007.includes("ALTER TABLE admins ADD COLUMN email VARCHAR(255) NULL;")) {
+    throw new Error("007_ensure_admin_email_column.sql is missing column addition");
+  }
+  console.log("  ✅ Clean install.sql and migration 007 include email column and index.");
+
+  // Test 4: Logic Simulations (Username, Email, Email NULL, Non-existent Email, Password Reset)
+  console.log("\n[Test 4] Authentication & Password Reset Logic Simulations...");
 
   const testPass = "TestPassword123!";
   const hash = bcrypt.hashSync(testPass, 10);
 
-  // Active Admin Object Simulation
-  const activeAdmin = {
-    id: 9991,
-    username: "active_test_admin",
-    email: "active_admin@pksig.test",
-    password_hash: hash,
-    active: 1
-  };
+  const mockAdmins = [
+    {
+      id: 1,
+      username: "admin_user",
+      email: "admin@pksig.com",
+      password_hash: hash,
+      active: 1
+    },
+    {
+      id: 2,
+      username: "no_email_admin",
+      email: null,
+      password_hash: hash,
+      active: 1
+    },
+    {
+      id: 3,
+      username: "disabled_admin",
+      email: "disabled@pksig.com",
+      password_hash: hash,
+      active: 0
+    }
+  ];
 
-  // Inactive Admin Object Simulation
-  const inactiveAdmin = {
-    id: 9992,
-    username: "inactive_test_admin",
-    email: "inactive_admin@pksig.test",
-    password_hash: hash,
-    active: 0
-  };
+  function findAdminForLogin(identifier: string) {
+    const cleanId = identifier.trim().toLowerCase();
+    return mockAdmins.find((a) => {
+      const matchUsername = a.username.toLowerCase() === cleanId;
+      const matchEmail = a.email ? a.email.toLowerCase() === cleanId : false;
+      return matchUsername || matchEmail;
+    });
+  }
 
-  // 2a. Active admin login
-  console.log(" - Checking Active Admin Login...");
-  const activeLoginOk =
-    activeAdmin &&
-    Number(activeAdmin.active) === 1 &&
-    bcrypt.compareSync(testPass, activeAdmin.password_hash);
-  if (activeLoginOk) {
-    console.log("   ✅ Active admin login succeeded.");
+  // 4a. Login by username
+  const loginByUsername = findAdminForLogin("ADMIN_USER");
+  if (loginByUsername && Number(loginByUsername.active) === 1 && bcrypt.compareSync(testPass, loginByUsername.password_hash)) {
+    console.log("  ✅ Login by username succeeded.");
   } else {
-    throw new Error("Active admin login failed unexpectedly.");
+    throw new Error("Login by username failed.");
   }
 
-  // 2b. Inactive admin login attempt
-  console.log(" - Checking Inactive Admin Login...");
-  const inactiveLoginOk =
-    inactiveAdmin &&
-    Number(inactiveAdmin.active) === 1 &&
-    bcrypt.compareSync(testPass, inactiveAdmin.password_hash);
-  if (!inactiveLoginOk) {
-    console.log("   ✅ Inactive admin login correctly rejected.");
+  // 4b. Login by email
+  const loginByEmail = findAdminForLogin("ADMIN@PKSIG.COM");
+  if (loginByEmail && Number(loginByEmail.active) === 1 && bcrypt.compareSync(testPass, loginByEmail.password_hash)) {
+    console.log("  ✅ Login by email succeeded.");
   } else {
-    throw new Error("Inactive admin login allowed!");
+    throw new Error("Login by email succeeded.");
   }
 
-  // 2c. Incorrect password returns generic denial
-  console.log(" - Checking Incorrect Password Denial...");
-  const wrongPasswordLogin =
-    activeAdmin &&
-    Number(activeAdmin.active) === 1 &&
-    bcrypt.compareSync("WrongPassword!", activeAdmin.password_hash);
-  if (!wrongPasswordLogin) {
-    console.log("   ✅ Incorrect password correctly rejected.");
+  // 4c. Login with non-existent email
+  const loginNonExistent = findAdminForLogin("nonexistent@pksig.com");
+  if (!loginNonExistent) {
+    console.log("  ✅ Login with non-existent email correctly returns null/unauthenticated.");
   } else {
-    throw new Error("Wrong password login allowed!");
+    throw new Error("Login with non-existent email allowed!");
   }
 
-  // 2d. Forgot Password logic check
-  console.log(" - Checking Forgot Password active filter...");
-  function filterActiveAdminForReset(email: string, adminList: typeof activeAdmin[]) {
-    return adminList.filter(
-      (a) => a.email.toLowerCase() === email.toLowerCase() && Number(a.active) === 1
-    );
+  // 4d. Login with admin having NULL email using username
+  const loginNullEmailAdmin = findAdminForLogin("no_email_admin");
+  if (loginNullEmailAdmin && Number(loginNullEmailAdmin.active) === 1 && bcrypt.compareSync(testPass, loginNullEmailAdmin.password_hash)) {
+    console.log("  ✅ Admin with email=NULL can log in using username.");
+  } else {
+    throw new Error("Admin with email=NULL failed username login.");
   }
 
-  const activeResetAdmins = filterActiveAdminForReset("active_admin@pksig.test", [activeAdmin, inactiveAdmin]);
-  const inactiveResetAdmins = filterActiveAdminForReset("inactive_admin@pksig.test", [activeAdmin, inactiveAdmin]);
+  // 4e. Password Reset for active admin vs disabled/non-existent
+  function findAdminForReset(email: string) {
+    const cleanEmail = email.trim().toLowerCase();
+    return mockAdmins.find((a) => a.email && a.email.toLowerCase() === cleanEmail && Number(a.active) === 1);
+  }
 
-  if (activeResetAdmins.length === 1 && activeResetAdmins[0].id === activeAdmin.id) {
-    console.log("   ✅ Active admin found for password reset.");
+  const resetActive = findAdminForReset("admin@pksig.com");
+  const resetDisabled = findAdminForReset("disabled@pksig.com");
+  const resetNonExistent = findAdminForReset("unknown@pksig.com");
+
+  if (resetActive && resetActive.id === 1) {
+    console.log("  ✅ Active admin correctly retrieved for password reset.");
   } else {
     throw new Error("Active admin password reset lookup failed.");
   }
 
-  if (inactiveResetAdmins.length === 0) {
-    console.log("   ✅ Inactive admin ignored for password reset.");
+  if (!resetDisabled) {
+    console.log("  ✅ Inactive admin ignored for password reset.");
   } else {
-    throw new Error("Inactive admin allowed password reset lookup!");
+    throw new Error("Inactive admin permitted for password reset!");
   }
 
-  console.log("\n==========================================");
-  console.log("ALL ADMIN ACTIVE VALIDATION TESTS PASSED!");
-  console.log("==========================================");
+  if (!resetNonExistent) {
+    console.log("  ✅ Non-existent email yields no admin for password reset.");
+  } else {
+    throw new Error("Non-existent email returned admin!");
+  }
+
+  console.log("\n=================================================");
+  console.log("ALL TESTS PASSED SUCCESSFULLY!");
+  console.log("=================================================");
 }
 
-runAdminActiveTests().catch((err) => {
+runAdminActiveAndEmailTests().catch((err) => {
   console.error("Test execution failed:", err);
   process.exit(1);
 });

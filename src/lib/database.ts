@@ -872,12 +872,12 @@ async function ensureAdminSecurityColumnsAndTables() {
       // Ignore migration error if status column check/drop fails
     }
 
-    // Ensure email unique index on admins
+    // Ensure email index on admins
     try {
-      const idxs = await query("SHOW INDEX FROM admins WHERE Key_name = 'uq_admins_email'");
+      const idxs = await query("SHOW INDEX FROM admins WHERE Key_name IN ('idx_admins_email', 'uq_admins_email')");
       if (!idxs || idxs.length === 0) {
-        await execute("CREATE UNIQUE INDEX uq_admins_email ON admins (email)");
-        console.log("[Database Migration] Created uq_admins_email index on admins table.");
+        await execute("CREATE INDEX idx_admins_email ON admins (email)");
+        console.log("[Database Migration] Created idx_admins_email index on admins table.");
       }
     } catch (e) {
       // Ignore index check error
