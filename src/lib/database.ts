@@ -474,7 +474,24 @@ export async function verifyAndRepairDatabaseSchema(operationId?: string): Promi
           if (statement.startsWith("--") || statement.startsWith("/*")) {
             continue;
           }
-          await execute(statement);
+          try {
+            await execute(statement);
+          } catch (stmtErr: any) {
+            const msg = (stmtErr.message || "").toLowerCase();
+            const isDuplicate = 
+              msg.includes("duplicate column") || 
+              msg.includes("already exists") || 
+              msg.includes("duplicate key name") ||
+              stmtErr.code === "ER_DUP_FIELDNAME" ||
+              stmtErr.code === "ER_DUP_KEYNAME" ||
+              stmtErr.code === "ER_TABLE_EXISTS_ERROR";
+            
+            if (isDuplicate) {
+              console.log(`[Database Migration Engine] Skipping existing column/table statement in ${file}: ${stmtErr.message}`);
+            } else {
+              throw stmtErr;
+            }
+          }
         }
         
         // Record as applied
@@ -653,8 +670,103 @@ async function ensureMasterSeedData() {
 
     // 8. Ensure Admin Profile & Security Columns and Tables
     await ensureAdminSecurityColumnsAndTables();
+
+    // 9. Ensure Document & Attachment Tables and Columns
+    await ensureAllSchemaTablesAndColumnsExist();
   } catch (err) {
     console.error("Error seeding default database records:", err);
+  }
+}
+
+async function ensureAllSchemaTablesAndColumnsExist() {
+  try {
+    // 1. Attachments table columns
+    const attachmentCols = [
+      { name: "category", type: "VARCHAR(50) NULL" },
+      { name: "uploaded_by", type: "INT NULL" },
+      { name: "file_hash", type: "VARCHAR(64) NULL" }
+    ];
+    for (const col of attachmentCols) {
+      try {
+        const cols = await query(`SHOW COLUMNS FROM attachments LIKE '${col.name}'`);
+        if (!cols || cols.length === 0) {
+          await execute(`ALTER TABLE attachments ADD COLUMN ${col.name} ${col.type}`);
+          console.log(`[Database Repair] Added ${col.name} column to attachments table.`);
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    // 2. Service Order Document Snapshots table
+    try {
+      await query("SELECT 1 FROM service_order_document_snapshots LIMIT 1");
+    } catch (e) {
+      console.log("[Database Repair] Creating service_order_document_snapshots table...");
+      await execute(`
+        CREATE TABLE IF NOT EXISTS service_order_document_snapshots (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            service_order_id INT NOT NULL,
+            document_type VARCHAR(50) NOT NULL,
+            version INT NOT NULL DEFAULT 1,
+            snapshot_json LONGTEXT NOT NULL,
+            content_hash VARCHAR(64) NULL,
+            generated_by VARCHAR(255) NULL,
+            generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            service_order_status VARCHAR(100) NULL,
+            FOREIGN KEY (service_order_id) REFERENCES service_orders(id) ON DELETE CASCADE,
+            INDEX idx_doc_so_type (service_order_id, document_type)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      `);
+      console.log("[Database Repair] service_order_document_snapshots table created successfully.");
+    }
+
+    // 3. Service Orders columns
+    const soCols = [
+      { name: "technical_defect", type: "TEXT NULL" },
+      { name: "technical_diagnosis", type: "TEXT NULL" },
+      { name: "technical_service_recommended", type: "TEXT NULL" },
+      { name: "technical_parts_needed", type: "TEXT NULL" },
+      { name: "technical_estimated_hours", type: "DECIMAL(5,2) NULL" },
+      { name: "technical_notes", type: "TEXT NULL" },
+      { name: "reception_equipment_state", type: "TEXT NULL" },
+      { name: "reception_notes", type: "TEXT NULL" }
+    ];
+    for (const col of soCols) {
+      try {
+        const cols = await query(`SHOW COLUMNS FROM service_orders LIKE '${col.name}'`);
+        if (!cols || cols.length === 0) {
+          await execute(`ALTER TABLE service_orders ADD COLUMN ${col.name} ${col.type}`);
+          console.log(`[Database Repair] Added ${col.name} column to service_orders table.`);
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    // 4. System Settings PWA columns
+    const sysCols = [
+      { name: "pwa_name", type: "VARCHAR(255) DEFAULT NULL" },
+      { name: "pwa_short_name", type: "VARCHAR(100) DEFAULT NULL" },
+      { name: "pwa_description", type: "TEXT DEFAULT NULL" },
+      { name: "pwa_theme_color", type: "VARCHAR(50) DEFAULT '#0e131f'" },
+      { name: "pwa_background_color", type: "VARCHAR(50) DEFAULT '#ffffff'" },
+      { name: "pwa_display", type: "VARCHAR(50) DEFAULT 'standalone'" },
+      { name: "pwa_icon_url", type: "LONGTEXT DEFAULT NULL" }
+    ];
+    for (const col of sysCols) {
+      try {
+        const cols = await query(`SHOW COLUMNS FROM system_settings LIKE '${col.name}'`);
+        if (!cols || cols.length === 0) {
+          await execute(`ALTER TABLE system_settings ADD COLUMN ${col.name} ${col.type}`);
+          console.log(`[Database Repair] Added ${col.name} column to system_settings table.`);
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+  } catch (err) {
+    console.error("Error in ensureAllSchemaTablesAndColumnsExist:", err);
   }
 }
 

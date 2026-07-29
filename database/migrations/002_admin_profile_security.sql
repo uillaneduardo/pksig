@@ -2,12 +2,11 @@
 -- Target: MySQL 8.0+ / MariaDB
 
 -- 1. Upgrade admins table
-ALTER TABLE admins 
-  ADD COLUMN email VARCHAR(255) NULL,
-  ADD COLUMN phone VARCHAR(50) NULL,
-  ADD COLUMN active TINYINT(1) NOT NULL DEFAULT 1,
-  ADD COLUMN email_verified_at TIMESTAMP NULL,
-  ADD COLUMN password_changed_at TIMESTAMP NULL;
+ALTER TABLE admins ADD COLUMN email VARCHAR(255) NULL;
+ALTER TABLE admins ADD COLUMN phone VARCHAR(50) NULL;
+ALTER TABLE admins ADD COLUMN active TINYINT(1) NOT NULL DEFAULT 1;
+ALTER TABLE admins ADD COLUMN email_verified_at TIMESTAMP NULL;
+ALTER TABLE admins ADD COLUMN password_changed_at TIMESTAMP NULL;
 
 -- Unique index for email (allowing NULLs for existing legacy records)
 CREATE UNIQUE INDEX uq_admins_email ON admins (email);

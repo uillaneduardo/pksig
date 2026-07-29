@@ -4744,26 +4744,23 @@ async function ensureAttachmentsDescriptionColumn() {
   try {
     if (!isDatabaseConfigured()) return;
 
-    try {
-      const columns = await query("SHOW COLUMNS FROM attachments LIKE 'description'");
-      if (!columns || columns.length === 0) {
-        await execute("ALTER TABLE attachments ADD COLUMN description TEXT NULL");
-        console.log("Added description column to attachments table (MySQL)");
-      }
-    } catch (e) {
-      // Ignore
-    }
+    const attachmentExtraCols = [
+      { name: "description", type: "TEXT NULL" },
+      { name: "category", type: "VARCHAR(50) NULL" },
+      { name: "uploaded_by", type: "INT NULL" },
+      { name: "file_hash", type: "VARCHAR(64) NULL" }
+    ];
 
-    try {
-      const catCols = await query("SHOW COLUMNS FROM attachments LIKE 'category'");
-      if (!catCols || catCols.length === 0) {
-        await execute("ALTER TABLE attachments ADD COLUMN category VARCHAR(50) NULL");
-        await execute("ALTER TABLE attachments ADD COLUMN uploaded_by INT NULL");
-        await execute("ALTER TABLE attachments ADD COLUMN file_hash VARCHAR(64) NULL");
-        console.log("Added category, uploaded_by, file_hash columns to attachments table");
+    for (const col of attachmentExtraCols) {
+      try {
+        const columns = await query(`SHOW COLUMNS FROM attachments LIKE '${col.name}'`);
+        if (!columns || columns.length === 0) {
+          await execute(`ALTER TABLE attachments ADD COLUMN ${col.name} ${col.type}`);
+          console.log(`Added ${col.name} column to attachments table`);
+        }
+      } catch (e) {
+        // Ignore
       }
-    } catch (e) {
-      // Ignore
     }
 
     try {

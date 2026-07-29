@@ -2,10 +2,9 @@
 -- Target: MySQL 8.0+ / MariaDB
 
 -- 1. Upgrade attachments table
-ALTER TABLE attachments 
-  ADD COLUMN category VARCHAR(50) NULL,
-  ADD COLUMN uploaded_by INT NULL,
-  ADD COLUMN file_hash VARCHAR(64) NULL;
+ALTER TABLE attachments ADD COLUMN category VARCHAR(50) NULL;
+ALTER TABLE attachments ADD COLUMN uploaded_by INT NULL;
+ALTER TABLE attachments ADD COLUMN file_hash VARCHAR(64) NULL;
 
 -- 2. Service Order Document Snapshots table
 CREATE TABLE IF NOT EXISTS service_order_document_snapshots (
