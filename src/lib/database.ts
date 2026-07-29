@@ -858,6 +858,20 @@ async function ensureAdminSecurityColumnsAndTables() {
       }
     }
 
+    // Safely migrate legacy status column if present on admins table
+    try {
+      const statusCols = await query("SHOW COLUMNS FROM admins LIKE 'status'");
+      if (statusCols && statusCols.length > 0) {
+        console.log("[Database Migration] Legacy status column found on admins table. Migrating values to active...");
+        await execute("UPDATE admins SET active = 1 WHERE LOWER(status) = 'active'");
+        await execute("UPDATE admins SET active = 0 WHERE LOWER(status) IN ('inactive', 'disabled', '0')");
+        await execute("ALTER TABLE admins DROP COLUMN status");
+        console.log("[Database Migration] Successfully converted status to active and removed legacy status column from admins.");
+      }
+    } catch (e) {
+      // Ignore migration error if status column check/drop fails
+    }
+
     // Ensure email unique index on admins
     try {
       const idxs = await query("SHOW INDEX FROM admins WHERE Key_name = 'uq_admins_email'");

@@ -1062,7 +1062,7 @@ app.post("/api/auth/login", validateBody(loginSchema), async (req: any, res: any
     );
     const admin = admins[0];
 
-    if (!admin || admin.status !== 'active' || !bcrypt.compareSync(password, admin.password_hash)) {
+    if (!admin || Number(admin.active) !== 1 || !bcrypt.compareSync(password, admin.password_hash)) {
       // Log failed attempt
       await execute("INSERT INTO login_attempts (username, ip_address, success) VALUES (?, ?, 0)", [cleanIdentifier, ip]);
       return res.status(401).json({ error: "Usuário/e-mail ou senha incorretos" });
@@ -1118,7 +1118,7 @@ app.post("/api/auth/forgot-password", async (req: any, res: any) => {
 
   try {
     const cleanEmail = email.trim().toLowerCase();
-    const admins = await query("SELECT id, name, username, email FROM admins WHERE LOWER(email) = ? AND status = 'active'", [cleanEmail]);
+    const admins = await query("SELECT id, name, username, email FROM admins WHERE LOWER(email) = ? AND active = 1", [cleanEmail]);
     const admin = admins[0];
 
     // Always return generic response to avoid user enumeration attacks
@@ -1180,7 +1180,7 @@ app.get("/api/auth/reset-password/validate", async (req: any, res: any) => {
       `SELECT prt.id, prt.admin_id, prt.expires_at, a.username 
        FROM password_reset_tokens prt 
        JOIN admins a ON a.id = prt.admin_id 
-       WHERE prt.token_hash = ? AND prt.used_at IS NULL AND prt.expires_at > NOW() AND a.status = 'active' 
+       WHERE prt.token_hash = ? AND prt.used_at IS NULL AND prt.expires_at > NOW() AND a.active = 1 
        LIMIT 1`,
       [tokenHash]
     );
@@ -1219,7 +1219,7 @@ app.post("/api/auth/reset-password", async (req: any, res: any) => {
       `SELECT prt.id, prt.admin_id, a.username 
        FROM password_reset_tokens prt 
        JOIN admins a ON a.id = prt.admin_id 
-       WHERE prt.token_hash = ? AND prt.used_at IS NULL AND prt.expires_at > NOW() AND a.status = 'active' 
+       WHERE prt.token_hash = ? AND prt.used_at IS NULL AND prt.expires_at > NOW() AND a.active = 1 
        LIMIT 1`,
       [tokenHash]
     );
@@ -1278,7 +1278,7 @@ app.get("/api/admin/profile", requireAuth, async (req: any, res: any) => {
   try {
     const adminId = req.session.adminId;
     const rows = await query(
-      "SELECT id, name, username, email, phone, created_at, last_login_at, password_changed_at, status FROM admins WHERE id = ?",
+      "SELECT id, name, username, email, phone, created_at, last_login_at, password_changed_at, active FROM admins WHERE id = ?",
       [adminId]
     );
 

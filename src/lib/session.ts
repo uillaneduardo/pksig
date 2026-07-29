@@ -47,10 +47,10 @@ export async function getSession(token: string): Promise<SessionData | null> {
     const nowStr = formatDatetime(new Date());
 
     const sessions = await query(
-      `SELECT s.*, a.username, a.name 
+      `SELECT s.*, a.username, a.name, a.active 
        FROM admin_sessions s
        JOIN admins a ON s.admin_id = a.id
-       WHERE s.token_hash = ? AND s.expires_at > ?
+       WHERE s.token_hash = ? AND s.expires_at > ? AND a.active = 1
        LIMIT 1`,
       [tokenHash, nowStr]
     );
