@@ -36,12 +36,44 @@
 
   .document-section,
   .signature-block,
-  .photo-card,
   .summary-card,
   table,
   tr {
     break-inside: avoid;
     page-break-inside: avoid;
+  }
+
+  .photo-section {
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+  }
+
+  .photo-list {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 7mm !important;
+  }
+
+  .photo-row {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 7mm !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  .photo-card {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    overflow: hidden !important;
+  }
+
+  .photo-card img {
+    display: block !important;
+    width: 100% !important;
+    height: 52mm !important;
+    max-height: 52mm !important;
+    object-fit: contain !important;
   }
 
   .page-break-before {
