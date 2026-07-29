@@ -252,6 +252,8 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
     try {
       await DataService.updateServiceOrder(osId, {
         ...order,
+        promise_date: order.promise_date ? String(order.promise_date).slice(0, 10) : null,
+        completion_date: order.completion_date ? String(order.completion_date).slice(0, 10) : null,
         accessories
       });
       setSuccessMsg("Ordem de Serviço salva com sucesso.");
@@ -746,8 +748,8 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
               <label className="block text-gray-600 mb-1 font-semibold">Data de Previsão de Entrega</label>
               <input
                 type="date"
-                value={order.promise_date ? order.promise_date.slice(0, 10) : ""}
-                onChange={(e) => setOrder({ ...order, promise_date: e.target.value })}
+                value={order.promise_date ? String(order.promise_date).slice(0, 10) : ""}
+                onChange={(e) => setOrder({ ...order, promise_date: e.target.value || undefined })}
                 className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs focus:ring-1 focus:outline-none"
               />
             </div>
@@ -979,7 +981,7 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
                   <input
                     type="date"
                     required
-                    value={dueDate}
+                    value={dueDate ? String(dueDate).slice(0, 10) : ""}
                     onChange={(e) => setDueDate(e.target.value)}
                     className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs focus:outline-none font-bold"
                   />
@@ -1155,7 +1157,7 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
                           <input
                             type="date"
                             required
-                            value={payDate}
+                            value={payDate ? String(payDate).slice(0, 10) : ""}
                             onChange={(e) => setPayDate(e.target.value)}
                             className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none bg-white text-xs font-bold font-mono"
                           />
@@ -1294,7 +1296,7 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
                       <input
                         type="date"
                         required
-                        value={warrantyStartDate}
+                        value={warrantyStartDate ? String(warrantyStartDate).slice(0, 10) : ""}
                         onChange={(e) => setWarrantyStartDate(e.target.value)}
                         className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs focus:outline-none font-bold"
                       />

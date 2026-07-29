@@ -118,7 +118,10 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
     setSuccessMsg("");
 
     try {
-      await DataService.updateClient(clientId, client);
+      await DataService.updateClient(clientId, {
+        ...client,
+        birth_date: client.birth_date ? String(client.birth_date).slice(0, 10) : null
+      });
       setSuccessMsg("Dados salvos com sucesso.");
       setTimeout(() => setSuccessMsg(""), 3000);
     } catch (err: any) {
@@ -480,7 +483,7 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
                     <label className="block text-gray-600 mb-1 font-semibold">Data de Nascimento</label>
                     <input
                       type="date"
-                      value={client.birth_date ? client.birth_date.slice(0, 10) : ""}
+                      value={client.birth_date ? String(client.birth_date).slice(0, 10) : ""}
                       onChange={(e) => setClient({ ...client, birth_date: e.target.value })}
                       className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs focus:ring-1 focus:outline-none"
                     />

@@ -233,7 +233,7 @@ export default function Finance({ currency }: FinanceProps) {
       description: desc,
       type,
       amount: parseFloat(amount),
-      transaction_date: date,
+      transaction_date: date ? String(date).slice(0, 10) : null,
       category_id: catId ? parseInt(catId) : null,
       os_id: selectedOS ? selectedOS.id : null
     };
@@ -839,7 +839,7 @@ export default function Finance({ currency }: FinanceProps) {
                   <label className="block text-gray-600 mb-1 font-semibold">Data do Lançamento <span className="text-red-500">*</span></label>
                   <input
                     type="date"
-                    value={date}
+                    value={date ? String(date).slice(0, 10) : ""}
                     onChange={(e) => setDate(e.target.value)}
                     className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-xs bg-white text-gray-900 font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     required

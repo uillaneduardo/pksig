@@ -145,7 +145,7 @@ export default function ClientList({ onSelectClient, currency }: ClientListProps
     setFormError("");
     try {
       const payload = {
-        type, name, cpf_cnpj: cpfCnpj, rg_ie: rgIe, responsible, birth_date: birthDate || null,
+        type, name, cpf_cnpj: cpfCnpj, rg_ie: rgIe, responsible, birth_date: birthDate ? String(birthDate).slice(0, 10) : null,
         email, phone, whatsapp: whatsapp || phone, zip_code: zipCode, street, number,
         complement, neighborhood, city, state, notes
       };

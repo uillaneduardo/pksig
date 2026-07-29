@@ -40,6 +40,7 @@ import {
 } from "./src/lib/operationProgress.js";
 import { getSmtpConfigStatus, sendPasswordResetEmail, testSmtpConnection } from "./src/lib/email.js";
 import { logAdminAction } from "./src/lib/audit.js";
+import { normalizeDateForDb, normalizeDateTimeForDb } from "./src/lib/dateUtils.js";
 
 // ==========================================
 // Zod Input Validation Schemas & Middleware
@@ -1808,7 +1809,7 @@ app.post("/api/clients", requireAuth, validateBody(clientSchema), async (req: an
 
   try {
     const code = await generateNextCode("client");
-    const birthVal = birth_date ? birth_date : null;
+    const birthVal = normalizeDateForDb(birth_date, "data de nascimento");
 
     const result = await execute(`
       INSERT INTO clients 
@@ -1900,7 +1901,7 @@ app.put("/api/clients/:id", requireAuth, async (req: any, res: any) => {
   } = req.body;
 
   try {
-    const birthVal = birth_date ? birth_date : null;
+    const birthVal = normalizeDateForDb(birth_date, "data de nascimento");
     await execute(`
       UPDATE clients 
       SET name=?, cpf_cnpj=?, rg_ie=?, responsible=?, birth_date=?, email=?, phone=?, whatsapp=?, 
@@ -2022,13 +2023,14 @@ app.get("/api/service-orders", requireAuth, async (req: any, res: any) => {
 
 // Create Service Order
 app.post("/api/service-orders", requireAuth, async (req: any, res: any) => {
-  const { client_id, equipment_id, technician_name, problem_reported, reception_equipment_state, reception_notes, accessories } = req.body;
+  const { client_id, equipment_id, technician_name, problem_reported, reception_equipment_state, reception_notes, promise_date, accessories } = req.body;
 
   if (!client_id || !equipment_id || !problem_reported) {
     return res.status(400).json({ error: "Cliente, equipamento e problema informado são obrigatórios" });
   }
 
   try {
+    const promiseVal = normalizeDateForDb(promise_date, "data de previsão de entrega");
     const code = await generateNextCode("os");
     
     const osId = await runInTransaction(async (exec) => {
@@ -2051,9 +2053,9 @@ app.post("/api/service-orders", requireAuth, async (req: any, res: any) => {
 
       const result = await exec(`
         INSERT INTO service_orders 
-          (client_id, equipment_id, code, technician_name, status_id, status_name, problem_reported, reception_equipment_state, reception_notes) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [client_id, equipment_id, code, technician_name || "Suporte TI (Administrador)", targetStatusId, targetStatusName, problem_reported, reception_equipment_state || null, reception_notes || null]
+          (client_id, equipment_id, code, technician_name, status_id, status_name, problem_reported, reception_equipment_state, reception_notes, promise_date) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [client_id, equipment_id, code, technician_name || "Suporte TI (Administrador)", targetStatusId, targetStatusName, problem_reported, reception_equipment_state || null, reception_notes || null, promiseVal]
       );
 
       const newOsId = result.insertId || result.id;
@@ -2076,6 +2078,9 @@ app.post("/api/service-orders", requireAuth, async (req: any, res: any) => {
     return res.json({ success: true, osId, code });
   } catch (err: any) {
     console.error("Create OS error:", err);
+    if (err.isValidationError || err.status === 400) {
+      return res.status(400).json({ error: err.message });
+    }
     return res.status(500).json({ error: err.message });
   }
 });
@@ -2204,8 +2209,10 @@ app.put("/api/service-orders/:id", requireAuth, async (req: any, res: any) => {
     const statuses = await query("SELECT name FROM service_order_statuses WHERE id = ?", [status_id]);
     const statusName = statuses[0]?.name || "Recebida";
 
-    const compDate = statusName === "Entregue" || statusName === "Pronta" ? (completion_date || new Date().toISOString().slice(0, 19).replace('T', ' ')) : null;
-    const promiseVal = promise_date ? promise_date : null;
+    const promiseVal = normalizeDateForDb(promise_date, "data de previsão de entrega");
+    const compDate = (statusName === "Entregue" || statusName === "Pronta")
+      ? (completion_date ? normalizeDateForDb(completion_date, "data de conclusão") : normalizeDateForDb(new Date(), "data de conclusão"))
+      : null;
 
     await execute(`
       UPDATE service_orders 
@@ -2243,6 +2250,9 @@ app.put("/api/service-orders/:id", requireAuth, async (req: any, res: any) => {
     return res.json({ success: true, statusName });
   } catch (err: any) {
     console.error("Update OS error:", err);
+    if (err.isValidationError || err.status === 400) {
+      return res.status(400).json({ error: err.message });
+    }
     return res.status(500).json({ error: err.message });
   }
 });
@@ -2357,7 +2367,7 @@ app.post("/api/service-orders/:id/guide", requireAuth, async (req: any, res: any
     // 2. Insert payment guide
     const guideCode = await generateNextCode("guide");
     const today = new Date().toISOString().slice(0, 10);
-    const dueVal = due_date || today;
+    const dueVal = normalizeDateForDb(due_date || today, "data de vencimento");
 
     const result = await execute(`
       INSERT INTO payment_guides 
@@ -2494,7 +2504,7 @@ app.post("/api/payment-guides/:id/pay", requireAuth, async (req: any, res: any) 
     return res.status(400).json({ error: "Valor do pagamento deve ser maior que zero" });
   }
 
-  const payDate = payment_date || new Date().toISOString().split("T")[0];
+  const payDate = normalizeDateForDb(payment_date || new Date(), "data de pagamento");
 
   try {
     const updatedGuide = await runInTransaction(async (exec) => {
@@ -2600,7 +2610,7 @@ app.put("/api/payments/:id", requireAuth, async (req: any, res: any) => {
     const methods = await query("SELECT name FROM payment_methods WHERE id = ?", [method_id]);
     const methodName = methods[0]?.name || "Outro";
 
-    const newPayDate = payment_date || (payment.payment_date ? String(payment.payment_date).split("T")[0] : new Date().toISOString().split("T")[0]);
+    const newPayDate = normalizeDateForDb(payment_date || payment.payment_date || new Date(), "data de pagamento");
 
     // Update payment record
     await execute(
@@ -2835,6 +2845,7 @@ app.post("/api/finance/transactions", requireAuth, async (req: any, res: any) =>
     return res.status(400).json({ error: "Tipo deve ser 'entrada' ou 'saida'" });
   }
   try {
+    const txDate = normalizeDateForDb(transaction_date, "data do lançamento");
     await execute(
       `INSERT INTO financial_transactions 
        (description, type, amount, transaction_date, category_id, os_id) 
@@ -2843,13 +2854,16 @@ app.post("/api/finance/transactions", requireAuth, async (req: any, res: any) =>
         description,
         type,
         parseFloat(amount),
-        transaction_date,
+        txDate,
         category_id ? parseInt(category_id) : null,
         os_id ? parseInt(os_id) : null
       ]
     );
     return res.json({ success: true });
   } catch (err: any) {
+    if (err.isValidationError || err.status === 400) {
+      return res.status(400).json({ error: err.message });
+    }
     return res.status(500).json({ error: err.message });
   }
 });
@@ -2862,6 +2876,7 @@ app.put("/api/finance/transactions/:id", requireAuth, async (req: any, res: any)
     return res.status(400).json({ error: "Descrição, tipo, valor e data são obrigatórios" });
   }
   try {
+    const txDate = normalizeDateForDb(transaction_date, "data do lançamento");
     await execute(
       `UPDATE financial_transactions 
        SET description = ?, type = ?, amount = ?, transaction_date = ?, category_id = ?, os_id = ? 
@@ -2870,7 +2885,7 @@ app.put("/api/finance/transactions/:id", requireAuth, async (req: any, res: any)
         description,
         type,
         parseFloat(amount),
-        transaction_date,
+        txDate,
         category_id ? parseInt(category_id) : null,
         os_id ? parseInt(os_id) : null,
         id
@@ -2878,6 +2893,9 @@ app.put("/api/finance/transactions/:id", requireAuth, async (req: any, res: any)
     );
     return res.json({ success: true });
   } catch (err: any) {
+    if (err.isValidationError || err.status === 400) {
+      return res.status(400).json({ error: err.message });
+    }
     return res.status(500).json({ error: err.message });
   }
 });
@@ -2999,12 +3017,10 @@ app.post("/api/service-orders/:id/warranty", requireAuth, async (req: any, res: 
     }
 
     // Calculate dates
-    const start = start_date ? new Date(start_date) : new Date();
-    const end = new Date(start);
-    end.setDate(end.getDate() + durationDays);
-
-    const startStr = start.toISOString().slice(0, 10);
-    const endStr = end.toISOString().slice(0, 10);
+    const startStr = normalizeDateForDb(start_date || new Date(), "data de início de garantia")!;
+    const [sYear, sMonth, sDay] = startStr.split("-").map(Number);
+    const endDateObj = new Date(Date.UTC(sYear, sMonth - 1, sDay + durationDays));
+    const endStr = endDateObj.toISOString().slice(0, 10);
 
     const warrantyCode = await generateNextCode("warranty");
     const result = await execute(`
