@@ -2,9 +2,10 @@ import React, { useState, useEffect } from "react";
 import { ServiceOrder, BudgetItem, PaymentGuide, PaymentMethod, WarrantyRule, Warranty } from "../types";
 import { 
   ArrowLeft, Save, FileText, Check, Plus, Trash2, DollarSign, 
-  ShieldCheck, Upload, Download, Loader, CheckCircle, AlertCircle, Edit
+  ShieldCheck, Upload, Download, Loader, CheckCircle, AlertCircle, Edit, FileCheck
 } from "lucide-react";
 import { DataService } from "../lib/dataService";
+import { ServiceOrderDocuments } from "./documents/ServiceOrderDocuments";
 
 interface ServiceOrderDetailsProps {
   osId: number | string;
@@ -13,7 +14,7 @@ interface ServiceOrderDetailsProps {
 }
 
 export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceOrderDetailsProps) {
-  const [activeTab, setActiveTab] = useState<"recepcao" | "analise" | "orcamento" | "cobrancas" | "garantia" | "anexos">("recepcao");
+  const [activeTab, setActiveTab] = useState<"recepcao" | "analise" | "orcamento" | "cobrancas" | "garantia" | "anexos" | "documentos">("recepcao");
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -528,7 +529,8 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
             { id: "orcamento", label: `Orçamento (${budgetItems.length})` },
             { id: "cobrancas", label: "Faturamento / Cobranças" },
             { id: "garantia", label: "Termo de Garantia" },
-            { id: "anexos", label: `Anexos / Fotos (${attachments.length})` }
+            { id: "anexos", label: `Anexos / Fotos (${attachments.length})` },
+            { id: "documentos", label: "Documentos" }
           ].map((tab) => (
             <button
               key={tab.id}
@@ -1486,6 +1488,14 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
           </div>
 
         </div>
+      )}
+
+      {/* TAB CONTENT: DOCUMENTOS */}
+      {activeTab === "documentos" && (
+        <ServiceOrderDocuments
+          serviceOrder={order}
+          onRefreshOS={loadOSDetails}
+        />
       )}
 
     </div>

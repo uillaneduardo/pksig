@@ -3244,6 +3244,472 @@ app.get("/api/attachments/:id", requireAuth, async (req: any, res: any) => {
   }
 });
 
+// View attachment inline for document previews (images/PDFs)
+app.get("/api/attachments/:id/view", requireAuth, async (req: any, res: any) => {
+  const { id } = req.params;
+  try {
+    const records = await query("SELECT * FROM attachments WHERE id = ?", [id]);
+    const record = records[0];
+    if (!record) {
+      return res.status(404).send("Anexo não encontrado");
+    }
+
+    const absolutePath = path.join(process.cwd(), record.file_path);
+    if (!fs.existsSync(absolutePath)) {
+      return res.status(404).send("Arquivo físico não encontrado");
+    }
+
+    res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(record.filename)}"`);
+    res.setHeader("Content-Type", record.mime_type || "application/octet-stream");
+    return res.sendFile(absolutePath);
+  } catch (err) {
+    return res.status(500).send("Erro ao processar exibição do anexo");
+  }
+});
+
+// ==========================================
+// 8A-1. SERVICE ORDER DOCUMENT ENDPOINTS
+// ==========================================
+
+async function fetchFullServiceOrderDocumentData(osId: number, req: any) {
+  const companyRows = await query("SELECT * FROM company_settings LIMIT 1");
+  const company = companyRows[0] || { company_name: "PK SIG Assistência Técnica" };
+
+  const orders = await query(`
+    SELECT o.*, 
+           c.id as client_id, c.code as client_code, c.type as client_type, c.name as client_name, 
+           c.cpf_cnpj as client_cpf_cnpj, c.rg_ie as client_rg_ie, c.responsible as client_responsible, 
+           c.birth_date as client_birth_date, c.email as client_email, c.phone as client_phone, 
+           c.whatsapp as client_whatsapp, c.zip_code as client_zip_code, c.street as client_street, 
+           c.number as client_number, c.complement as client_complement, c.neighborhood as client_neighborhood, 
+           c.city as client_city, c.state as client_state, c.notes as client_notes,
+           e.id as equipment_id, e.code as equip_code, e.brand as equip_brand, e.model as equip_model, 
+           e.serial_number as equip_serial, e.imei as equip_imei, e.asset_tag as equip_asset, 
+           e.responsible as equip_responsible, e.color as equip_color, e.notes as equip_notes, e.status as equip_status,
+           ec.name as equip_category_name
+    FROM service_orders o
+    JOIN clients c ON o.client_id = c.id
+    JOIN equipments e ON o.equipment_id = e.id
+    LEFT JOIN equipment_categories ec ON e.category_id = ec.id
+    WHERE o.id = ?`, [osId]
+  );
+  const orderRaw = orders[0];
+  if (!orderRaw) return null;
+
+  const client = {
+    id: orderRaw.client_id,
+    code: orderRaw.client_code,
+    type: orderRaw.client_type,
+    name: orderRaw.client_name,
+    cpf_cnpj: orderRaw.client_cpf_cnpj,
+    rg_ie: orderRaw.client_rg_ie,
+    responsible: orderRaw.client_responsible,
+    birth_date: orderRaw.client_birth_date,
+    email: orderRaw.client_email,
+    phone: orderRaw.client_phone,
+    whatsapp: orderRaw.client_whatsapp,
+    zip_code: orderRaw.client_zip_code,
+    street: orderRaw.client_street,
+    number: orderRaw.client_number,
+    complement: orderRaw.client_complement,
+    neighborhood: orderRaw.client_neighborhood,
+    city: orderRaw.client_city,
+    state: orderRaw.client_state,
+    notes: orderRaw.client_notes
+  };
+
+  const equipment = {
+    id: orderRaw.equipment_id,
+    code: orderRaw.equip_code,
+    category_name: orderRaw.equip_category_name || "Equipamento",
+    brand: orderRaw.equip_brand,
+    model: orderRaw.equip_model,
+    serial_number: orderRaw.equip_serial,
+    imei: orderRaw.equip_imei,
+    asset_tag: orderRaw.equip_asset,
+    responsible: orderRaw.equip_responsible,
+    color: orderRaw.equip_color,
+    notes: orderRaw.equip_notes,
+    status: orderRaw.equip_status
+  };
+
+  const order = { ...orderRaw };
+  delete order.client_name;
+  delete order.equip_brand;
+
+  const accRows = await query("SELECT accessory_name FROM service_order_accessories WHERE service_order_id = ?", [osId]);
+  const accessories = accRows.map(a => a.accessory_name);
+
+  const attRows = await query(
+    "SELECT id, service_order_id, filename, file_size, mime_type, description, category, uploaded_at FROM attachments WHERE service_order_id = ? ORDER BY id ASC",
+    [osId]
+  );
+  const attachments = attRows.map(att => ({
+    ...att,
+    view_url: `/api/attachments/${att.id}/view`
+  }));
+
+  const budgetItems = await query("SELECT * FROM budget_items WHERE service_order_id = ? ORDER BY id ASC", [osId]);
+  let subtotal_services = 0;
+  let subtotal_parts = 0;
+  let subtotal_labor = 0;
+  let total_amount = 0;
+
+  budgetItems.forEach(item => {
+    const qty = parseFloat(item.quantity) || 1;
+    const unit = parseFloat(item.unit_value) || 0;
+    const itemTotal = parseFloat(item.total_value) || (qty * unit);
+    total_amount += itemTotal;
+
+    const t = String(item.type || "").toLowerCase();
+    if (t === "servico" || t === "service") {
+      subtotal_services += itemTotal;
+    } else if (t === "peca" || t === "part") {
+      subtotal_parts += itemTotal;
+    } else if (t === "mao_de_obra" || t === "labor") {
+      subtotal_labor += itemTotal;
+    } else {
+      subtotal_services += itemTotal;
+    }
+  });
+
+  const budget = {
+    items: budgetItems,
+    subtotal_services,
+    subtotal_parts,
+    subtotal_labor,
+    total_amount
+  };
+
+  const guideRows = await query(`
+    SELECT g.*, pm.name as expected_method_name 
+    FROM payment_guides g
+    LEFT JOIN payment_methods pm ON g.expected_method_id = pm.id
+    WHERE g.service_order_id = ?`, [osId]
+  );
+  const guide = guideRows[0] || null;
+
+  let installments: any[] = [];
+  let payments: any[] = [];
+  if (guide) {
+    installments = await query("SELECT * FROM payment_installments WHERE payment_guide_id = ? ORDER BY installment_number ASC", [guide.id]);
+    payments = await query("SELECT * FROM payments WHERE payment_guide_id = ? ORDER BY id ASC", [guide.id]);
+  }
+
+  const warrantyRows = await query(`
+    SELECT w.*, wr.name as rule_name, wr.duration_days, wr.terms_description
+    FROM warranties w
+    LEFT JOIN warranty_rules wr ON (wr.category_id = ? OR wr.active = 1)
+    WHERE w.service_order_id = ?
+    ORDER BY w.id DESC`, [equipment.id, osId]
+  );
+  const warranty = warrantyRows[0] || null;
+
+  const currentUser = req.session?.name || req.session?.username || "Administrador";
+
+  return {
+    company,
+    order,
+    client,
+    equipment,
+    accessories,
+    attachments,
+    budget,
+    guide,
+    installments,
+    payments,
+    warranty,
+    meta: {
+      generated_at: new Date().toISOString(),
+      generated_by: currentUser
+    }
+  };
+}
+
+// 1. Opening Receipt Document
+app.get("/api/service-orders/:id/documents/opening", requireAuth, async (req: any, res: any) => {
+  const osId = parseInt(req.params.id);
+  if (isNaN(osId)) return res.status(400).json({ error: "ID inválido" });
+
+  try {
+    const docData = await fetchFullServiceOrderDocumentData(osId, req);
+    if (!docData) return res.status(404).json({ error: "Ordem de Serviço não encontrada" });
+
+    return res.json({ document_type: "opening", ...docData });
+  } catch (err: any) {
+    console.error("Error fetching opening doc:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 2. Technical Report Document
+app.get("/api/service-orders/:id/documents/technical", requireAuth, async (req: any, res: any) => {
+  const osId = parseInt(req.params.id);
+  if (isNaN(osId)) return res.status(400).json({ error: "ID inválido" });
+
+  try {
+    const docData = await fetchFullServiceOrderDocumentData(osId, req);
+    if (!docData) return res.status(404).json({ error: "Ordem de Serviço não encontrada" });
+
+    return res.json({ document_type: "technical", ...docData });
+  } catch (err: any) {
+    console.error("Error fetching technical doc:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 3. Budget Document
+app.get("/api/service-orders/:id/documents/budget", requireAuth, async (req: any, res: any) => {
+  const osId = parseInt(req.params.id);
+  if (isNaN(osId)) return res.status(400).json({ error: "ID inválido" });
+
+  try {
+    const docData = await fetchFullServiceOrderDocumentData(osId, req);
+    if (!docData) return res.status(404).json({ error: "Ordem de Serviço não encontrada" });
+
+    return res.json({ document_type: "budget", ...docData });
+  } catch (err: any) {
+    console.error("Error fetching budget doc:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 4. Financial Guide Document
+app.get("/api/service-orders/:id/documents/financial", requireAuth, async (req: any, res: any) => {
+  const osId = parseInt(req.params.id);
+  if (isNaN(osId)) return res.status(400).json({ error: "ID inválido" });
+
+  try {
+    const docData = await fetchFullServiceOrderDocumentData(osId, req);
+    if (!docData) return res.status(404).json({ error: "Ordem de Serviço não encontrada" });
+
+    return res.json({ document_type: "financial", ...docData });
+  } catch (err: any) {
+    console.error("Error fetching financial doc:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 5. Full Service Order Document
+app.get("/api/service-orders/:id/documents/full", requireAuth, async (req: any, res: any) => {
+  const osId = parseInt(req.params.id);
+  if (isNaN(osId)) return res.status(400).json({ error: "ID inválido" });
+
+  try {
+    const docData = await fetchFullServiceOrderDocumentData(osId, req);
+    if (!docData) return res.status(404).json({ error: "Ordem de Serviço não encontrada" });
+
+    return res.json({ document_type: "full", ...docData });
+  } catch (err: any) {
+    console.error("Error fetching full doc:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 6. Payment Receipt Document
+app.get("/api/payments/:paymentId/document", requireAuth, async (req: any, res: any) => {
+  const payId = parseInt(req.params.paymentId);
+  if (isNaN(payId)) return res.status(400).json({ error: "ID de pagamento inválido" });
+
+  try {
+    const payments = await query("SELECT * FROM payments WHERE id = ?", [payId]);
+    const targetPayment = payments[0];
+    if (!targetPayment) return res.status(404).json({ error: "Pagamento não encontrado" });
+
+    const guides = await query("SELECT service_order_id FROM payment_guides WHERE id = ?", [targetPayment.payment_guide_id]);
+    const osId = guides[0]?.service_order_id;
+    if (!osId) return res.status(404).json({ error: "Guia ou Ordem de Serviço não encontrada para este pagamento" });
+
+    const docData = await fetchFullServiceOrderDocumentData(osId, req);
+    if (!docData) return res.status(404).json({ error: "Ordem de Serviço não encontrada" });
+
+    return res.json({
+      document_type: "payment",
+      target_payment: targetPayment,
+      ...docData
+    });
+  } catch (err: any) {
+    console.error("Error fetching payment receipt doc:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 7. Warranty Term Document
+app.get("/api/warranties/:warrantyId/document", requireAuth, async (req: any, res: any) => {
+  const warId = parseInt(req.params.warrantyId);
+  if (isNaN(warId)) return res.status(400).json({ error: "ID de garantia inválido" });
+
+  try {
+    const warranties = await query("SELECT * FROM warranties WHERE id = ?", [warId]);
+    const targetWarranty = warranties[0];
+    if (!targetWarranty) return res.status(404).json({ error: "Garantia não encontrada" });
+
+    const osId = targetWarranty.service_order_id;
+    const docData = await fetchFullServiceOrderDocumentData(osId, req);
+    if (!docData) return res.status(404).json({ error: "Ordem de Serviço não encontrada" });
+
+    return res.json({
+      document_type: "warranty",
+      target_warranty: targetWarranty,
+      ...docData
+    });
+  } catch (err: any) {
+    console.error("Error fetching warranty doc:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Emit Definite Document & Create Snapshot + Audit Log
+app.post("/api/service-orders/:id/documents/emit", requireAuth, async (req: any, res: any) => {
+  const osId = parseInt(req.params.id);
+  const { document_type, payment_id, warranty_id, selected_attachment_ids } = req.body;
+
+  if (isNaN(osId) || !document_type) {
+    return res.status(400).json({ error: "Parâmetros obrigatórios ausentes" });
+  }
+
+  try {
+    const fullData = await fetchFullServiceOrderDocumentData(osId, req);
+    if (!fullData) return res.status(404).json({ error: "Ordem de Serviço não encontrada" });
+
+    // Filter attachments if specific selected_attachment_ids were sent
+    if (Array.isArray(selected_attachment_ids) && selected_attachment_ids.length > 0) {
+      fullData.attachments = fullData.attachments.filter(att => selected_attachment_ids.includes(att.id));
+    }
+
+    if (payment_id) {
+      const targetPay = fullData.payments.find((p: any) => p.id === parseInt(payment_id));
+      if (targetPay) (fullData as any).target_payment = targetPay;
+    }
+
+    if (warranty_id && fullData.warranty) {
+      (fullData as any).target_warranty = fullData.warranty;
+    }
+
+    // Determine current version for this document_type
+    const verRows = await query(
+      "SELECT MAX(version) as max_v FROM service_order_document_snapshots WHERE service_order_id = ? AND document_type = ?",
+      [osId, document_type]
+    );
+    const nextVersion = ((verRows[0]?.max_v || 0) as number) + 1;
+
+    const snapshotJson = JSON.stringify({
+      ...fullData,
+      meta: {
+        ...fullData.meta,
+        version: nextVersion,
+        emitted_at: new Date().toISOString()
+      }
+    });
+
+    const contentHash = crypto.createHash("sha256").update(snapshotJson).digest("hex");
+    const generatedBy = fullData.meta.generated_by;
+
+    const insertResult = await execute(
+      `INSERT INTO service_order_document_snapshots 
+       (service_order_id, document_type, version, snapshot_json, content_hash, generated_by, service_order_status) 
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [osId, document_type, nextVersion, snapshotJson, contentHash, generatedBy, fullData.order.status_name]
+    );
+
+    const snapshotId = insertResult.insertId || insertResult.id || 0;
+
+    // Log admin audit action
+    const docTypeLabels: Record<string, string> = {
+      opening: "Comprovante de Abertura",
+      technical: "Relatório Técnico",
+      budget: "Orçamento",
+      financial: "Guia Financeira",
+      payment: "Comprovante de Pagamento",
+      warranty: "Termo de Garantia",
+      full: "Relatório Completo"
+    };
+    const label = docTypeLabels[document_type] || document_type;
+
+    await logAdminAction({
+      adminId: req.session?.userId || null,
+      action: "DOCUMENT_EMITTED",
+      entityType: "SERVICE_ORDER_DOCUMENT",
+      entityId: osId,
+      description: `Emissão do documento '${label}' v${nextVersion} para OS #${fullData.order.code}`,
+      metadata: {
+        document_type,
+        version: nextVersion,
+        os_id: osId,
+        content_hash: contentHash,
+        generated_by: generatedBy,
+        snapshot_id: snapshotId
+      },
+      ipAddress: req.ip,
+      userAgent: req.headers["user-agent"]
+    });
+
+    return res.json({
+      success: true,
+      snapshot_id: snapshotId,
+      version: nextVersion,
+      content_hash: contentHash,
+      snapshot: JSON.parse(snapshotJson)
+    });
+  } catch (err: any) {
+    console.error("Error emitting document snapshot:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Fetch Document Snapshots History for OS
+app.get("/api/service-orders/:id/documents/history", requireAuth, async (req: any, res: any) => {
+  const osId = parseInt(req.params.id);
+  if (isNaN(osId)) return res.status(400).json({ error: "ID inválido" });
+
+  try {
+    const snapshots = await query(
+      `SELECT id, service_order_id, document_type, version, content_hash, generated_by, generated_at, service_order_status 
+       FROM service_order_document_snapshots 
+       WHERE service_order_id = ? 
+       ORDER BY id DESC`,
+      [osId]
+    );
+    return res.json({ snapshots });
+  } catch (err: any) {
+    console.error("Error fetching document history:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Fetch Specific Snapshot Data
+app.get("/api/service-orders/:id/documents/snapshot/:snapshotId", requireAuth, async (req: any, res: any) => {
+  const osId = parseInt(req.params.id);
+  const snapId = parseInt(req.params.snapshotId);
+
+  if (isNaN(osId) || isNaN(snapId)) return res.status(400).json({ error: "IDs inválidos" });
+
+  try {
+    const rows = await query(
+      "SELECT * FROM service_order_document_snapshots WHERE id = ? AND service_order_id = ?",
+      [snapId, osId]
+    );
+    const snapshot = rows[0];
+    if (!snapshot) return res.status(404).json({ error: "Snapshot do documento não encontrado" });
+
+    return res.json({
+      snapshot_info: {
+        id: snapshot.id,
+        document_type: snapshot.document_type,
+        version: snapshot.version,
+        content_hash: snapshot.content_hash,
+        generated_by: snapshot.generated_by,
+        generated_at: snapshot.generated_at,
+        service_order_status: snapshot.service_order_status
+      },
+      document_data: JSON.parse(snapshot.snapshot_json)
+    });
+  } catch (err: any) {
+    console.error("Error fetching snapshot:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // ==========================================
 // 8B. DASHBOARD ENDPOINTS
 // ==========================================
@@ -4287,8 +4753,41 @@ async function ensureAttachmentsDescriptionColumn() {
     } catch (e) {
       // Ignore
     }
+
+    try {
+      const catCols = await query("SHOW COLUMNS FROM attachments LIKE 'category'");
+      if (!catCols || catCols.length === 0) {
+        await execute("ALTER TABLE attachments ADD COLUMN category VARCHAR(50) NULL");
+        await execute("ALTER TABLE attachments ADD COLUMN uploaded_by INT NULL");
+        await execute("ALTER TABLE attachments ADD COLUMN file_hash VARCHAR(64) NULL");
+        console.log("Added category, uploaded_by, file_hash columns to attachments table");
+      }
+    } catch (e) {
+      // Ignore
+    }
+
+    try {
+      await query("SELECT 1 FROM service_order_document_snapshots LIMIT 1");
+    } catch (e) {
+      console.log("Creating service_order_document_snapshots table...");
+      await execute(`
+        CREATE TABLE IF NOT EXISTS service_order_document_snapshots (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            service_order_id INT NOT NULL,
+            document_type VARCHAR(50) NOT NULL,
+            version INT NOT NULL DEFAULT 1,
+            snapshot_json LONGTEXT NOT NULL,
+            content_hash VARCHAR(64) NULL,
+            generated_by VARCHAR(255) NULL,
+            generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            service_order_status VARCHAR(100) NULL,
+            FOREIGN KEY (service_order_id) REFERENCES service_orders(id) ON DELETE CASCADE,
+            INDEX idx_doc_so_type (service_order_id, document_type)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+    }
   } catch (err) {
-    console.error("Error checking or adding description column to attachments:", err);
+    console.error("Error checking attachments columns or document snapshots table:", err);
   }
 }
 
