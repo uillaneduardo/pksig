@@ -6,3 +6,26 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Proteção de diretórios de armazenamento do PKSIG
+storage/*
+!storage/.gitkeep
+!storage/config/
+!storage/config/.gitkeep
+!storage/backups/
+!storage/backups/.gitkeep
+!storage/attachments/
+!storage/attachments/.gitkeep
+!storage/attachments/thumbnail/
+!storage/attachments/thumbnail/.gitkeep
+!storage/attachments/print/
+!storage/attachments/print/.gitkeep
+!storage/documents/
+!storage/documents/.gitkeep
+
+# Arquivos sensíveis e dumps de banco de dados
+*.sql
+*.zip
+*.pem
+*.crt
+*.key

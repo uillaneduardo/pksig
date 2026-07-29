@@ -12,6 +12,7 @@
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist",
     "images:optimize": "tsx scripts/optimize_attachments.ts",
+    "check:storage": "tsx scripts/check_storage.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

@@ -1,15 +1,19 @@
 import mysql from "mysql2/promise";
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import { encrypt, decrypt } from "./crypto.js";
 import { updateStepStatus, updateOperation, getOperation } from "./operationProgress.js";
 
 const CONFIG_FILE = path.join(process.cwd(), "storage", "config", "database.json");
+const CONNECTIONS_FILE = path.join(process.cwd(), "storage", "config", "database-connections.json");
 
 let pool: mysql.Pool | null = null;
 let currentConfig: any = null;
 
 export interface DatabaseConfig {
+  id?: string;
+  name?: string;
   mode: "local" | "remoto";
   type?: "mysql" | "mariadb";
   host: string;
@@ -22,6 +26,172 @@ export interface DatabaseConfig {
   configDate?: string;
   lastTest?: string;
   dbVersion?: string;
+  connectionFingerprint?: string;
+}
+
+export interface DatabaseConnection {
+  id: string;
+  name: string;
+  type: "mysql" | "mariadb";
+  host: string;
+  port: number;
+  database: string;
+  user: string;
+  encryptedPassword: string;
+  ssl: boolean;
+  encryptedCertificate?: string;
+  createdAt: string;
+  updatedAt: string;
+  lastTestAt?: string;
+  lastTestSuccess?: boolean;
+  serverHostname?: string;
+  serverVersion?: string;
+  authenticatedUser?: string;
+  connectionFingerprint?: string;
+  active: boolean;
+}
+
+export function generateFingerprint(
+  host: string,
+  port: number | string,
+  database: string,
+  user: string,
+  serverHostname?: string
+): string {
+  const str = `${host || ""}:${port || 3306}:${database || ""}:${user || ""}:${serverHostname || ""}`;
+  const hash = crypto.createHash("sha256").update(str).digest("hex").toUpperCase();
+  return `${hash.slice(0, 4)}-${hash.slice(4, 8)}`;
+}
+
+export function ensureStorageDirsExist() {
+  const subdirs = ["config", "backups", "attachments", "documents"];
+  const storageRoot = path.join(process.cwd(), "storage");
+  if (!fs.existsSync(storageRoot)) {
+    fs.mkdirSync(storageRoot, { recursive: true });
+  }
+  for (const sub of subdirs) {
+    const p = path.join(storageRoot, sub);
+    if (!fs.existsSync(p)) {
+      fs.mkdirSync(p, { recursive: true });
+    }
+  }
+}
+
+export function getDatabaseConnections(): DatabaseConnection[] {
+  ensureStorageDirsExist();
+
+  if (fs.existsSync(CONNECTIONS_FILE)) {
+    try {
+      const raw = fs.readFileSync(CONNECTIONS_FILE, "utf8");
+      const list = JSON.parse(raw);
+      if (Array.isArray(list) && list.length > 0) {
+        return list;
+      }
+    } catch (err) {
+      console.error("Failed to parse database-connections.json:", err);
+    }
+  }
+
+  // Fallback / Migration from legacy single database.json
+  if (fs.existsSync(CONFIG_FILE)) {
+    try {
+      const raw = fs.readFileSync(CONFIG_FILE, "utf8");
+      const config = JSON.parse(raw);
+      if (config && config.host && config.database) {
+        const id = config.id || "conn_1";
+        const fp = generateFingerprint(config.host, config.port, config.database, config.user);
+        const legacyConn: DatabaseConnection = {
+          id,
+          name: config.name || "Conexão Principal",
+          type: config.type || "mysql",
+          host: config.host,
+          port: config.port ? Number(config.port) : 3306,
+          database: config.database,
+          user: config.user,
+          encryptedPassword: config.password && config.password.includes(":") ? config.password : (config.password ? encrypt(config.password) : ""),
+          ssl: !!config.ssl,
+          encryptedCertificate: config.certificate ? (config.certificate.includes(":") ? config.certificate : encrypt(config.certificate)) : undefined,
+          createdAt: config.configDate || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          lastTestAt: config.lastTest || new Date().toISOString(),
+          lastTestSuccess: true,
+          active: true,
+          connectionFingerprint: fp
+        };
+
+        const list = [legacyConn];
+        fs.writeFileSync(CONNECTIONS_FILE, JSON.stringify(list, null, 2), "utf8");
+        return list;
+      }
+    } catch (err) {
+      console.error("Failed to migrate legacy database.json:", err);
+    }
+  }
+
+  return [];
+}
+
+export function saveDatabaseConnections(connections: DatabaseConnection[]) {
+  ensureStorageDirsExist();
+  fs.writeFileSync(CONNECTIONS_FILE, JSON.stringify(connections, null, 2), "utf8");
+
+  // Keep active connection synchronized in database.json for legacy compatibility
+  const activeConn = connections.find(c => c.active) || connections[0];
+  if (activeConn) {
+    const legacyPayload = {
+      id: activeConn.id,
+      name: activeConn.name,
+      mode: "remoto",
+      type: activeConn.type,
+      host: activeConn.host,
+      port: activeConn.port,
+      database: activeConn.database,
+      user: activeConn.user,
+      password: activeConn.encryptedPassword,
+      ssl: activeConn.ssl,
+      certificate: activeConn.encryptedCertificate ? decrypt(activeConn.encryptedCertificate) : undefined,
+      configDate: activeConn.createdAt,
+      lastTest: activeConn.lastTestAt,
+      dbVersion: "1.0.0",
+      connectionFingerprint: activeConn.connectionFingerprint
+    };
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(legacyPayload, null, 2), "utf8");
+  }
+}
+
+export function sanitizeConnection(conn: DatabaseConnection) {
+  return {
+    id: conn.id,
+    name: conn.name,
+    type: conn.type,
+    host: conn.host,
+    port: conn.port,
+    database: conn.database,
+    user: conn.user,
+    ssl: conn.ssl,
+    createdAt: conn.createdAt,
+    updatedAt: conn.updatedAt,
+    lastTestAt: conn.lastTestAt,
+    lastTestSuccess: conn.lastTestSuccess,
+    serverHostname: conn.serverHostname,
+    serverVersion: conn.serverVersion,
+    authenticatedUser: conn.authenticatedUser,
+    connectionFingerprint: conn.connectionFingerprint,
+    active: conn.active,
+    hasPassword: !!conn.encryptedPassword,
+    hasCertificate: !!conn.encryptedCertificate
+  };
+}
+
+export function getActiveConnection(): DatabaseConnection | null {
+  const connections = getDatabaseConnections();
+  if (connections.length === 0) return null;
+  return connections.find(c => c.active) || connections[0];
+}
+
+export function getConnectionById(id: string): DatabaseConnection | null {
+  const connections = getDatabaseConnections();
+  return connections.find(c => c.id === id) || null;
 }
 
 export interface DatabaseDriver {
@@ -138,48 +308,97 @@ export function getDbDriver(): DatabaseDriver {
 }
 
 export function isDatabaseConfigured(): boolean {
-  return fs.existsSync(CONFIG_FILE);
+  const conn = getActiveConnection();
+  return !!conn;
 }
 
 export function getDatabaseConfig(): DatabaseConfig | null {
-  if (!isDatabaseConfigured()) {
+  const conn = getActiveConnection();
+  if (!conn) {
     return null;
   }
-  try {
-    const raw = fs.readFileSync(CONFIG_FILE, "utf8");
-    const parsed = JSON.parse(raw);
-    return parsed;
-  } catch (err) {
-    console.error("Failed to read database config:", err);
-    return null;
-  }
+  return {
+    id: conn.id,
+    name: conn.name,
+    mode: "remoto",
+    type: conn.type,
+    host: conn.host,
+    port: conn.port,
+    database: conn.database,
+    user: conn.user,
+    password: conn.encryptedPassword,
+    ssl: conn.ssl,
+    certificate: conn.encryptedCertificate ? decrypt(conn.encryptedCertificate) : undefined,
+    configDate: conn.createdAt,
+    lastTest: conn.lastTestAt,
+    dbVersion: "1.0.0",
+    connectionFingerprint: conn.connectionFingerprint
+  };
 }
 
 export function saveDatabaseConfig(config: DatabaseConfig) {
-  const dir = path.dirname(CONFIG_FILE);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  const connections = getDatabaseConnections();
+  const encryptedPassword = config.password
+    ? (config.password.includes(":") ? config.password : encrypt(config.password))
+    : "";
+  const encryptedCertificate = config.certificate
+    ? (config.certificate.includes(":") ? config.certificate : encrypt(config.certificate))
+    : undefined;
+
+  const fp = generateFingerprint(config.host, config.port, config.database, config.user);
+
+  let activeIndex = connections.findIndex(c => c.active);
+  if (activeIndex === -1 && connections.length > 0) activeIndex = 0;
+
+  if (activeIndex !== -1) {
+    connections[activeIndex] = {
+      ...connections[activeIndex],
+      name: config.name || connections[activeIndex].name || "Conexão Principal",
+      type: config.type || "mysql",
+      host: config.host,
+      port: Number(config.port),
+      database: config.database,
+      user: config.user,
+      encryptedPassword: encryptedPassword || connections[activeIndex].encryptedPassword,
+      ssl: !!config.ssl,
+      encryptedCertificate: encryptedCertificate || connections[activeIndex].encryptedCertificate,
+      updatedAt: new Date().toISOString(),
+      lastTestAt: new Date().toISOString(),
+      lastTestSuccess: true,
+      connectionFingerprint: fp,
+      active: true
+    };
+  } else {
+    const newConn: DatabaseConnection = {
+      id: config.id || "conn_1",
+      name: config.name || "Conexão Principal",
+      type: config.type || "mysql",
+      host: config.host,
+      port: Number(config.port),
+      database: config.database,
+      user: config.user,
+      encryptedPassword,
+      ssl: !!config.ssl,
+      encryptedCertificate,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      lastTestAt: new Date().toISOString(),
+      lastTestSuccess: true,
+      connectionFingerprint: fp,
+      active: true
+    };
+    connections.push(newConn);
   }
 
-  // Encrypt password if present in plain text
-  const payload = { ...config };
-  if (payload.password && !payload.password.includes(":")) {
-    payload.password = encrypt(payload.password);
-  }
+  saveDatabaseConnections(connections);
 
-  payload.configDate = new Date().toISOString();
-  payload.lastTest = new Date().toISOString();
-  payload.dbVersion = "1.0.0";
-
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(payload, null, 2), "utf8");
-
-  // Reset current pool/db so next query recreates it
   if (pool) {
     pool.end().catch(console.error);
     pool = null;
   }
   currentConfig = null;
 }
+
 
 export async function testConnection(config: DatabaseConfig): Promise<{ success: boolean; message: string }> {
   const type = config.type || "mysql";
@@ -1340,4 +1559,729 @@ export async function generateDatabaseBackup(customBackupDir?: string): Promise<
     connection.release();
   }
 }
+
+export async function addDatabaseConnection(data: {
+  name: string;
+  type?: "mysql" | "mariadb";
+  host: string;
+  port: number | string;
+  database: string;
+  user: string;
+  password?: string;
+  ssl?: boolean;
+  certificate?: string;
+}): Promise<DatabaseConnection> {
+  const connections = getDatabaseConnections();
+
+  const id = "conn_" + Date.now();
+  const encryptedPassword = data.password ? encrypt(data.password) : "";
+  const encryptedCertificate = data.certificate ? encrypt(data.certificate) : undefined;
+  const fp = generateFingerprint(data.host, data.port, data.database, data.user);
+
+  const newConn: DatabaseConnection = {
+    id,
+    name: data.name || `Conexão (${data.host})`,
+    type: data.type || "mysql",
+    host: data.host,
+    port: Number(data.port) || 3306,
+    database: data.database,
+    user: data.user,
+    encryptedPassword,
+    ssl: !!data.ssl,
+    encryptedCertificate,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    connectionFingerprint: fp,
+    active: connections.length === 0
+  };
+
+  // Test connection
+  const driver = new MySqlDriver({
+    mode: "remoto",
+    type: newConn.type,
+    host: newConn.host,
+    port: newConn.port,
+    database: newConn.database,
+    user: newConn.user,
+    password: data.password || "",
+    ssl: newConn.ssl,
+    certificate: data.certificate
+  });
+
+  const testRes = await driver.testConnection();
+  newConn.lastTestAt = new Date().toISOString();
+  newConn.lastTestSuccess = testRes.success;
+
+  connections.push(newConn);
+  saveDatabaseConnections(connections);
+  return newConn;
+}
+
+export async function updateDatabaseConnection(
+  id: string,
+  data: {
+    name?: string;
+    type?: "mysql" | "mariadb";
+    host?: string;
+    port?: number | string;
+    database?: string;
+    user?: string;
+    password?: string;
+    ssl?: boolean;
+    certificate?: string;
+  }
+): Promise<DatabaseConnection> {
+  const connections = getDatabaseConnections();
+  const index = connections.findIndex(c => c.id === id);
+  if (index === -1) {
+    throw new Error(`Conexão com ID '${id}' não encontrada.`);
+  }
+
+  const existing = connections[index];
+  const newPassword = data.password && data.password.trim() !== ""
+    ? encrypt(data.password)
+    : existing.encryptedPassword;
+
+  const newCertificate = data.certificate !== undefined
+    ? (data.certificate ? encrypt(data.certificate) : undefined)
+    : existing.encryptedCertificate;
+
+  const updated: DatabaseConnection = {
+    ...existing,
+    name: data.name ?? existing.name,
+    type: data.type ?? existing.type,
+    host: data.host ?? existing.host,
+    port: data.port ? Number(data.port) : existing.port,
+    database: data.database ?? existing.database,
+    user: data.user ?? existing.user,
+    encryptedPassword: newPassword,
+    ssl: data.ssl !== undefined ? !!data.ssl : existing.ssl,
+    encryptedCertificate: newCertificate,
+    updatedAt: new Date().toISOString()
+  };
+
+  updated.connectionFingerprint = generateFingerprint(updated.host, updated.port, updated.database, updated.user);
+
+  // Test connection
+  const plainPassword = data.password && data.password.trim() !== ""
+    ? data.password
+    : (existing.encryptedPassword ? decrypt(existing.encryptedPassword) : "");
+  
+  const plainCert = newCertificate ? decrypt(newCertificate) : undefined;
+
+  const driver = new MySqlDriver({
+    mode: "remoto",
+    type: updated.type,
+    host: updated.host,
+    port: updated.port,
+    database: updated.database,
+    user: updated.user,
+    password: plainPassword,
+    ssl: updated.ssl,
+    certificate: plainCert
+  });
+
+  const testRes = await driver.testConnection();
+  updated.lastTestAt = new Date().toISOString();
+  updated.lastTestSuccess = testRes.success;
+
+  connections[index] = updated;
+  saveDatabaseConnections(connections);
+
+  if (updated.active) {
+    if (pool) {
+      await pool.end().catch(console.error);
+      pool = null;
+    }
+  }
+
+  return updated;
+}
+
+export function deleteDatabaseConnection(id: string): { success: boolean; message: string } {
+  const connections = getDatabaseConnections();
+  const target = connections.find(c => c.id === id);
+  if (!target) {
+    throw new Error(`Conexão com ID '${id}' não encontrada.`);
+  }
+
+  if (target.active) {
+    throw new Error("Não é possível remover a conexão ativa. Ative outra conexão antes de remover esta.");
+  }
+
+  if (connections.length <= 1) {
+    throw new Error("Não é possível remover a única conexão cadastrada.");
+  }
+
+  const updatedList = connections.filter(c => c.id !== id);
+  saveDatabaseConnections(updatedList);
+  return { success: true, message: `Cadastro da conexão '${target.name}' removido com sucesso.` };
+}
+
+export async function setActiveConnection(id: string): Promise<{ success: boolean; message: string; connection: any }> {
+  const connections = getDatabaseConnections();
+  const target = connections.find(c => c.id === id);
+  if (!target) {
+    throw new Error(`Conexão com ID '${id}' não encontrada.`);
+  }
+
+  if (target.active && pool) {
+    return { success: true, message: `Conexão '${target.name}' já é a conexão ativa.`, connection: sanitizeConnection(target) };
+  }
+
+  // 1. Test target connection with temporary pool
+  const plainPassword = target.encryptedPassword ? decrypt(target.encryptedPassword) : "";
+  const plainCert = target.encryptedCertificate ? decrypt(target.encryptedCertificate) : undefined;
+
+  let tempPool: mysql.Pool | null = null;
+  let identity: any = null;
+
+  try {
+    tempPool = mysql.createPool({
+      host: target.host,
+      port: target.port,
+      user: target.user,
+      password: plainPassword,
+      database: target.database,
+      ssl: target.ssl ? (plainCert ? { ca: plainCert } : { rejectUnauthorized: false }) : undefined,
+      connectTimeout: 8000
+    });
+
+    const [rows] = await tempPool.query(`
+      SELECT 
+        DATABASE() AS database_name,
+        @@hostname AS server_hostname,
+        @@port AS server_port,
+        @@version AS server_version,
+        @@version_comment AS server_type,
+        CURRENT_USER() AS authenticated_user,
+        CONNECTION_ID() AS connection_id
+    `);
+
+    identity = (rows as any[])[0];
+  } catch (testErr: any) {
+    if (tempPool) await tempPool.end().catch(console.error);
+    throw new Error(`Falha ao testar conexão '${target.name}': ${testErr.message || "Não foi possível conectar ao servidor MySQL."}`);
+  } finally {
+    if (tempPool) await tempPool.end().catch(console.error);
+  }
+
+  const previousActiveId = connections.find(c => c.active)?.id;
+
+  try {
+    // 2. Close existing pool
+    await closePool();
+
+    // 3. Mark target connection as active
+    const newConnections = connections.map(c => ({
+      ...c,
+      active: c.id === id,
+      serverHostname: c.id === id ? identity?.server_hostname : c.serverHostname,
+      serverVersion: c.id === id ? identity?.server_version : c.serverVersion,
+      authenticatedUser: c.id === id ? identity?.authenticated_user : c.authenticatedUser,
+      lastTestAt: c.id === id ? new Date().toISOString() : c.lastTestAt,
+      lastTestSuccess: c.id === id ? true : c.lastTestSuccess
+    }));
+
+    saveDatabaseConnections(newConnections);
+
+    // 4. Initialize official pool
+    const newPool = await getPool();
+    const conn = await newPool.getConnection();
+    const [confirmRows] = await conn.query("SELECT DATABASE() AS db");
+    conn.release();
+
+    const activeDbName = (confirmRows as any[])[0]?.db;
+    const activatedConnection = newConnections.find(c => c.id === id)!;
+
+    return {
+      success: true,
+      message: `Conexão '${activatedConnection.name}' (Banco: ${activeDbName}) ativada com sucesso!`,
+      connection: sanitizeConnection(activatedConnection)
+    };
+  } catch (err: any) {
+    console.error("Failed to activate connection, performing rollback:", err);
+    if (previousActiveId) {
+      const rollbackConns = connections.map(c => ({
+        ...c,
+        active: c.id === previousActiveId
+      }));
+      saveDatabaseConnections(rollbackConns);
+      await getPool().catch(console.error);
+    }
+    throw new Error(`Erro ao ativar a conexão: ${err.message}. A conexão anterior foi restaurada.`);
+  }
+}
+
+export async function getDatabaseDiagnosticInfo(): Promise<any> {
+  const activeConn = getActiveConnection();
+  if (!activeConn) {
+    return {
+      savedConfig: null,
+      liveConnection: { status: "Desconectado", error: "Nenhuma conexão cadastrada" },
+      recordCounts: {},
+      mismatches: []
+    };
+  }
+
+  const savedConfig = sanitizeConnection(activeConn);
+  let liveConnection: any = null;
+  let recordCounts: any = {};
+  const mismatches: string[] = [];
+
+  try {
+    const activePool = await getPool();
+
+    const [identityRows] = await activePool.query(`
+      SELECT 
+        DATABASE() AS databaseName,
+        @@hostname AS serverHostname,
+        @@port AS serverPort,
+        @@version AS serverVersion,
+        @@version_comment AS serverType,
+        CURRENT_USER() AS authenticatedUser,
+        USER() AS connectionUser,
+        CONNECTION_ID() AS connectionId
+    `);
+
+    const idData = (identityRows as any[])[0] || {};
+
+    let sslActive = false;
+    try {
+      const [sslRows] = await activePool.query("SHOW SESSION STATUS LIKE 'Ssl_cipher'");
+      if (sslRows && (sslRows as any[]).length > 0) {
+        const cipherVal = (sslRows as any[])[0].Value;
+        if (cipherVal && cipherVal.trim() !== "") {
+          sslActive = true;
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    let probableOrigin = "Servidor Remoto";
+    const hostLower = (activeConn.host || "").toLowerCase();
+    if (hostLower === "localhost" || hostLower === "127.0.0.1" || hostLower === "::1") {
+      probableOrigin = "Servidor Local (Loopback)";
+    } else if (hostLower.startsWith("192.168.") || hostLower.startsWith("10.") || hostLower.startsWith("172.")) {
+      probableOrigin = "Rede Local (LAN)";
+    }
+
+    const liveFp = generateFingerprint(
+      activeConn.host,
+      activeConn.port,
+      idData.databaseName || activeConn.database,
+      activeConn.user,
+      idData.serverHostname
+    );
+
+    liveConnection = {
+      status: "Conectado",
+      databaseName: idData.databaseName,
+      serverHostname: idData.serverHostname,
+      serverPort: idData.serverPort,
+      serverVersion: idData.serverVersion,
+      serverType: idData.serverType,
+      authenticatedUser: idData.authenticatedUser,
+      connectionUser: idData.connectionUser,
+      connectionId: idData.connectionId,
+      sslActive,
+      probableOrigin,
+      connectionHash: liveFp,
+      lastCheckedAt: new Date().toLocaleString("pt-BR")
+    };
+
+    if (idData.databaseName && idData.databaseName.toLowerCase() !== activeConn.database.toLowerCase()) {
+      mismatches.push(`O banco selecionado no servidor (${idData.databaseName}) é diferente do banco cadastrado na configuração (${activeConn.database}).`);
+    }
+
+    try {
+      const [[{ cnt: adminCount }]] = await activePool.query("SELECT COUNT(*) AS cnt FROM admins");
+      const [[{ cnt: clientCount }]] = await activePool.query("SELECT COUNT(*) AS cnt FROM clients");
+      const [[{ cnt: equipCount }]] = await activePool.query("SELECT COUNT(*) AS cnt FROM equipment");
+      const [[{ cnt: soCount }]] = await activePool.query("SELECT COUNT(*) AS cnt FROM service_orders");
+      const [[{ cnt: paymentCount }]] = await activePool.query("SELECT COUNT(*) AS cnt FROM payment_guides");
+      const [[{ cnt: warrantyCount }]] = await activePool.query("SELECT COUNT(*) AS cnt FROM warranties");
+
+      let latestClientAt = null;
+      let latestServiceOrderAt = null;
+
+      const [latestClientRows] = await activePool.query("SELECT created_at FROM clients ORDER BY id DESC LIMIT 1");
+      if (latestClientRows && (latestClientRows as any[]).length > 0) {
+        latestClientAt = (latestClientRows as any[])[0].created_at;
+      }
+
+      const [latestSoRows] = await activePool.query("SELECT created_at FROM service_orders ORDER BY id DESC LIMIT 1");
+      if (latestSoRows && (latestSoRows as any[]).length > 0) {
+        latestServiceOrderAt = (latestSoRows as any[])[0].created_at;
+      }
+
+      recordCounts = {
+        admins: adminCount,
+        clients: clientCount,
+        equipment: equipCount,
+        serviceOrders: soCount,
+        payments: paymentCount,
+        warranties: warrantyCount,
+        latestClientAt,
+        latestServiceOrderAt
+      };
+    } catch (cntErr: any) {
+      console.warn("Could not query record counts:", cntErr.message);
+    }
+
+  } catch (err: any) {
+    liveConnection = {
+      status: "Erro na Conexão",
+      error: err.message || "Não foi possível comunicar com o servidor de banco de dados",
+      lastCheckedAt: new Date().toLocaleString("pt-BR")
+    };
+  }
+
+  return {
+    savedConfig,
+    liveConnection,
+    recordCounts,
+    mismatches,
+    connectionFingerprint: liveConnection?.connectionHash || savedConfig?.connectionFingerprint
+  };
+}
+
+export async function exportFullDatabaseBackupForConnection(
+  connectionId: string
+): Promise<{
+  success: boolean;
+  filename: string;
+  filePath: string;
+  fileSize: number;
+  tableCount: number;
+  connectionName: string;
+}> {
+  const conn = getConnectionById(connectionId);
+  if (!conn) {
+    throw new Error(`Conexão com ID '${connectionId}' não encontrada.`);
+  }
+
+  const plainPassword = conn.encryptedPassword ? decrypt(conn.encryptedPassword) : "";
+  const plainCert = conn.encryptedCertificate ? decrypt(conn.encryptedCertificate) : undefined;
+
+  let tempPool: mysql.Pool | null = null;
+
+  try {
+    tempPool = mysql.createPool({
+      host: conn.host,
+      port: conn.port,
+      user: conn.user,
+      password: plainPassword,
+      database: conn.database,
+      ssl: conn.ssl ? (plainCert ? { ca: plainCert } : { rejectUnauthorized: false }) : undefined,
+      connectTimeout: 10000
+    });
+
+    const connection = await tempPool.getConnection();
+
+    try {
+      const [tablesRows] = await connection.query(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema = ? AND table_type = 'BASE TABLE'",
+        [conn.database]
+      );
+      const tables = (tablesRows as any[]).map((r) => r.TABLE_NAME || r.table_name || Object.values(r)[0]);
+
+      const backupDir = path.join(process.cwd(), "storage", "backups");
+      if (!fs.existsSync(backupDir)) {
+        fs.mkdirSync(backupDir, { recursive: true });
+      }
+
+      const safeName = conn.name.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-");
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "-").slice(0, 19);
+      const filename = `pksig-banco-${safeName}-${timestamp}.sql`;
+      const filePath = path.join(backupDir, filename);
+
+      let sqlContent = `-- ==========================================\n`;
+      sqlContent += `-- PKSIG BACKUP COMPLETO DE BANCO DE DADOS\n`;
+      sqlContent += `-- Conexão: ${conn.name} (${conn.id})\n`;
+      sqlContent += `-- Host: ${conn.host}:${conn.port}\n`;
+      sqlContent += `-- Banco de Dados: ${conn.database}\n`;
+      sqlContent += `-- Fingerprint: ${conn.connectionFingerprint || generateFingerprint(conn.host, conn.port, conn.database, conn.user)}\n`;
+      sqlContent += `-- Gerado em: ${new Date().toLocaleString("pt-BR")}\n`;
+      sqlContent += `-- ==========================================\n\n`;
+      sqlContent += `SET FOREIGN_KEY_CHECKS = 0;\n\n`;
+
+      for (const table of tables) {
+        const escapedTable = "`" + table.replace(/`/g, "``") + "`";
+        sqlContent += `-- Structure and Data for ${escapedTable}\n`;
+        sqlContent += `DROP TABLE IF EXISTS ${escapedTable};\n`;
+
+        const [createRows] = await connection.query(`SHOW CREATE TABLE ${escapedTable}`);
+        const createStmt = (createRows as any[])[0]?.["Create Table"] || (createRows as any[])[0]?.["create table"];
+        if (createStmt) {
+          sqlContent += `${createStmt};\n\n`;
+        }
+
+        const [rows] = await connection.query(`SELECT * FROM ${escapedTable}`);
+        const dataRows = rows as any[];
+        if (dataRows.length > 0) {
+          const columns = Object.keys(dataRows[0]).map((col) => "`" + col.replace(/`/g, "``") + "`").join(", ");
+          
+          for (const row of dataRows) {
+            const values = Object.values(row).map((val) => {
+              if (val === null || val === undefined) return "NULL";
+              if (typeof val === "number") return String(val);
+              if (typeof val === "boolean") return val ? "1" : "0";
+              if (val instanceof Date) {
+                return `'${val.toISOString().slice(0, 19).replace("T", " ")}'`;
+              }
+              if (Buffer.isBuffer(val)) {
+                return `X'${val.toString("hex")}'`;
+              }
+              const escapedStr = String(val)
+                .replace(/\\/g, "\\\\")
+                .replace(/'/g, "\\'")
+                .replace(/\n/g, "\\n")
+                .replace(/\r/g, "\\r");
+              return `'${escapedStr}'`;
+            }).join(", ");
+
+            sqlContent += `INSERT INTO ${escapedTable} (${columns}) VALUES (${values});\n`;
+          }
+          sqlContent += `\n`;
+        }
+      }
+
+      sqlContent += `SET FOREIGN_KEY_CHECKS = 1;\n`;
+
+      fs.writeFileSync(filePath, sqlContent, "utf8");
+      const stats = fs.statSync(filePath);
+
+      return {
+        success: true,
+        filename,
+        filePath,
+        fileSize: stats.size,
+        tableCount: tables.length,
+        connectionName: conn.name
+      };
+    } finally {
+      connection.release();
+    }
+  } finally {
+    if (tempPool) await tempPool.end().catch(console.error);
+  }
+}
+
+export async function transferDataBetweenConnections(params: {
+  originConnectionId: string;
+  targetConnectionId: string;
+  transferMode: "copy_empty" | "merge";
+  confirmationText: string;
+}): Promise<{
+  success: boolean;
+  message: string;
+  report: {
+    originConnectionName: string;
+    targetConnectionName: string;
+    backupFilename: string;
+    transferredTables: string[];
+    recordCountsBefore: any;
+    recordCountsAfter: any;
+  };
+}> {
+  const { originConnectionId, targetConnectionId, transferMode, confirmationText } = params;
+
+  if (confirmationText !== "COPIAR DADOS") {
+    throw new Error("Texto de confirmação incorreto. Você deve digitar 'COPIAR DADOS'.");
+  }
+
+  if (originConnectionId === targetConnectionId) {
+    throw new Error("A conexão de origem e de destino devem ser diferentes.");
+  }
+
+  if (transferMode === "merge") {
+    throw new Error("Modo 'Mesclar dados' está em desenvolvimento. Utilize a opção 'Copiar para banco vazio'.");
+  }
+
+  const originConn = getConnectionById(originConnectionId);
+  const targetConn = getConnectionById(targetConnectionId);
+
+  if (!originConn || !targetConn) {
+    throw new Error("Conexão de origem ou destino não encontrada.");
+  }
+
+  const originFp = originConn.connectionFingerprint || generateFingerprint(originConn.host, originConn.port, originConn.database, originConn.user);
+  const targetFp = targetConn.connectionFingerprint || generateFingerprint(targetConn.host, targetConn.port, targetConn.database, targetConn.user);
+
+  if (originFp === targetFp) {
+    throw new Error("A conexão de origem e a conexão de destino possuem o mesmo fingerprint e referem-se ao mesmo banco de dados.");
+  }
+
+  const backupRes = await exportFullDatabaseBackupForConnection(targetConnectionId);
+
+  const plainOriginPass = originConn.encryptedPassword ? decrypt(originConn.encryptedPassword) : "";
+  const plainOriginCert = originConn.encryptedCertificate ? decrypt(originConn.encryptedCertificate) : undefined;
+
+  const plainTargetPass = targetConn.encryptedPassword ? decrypt(targetConn.encryptedPassword) : "";
+  const plainTargetCert = targetConn.encryptedCertificate ? decrypt(targetConn.encryptedCertificate) : undefined;
+
+  const originPool = mysql.createPool({
+    host: originConn.host,
+    port: originConn.port,
+    user: originConn.user,
+    password: plainOriginPass,
+    database: originConn.database,
+    ssl: originConn.ssl ? (plainOriginCert ? { ca: plainOriginCert } : { rejectUnauthorized: false }) : undefined,
+    connectTimeout: 10000
+  });
+
+  const targetPool = mysql.createPool({
+    host: targetConn.host,
+    port: targetConn.port,
+    user: targetConn.user,
+    password: plainTargetPass,
+    database: targetConn.database,
+    ssl: targetConn.ssl ? (plainTargetCert ? { ca: plainTargetCert } : { rejectUnauthorized: false }) : undefined,
+    connectTimeout: 10000
+  });
+
+  const tablesInOrder = [
+    "schema_migrations",
+    "company_settings",
+    "system_settings",
+    "equipment_categories",
+    "reception_accessories",
+    "service_order_statuses",
+    "payment_methods",
+    "financial_categories",
+    "sequences",
+    "admins",
+    "clients",
+    "equipment",
+    "service_orders",
+    "budgets",
+    "budget_items",
+    "payment_guides",
+    "financial_records",
+    "warranty_rules",
+    "warranties",
+    "attachments",
+    "service_order_document_snapshots",
+    "idempotency_keys",
+    "admin_audit_logs",
+    "app_meta"
+  ];
+
+  const transferredTables: string[] = [];
+  let recordCountsBefore: any = {};
+  let recordCountsAfter: any = {};
+
+  try {
+    const originClient = await originPool.getConnection();
+    const targetClient = await targetPool.getConnection();
+
+    try {
+      const [resClients] = await originClient.query("SELECT COUNT(*) AS cnt FROM clients").catch(() => [[{ cnt: 0 }]]);
+      const origClients = (resClients as any[])?.[0]?.cnt || 0;
+
+      const [resEq] = await originClient.query("SELECT COUNT(*) AS cnt FROM equipment").catch(() => [[{ cnt: 0 }]]);
+      const origEq = (resEq as any[])?.[0]?.cnt || 0;
+
+      const [resSO] = await originClient.query("SELECT COUNT(*) AS cnt FROM service_orders").catch(() => [[{ cnt: 0 }]]);
+      const origSO = (resSO as any[])?.[0]?.cnt || 0;
+
+      recordCountsBefore = { clients: origClients, equipment: origEq, serviceOrders: origSO };
+
+      await targetClient.query("SET FOREIGN_KEY_CHECKS = 0");
+
+      for (const table of tablesInOrder) {
+        const [origTableCheck] = await originClient.query("SHOW TABLES LIKE ?", [table]);
+        if (!origTableCheck || (origTableCheck as any[]).length === 0) {
+          continue;
+        }
+
+        const [targetTableCheck] = await targetClient.query("SHOW TABLES LIKE ?", [table]);
+        if (!targetTableCheck || (targetTableCheck as any[]).length === 0) {
+          const [createStmtRows] = await originClient.query(`SHOW CREATE TABLE \`${table}\``);
+          const stmt = (createStmtRows as any[])[0]?.["Create Table"] || (createStmtRows as any[])[0]?.["create table"];
+          if (stmt) {
+            await targetClient.query(stmt);
+          }
+        }
+
+        await targetClient.query(`DELETE FROM \`${table}\``);
+
+        const [rows] = await originClient.query(`SELECT * FROM \`${table}\``);
+        const dataRows = rows as any[];
+
+        if (dataRows.length > 0) {
+          const cols = Object.keys(dataRows[0]).map(c => "`" + c.replace(/`/g, "``") + "`").join(", ");
+          for (const row of dataRows) {
+            const placeholders = Object.keys(dataRows[0]).map(() => "?").join(", ");
+            const vals = Object.values(row);
+            await targetClient.query(`INSERT INTO \`${table}\` (${cols}) VALUES (${placeholders})`, vals);
+          }
+        }
+
+        transferredTables.push(table);
+      }
+
+      await targetClient.query("SET FOREIGN_KEY_CHECKS = 1");
+
+      const [resTargClients] = await targetClient.query("SELECT COUNT(*) AS cnt FROM clients").catch(() => [[{ cnt: 0 }]]);
+      const targClients = (resTargClients as any[])?.[0]?.cnt || 0;
+
+      const [resTargEq] = await targetClient.query("SELECT COUNT(*) AS cnt FROM equipment").catch(() => [[{ cnt: 0 }]]);
+      const targEq = (resTargEq as any[])?.[0]?.cnt || 0;
+
+      const [resTargSO] = await targetClient.query("SELECT COUNT(*) AS cnt FROM service_orders").catch(() => [[{ cnt: 0 }]]);
+      const targSO = (resTargSO as any[])?.[0]?.cnt || 0;
+
+      recordCountsAfter = { clients: targClients, equipment: targEq, serviceOrders: targSO };
+
+    } finally {
+      originClient.release();
+      targetClient.release();
+    }
+  } finally {
+    await originPool.end().catch(console.error);
+    await targetPool.end().catch(console.error);
+  }
+
+  return {
+    success: true,
+    message: `Dados transferidos com sucesso da conexão '${originConn.name}' para '${targetConn.name}'.`,
+    report: {
+      originConnectionName: originConn.name,
+      targetConnectionName: targetConn.name,
+      backupFilename: backupRes.filename,
+      transferredTables,
+      recordCountsBefore,
+      recordCountsAfter
+    }
+  };
+}
+
+export async function exportSystemConfigurationsJson(): Promise<any> {
+  const company = await query("SELECT * FROM company_settings WHERE id = 1").catch(() => []);
+  const system = await query("SELECT * FROM system_settings WHERE id = 1").catch(() => []);
+  const categories = await query("SELECT * FROM equipment_categories").catch(() => []);
+  const accessories = await query("SELECT * FROM reception_accessories").catch(() => []);
+  const statuses = await query("SELECT * FROM service_order_statuses").catch(() => []);
+  const paymentMethods = await query("SELECT * FROM payment_methods").catch(() => []);
+  const financialCategories = await query("SELECT * FROM financial_categories").catch(() => []);
+  const warrantyRules = await query("SELECT * FROM warranty_rules").catch(() => []);
+
+  return {
+    exportType: "system_configurations_only",
+    exportedAt: new Date().toISOString(),
+    notice: "Esta exportação inclui apenas parâmetros de configuração do sistema (empresa, categorias, formas de pagamento, regras de garantia). NÃO inclui clientes, equipamentos, ordens de serviço, pagamentos, garantias emitidas, auditoria ou anexos.",
+    companySettings: company[0] || null,
+    systemSettings: system[0] || null,
+    equipmentCategories: categories,
+    receptionAccessories: accessories,
+    serviceOrderStatuses: statuses,
+    paymentMethods: paymentMethods,
+    financialCategories: financialCategories,
+    warrantyRules: warrantyRules
+  };
+}
+
 

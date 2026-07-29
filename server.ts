@@ -24,7 +24,19 @@ import {
   closePool,
   recreateDatabaseFromZeroInternal,
   normalizeBudgetItemType,
-  generateDatabaseBackup
+  generateDatabaseBackup,
+  getDatabaseConnections,
+  addDatabaseConnection,
+  updateDatabaseConnection,
+  deleteDatabaseConnection,
+  setActiveConnection,
+  getActiveConnection,
+  getConnectionById,
+  sanitizeConnection,
+  getDatabaseDiagnosticInfo,
+  exportFullDatabaseBackupForConnection,
+  transferDataBetweenConnections,
+  exportSystemConfigurationsJson
 } from "./src/lib/database.js";
 import { 
   createSession, 
@@ -976,6 +988,235 @@ app.post("/api/database/config", requireAuth, async (req: any, res: any) => {
   } catch (err: any) {
     console.error("Failed to save database config:", err);
     return res.status(500).json({ error: err.message || "Erro ao salvar configurações do banco de dados" });
+  }
+});
+
+// ==========================================
+// MULTI-CONNECTION & DIAGNOSTIC ENDPOINTS
+// ==========================================
+
+// Get list of registered database connections
+app.get("/api/database/connections", requireAuth, (req: any, res: any) => {
+  try {
+    const list = getDatabaseConnections();
+    const sanitized = list.map(sanitizeConnection);
+    return res.json({ success: true, connections: sanitized });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || "Erro ao obter lista de conexões" });
+  }
+});
+
+// Register new database connection
+app.post("/api/database/connections", requireAuth, async (req: any, res: any) => {
+  const { name, type, host, port, database, user, password, ssl, certificate } = req.body;
+  if (!host || !port || !database || !user) {
+    return res.status(400).json({ error: "Campos obrigatórios ausentes (host, port, database, user)" });
+  }
+
+  try {
+    const newConn = await addDatabaseConnection({
+      name,
+      type,
+      host,
+      port,
+      database,
+      user,
+      password,
+      ssl,
+      certificate
+    });
+
+    const adminId = req.session?.adminId || req.session?.id || null;
+    await logAdminAction({
+      adminId,
+      action: "CREATE_DATABASE_CONNECTION",
+      entityType: "database_connection",
+      entityId: newConn.id,
+      description: `Nova conexão de banco cadastrada: '${newConn.name}' (${newConn.host}:${newConn.port}/${newConn.database})`,
+      metadata: { connectionId: newConn.id, name: newConn.name, host: newConn.host },
+      ipAddress: req.ip || "127.0.0.1",
+      userAgent: req.headers["user-agent"]
+    }).catch(console.warn);
+
+    return res.json({ success: true, message: `Conexão '${newConn.name}' cadastrada com sucesso!`, connection: sanitizeConnection(newConn) });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || "Erro ao cadastrar conexão" });
+  }
+});
+
+// Update database connection parameters
+app.put("/api/database/connections/:id", requireAuth, async (req: any, res: any) => {
+  const { id } = req.params;
+  const { name, type, host, port, database, user, password, ssl, certificate } = req.body;
+
+  try {
+    const updated = await updateDatabaseConnection(id, {
+      name,
+      type,
+      host,
+      port,
+      database,
+      user,
+      password,
+      ssl,
+      certificate
+    });
+
+    const adminId = req.session?.adminId || req.session?.id || null;
+    await logAdminAction({
+      adminId,
+      action: "UPDATE_DATABASE_CONNECTION",
+      entityType: "database_connection",
+      entityId: updated.id,
+      description: `Conexão de banco de dados '${updated.name}' atualizada.`,
+      metadata: { connectionId: updated.id, name: updated.name, host: updated.host },
+      ipAddress: req.ip || "127.0.0.1",
+      userAgent: req.headers["user-agent"]
+    }).catch(console.warn);
+
+    return res.json({ success: true, message: `Conexão '${updated.name}' atualizada com sucesso!`, connection: sanitizeConnection(updated) });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || "Erro ao atualizar conexão" });
+  }
+});
+
+// Delete database connection registration
+app.delete("/api/database/connections/:id", requireAuth, (req: any, res: any) => {
+  const { id } = req.params;
+
+  try {
+    const resDel = deleteDatabaseConnection(id);
+
+    const adminId = req.session?.adminId || req.session?.id || null;
+    logAdminAction({
+      adminId,
+      action: "DELETE_DATABASE_CONNECTION",
+      entityType: "database_connection",
+      entityId: id,
+      description: `Cadastro de conexão de banco de dados removido: ID ${id}`,
+      metadata: { connectionId: id },
+      ipAddress: req.ip || "127.0.0.1",
+      userAgent: req.headers["user-agent"]
+    }).catch(console.warn);
+
+    return res.json(resDel);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || "Erro ao remover conexão" });
+  }
+});
+
+// Activate a database connection
+app.post("/api/database/connections/:id/activate", requireAuth, async (req: any, res: any) => {
+  const { id } = req.params;
+
+  try {
+    const result = await setActiveConnection(id);
+
+    const adminId = req.session?.adminId || req.session?.id || null;
+    await logAdminAction({
+      adminId,
+      action: "ACTIVATE_DATABASE_CONNECTION",
+      entityType: "database_connection",
+      entityId: id,
+      description: `Conexão de banco ativada: ID ${id} (${result.connection?.name || id})`,
+      metadata: { connectionId: id, activeConnection: result.connection },
+      ipAddress: req.ip || "127.0.0.1",
+      userAgent: req.headers["user-agent"]
+    }).catch(console.warn);
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || "Falha ao ativar a conexão selecionada" });
+  }
+});
+
+// Export full backup for specific connection
+app.post("/api/database/connections/:id/backup", requireAuth, async (req: any, res: any) => {
+  const { id } = req.params;
+
+  try {
+    const backupRes = await exportFullDatabaseBackupForConnection(id);
+
+    const adminId = req.session?.adminId || req.session?.id || null;
+    await logAdminAction({
+      adminId,
+      action: "EXPORT_DATABASE_BACKUP",
+      entityType: "database_connection",
+      entityId: id,
+      description: `Backup completo exportado para a conexão '${backupRes.connectionName}': ${backupRes.filename} (${backupRes.fileSize} bytes)`,
+      metadata: { backupRes },
+      ipAddress: req.ip || "127.0.0.1",
+      userAgent: req.headers["user-agent"]
+    }).catch(console.warn);
+
+    return res.json(backupRes);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || "Falha ao gerar backup para a conexão" });
+  }
+});
+
+// Transfer data between connections
+app.post("/api/database/transfer", requireAuth, async (req: any, res: any) => {
+  const { originConnectionId, targetConnectionId, transferMode, confirmationText, adminPassword } = req.body;
+
+  try {
+    // Verify admin password before destructive operations
+    if (!adminPassword) {
+      return res.status(400).json({ error: "Sua senha de administrador é obrigatória para autorizar a cópia entre bancos de dados." });
+    }
+
+    const currentAdminId = req.session?.adminId || req.session?.id;
+    const adminRows = await query("SELECT password_hash FROM admins WHERE id = ?", [currentAdminId]);
+    if (!adminRows || adminRows.length === 0) {
+      return res.status(403).json({ error: "Administrador não encontrado." });
+    }
+
+    const validPass = bcrypt.compareSync(adminPassword, adminRows[0].password_hash);
+    if (!validPass) {
+      return res.status(403).json({ error: "Senha de administrador incorreta. A transferência foi cancelada." });
+    }
+
+    const transferRes = await transferDataBetweenConnections({
+      originConnectionId,
+      targetConnectionId,
+      transferMode: transferMode || "copy_empty",
+      confirmationText
+    });
+
+    await logAdminAction({
+      adminId: currentAdminId,
+      action: "TRANSFER_DATABASE_DATA",
+      entityType: "database_transfer",
+      entityId: `${originConnectionId}->${targetConnectionId}`,
+      description: `Transferência de dados concluída entre conexões (${transferRes.report.originConnectionName} -> ${transferRes.report.targetConnectionName}). Backup automático gerado: ${transferRes.report.backupFilename}`,
+      metadata: transferRes.report,
+      ipAddress: req.ip || "127.0.0.1",
+      userAgent: req.headers["user-agent"]
+    }).catch(console.warn);
+
+    return res.json(transferRes);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || "Erro ao transferir dados entre conexões" });
+  }
+});
+
+// Diagnostic API Endpoint
+app.get("/api/database/diagnostic", requireAuth, async (req: any, res: any) => {
+  try {
+    const info = await getDatabaseDiagnosticInfo();
+    return res.json(info);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || "Erro ao obter informações de diagnóstico do banco" });
+  }
+});
+
+// Export only system configurations in clean JSON format
+app.get("/api/database/export-config", requireAuth, async (req: any, res: any) => {
+  try {
+    const configJson = await exportSystemConfigurationsJson();
+    return res.json(configJson);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || "Erro ao exportar configurações do sistema" });
   }
 });
 

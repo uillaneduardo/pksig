@@ -7,7 +7,8 @@ import {
   Settings as SettingsIcon, Save, Plus, Check, Trash2, 
   RefreshCw, DollarSign, Laptop, ShieldCheck, Tag, Loader, AlertCircle,
   Building, Edit, Database, Server, ArrowLeftRight, Download, Upload,
-  Smartphone, Shield, Mail, Activity, ShieldAlert, KeyRound, Clock, Hash, Cpu, Wifi, HardDrive
+  Smartphone, Shield, Mail, Activity, ShieldAlert, KeyRound, Clock, Hash, Cpu, Wifi, HardDrive,
+  Copy, ArrowRight, Lock
 } from "lucide-react";
 
 interface SettingsProps {
@@ -295,6 +296,222 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
   const [dbDiagnosticInfo, setDbDiagnosticInfo] = useState<any>(null);
   const [loadingDiagnostic, setLoadingDiagnostic] = useState(false);
 
+  // Multi-connection management states
+  const [connectionsList, setConnectionsList] = useState<any[]>([]);
+  const [loadingConnections, setLoadingConnections] = useState(false);
+  const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
+  const [showConnectionForm, setShowConnectionForm] = useState(false);
+  const [connForm, setConnForm] = useState({
+    name: "",
+    type: "mysql" as "mysql" | "mariadb",
+    host: "",
+    port: "3306",
+    database: "pksig",
+    user: "root",
+    password: "",
+    ssl: false,
+    certificate: ""
+  });
+  const [connFormSuccess, setConnFormSuccess] = useState("");
+  const [connFormError, setConnFormError] = useState("");
+  const [savingConn, setSavingConn] = useState(false);
+
+  // Transfer data states
+  const [transferOriginId, setTransferOriginId] = useState("");
+  const [transferTargetId, setTransferTargetId] = useState("");
+  const [transferConfirmText, setTransferConfirmText] = useState("");
+  const [transferAdminPass, setTransferAdminPass] = useState("");
+  const [transferLoading, setTransferLoading] = useState(false);
+  const [transferSuccess, setTransferSuccess] = useState<any>(null);
+  const [transferError, setTransferError] = useState("");
+
+  const fetchConnectionsList = async () => {
+    setLoadingConnections(true);
+    try {
+      const res = await fetch("/api/database/connections");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.connections) {
+          setConnectionsList(data.connections);
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching database connections:", err);
+    } finally {
+      setLoadingConnections(false);
+    }
+  };
+
+  const handleActivateConn = async (id: string) => {
+    setLoadingDiagnostic(true);
+    try {
+      const res = await fetch(`/api/database/connections/${id}/activate`, { method: "POST" });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        alert(data.message || "Conexão ativada com sucesso!");
+        await fetchConnectionsList();
+        await fetchDiagnosticInfo();
+        if (onDatabaseUpdated) onDatabaseUpdated();
+      } else {
+        alert(data.error || "Falha ao ativar conexão.");
+      }
+    } catch (err: any) {
+      alert("Erro ao se comunicar com o servidor: " + err.message);
+    } finally {
+      setLoadingDiagnostic(false);
+    }
+  };
+
+  const handleBackupConn = async (id: string) => {
+    try {
+      const res = await fetch(`/api/database/connections/${id}/backup`, { method: "POST" });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        alert(`Backup gerado com sucesso! Arquivo: ${data.filename} (${data.tableCount} tabelas).`);
+      } else {
+        alert(data.error || "Erro ao gerar backup da conexão.");
+      }
+    } catch (err: any) {
+      alert("Erro ao se comunicar com o servidor: " + err.message);
+    }
+  };
+
+  const handleSaveConnection = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setConnFormSuccess("");
+    setConnFormError("");
+    setSavingConn(true);
+
+    try {
+      const isEdit = !!editingConnectionId;
+      const url = isEdit ? `/api/database/connections/${editingConnectionId}` : "/api/database/connections";
+      const method = isEdit ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(connForm)
+      });
+
+      const data = await res.json();
+      if (res.ok && (data.success || data.connection)) {
+        setConnFormSuccess(data.message || "Conexão salva com sucesso!");
+        setShowConnectionForm(false);
+        setEditingConnectionId(null);
+        setConnForm({
+          name: "",
+          type: "mysql",
+          host: "",
+          port: "3306",
+          database: "pksig",
+          user: "root",
+          password: "",
+          ssl: false,
+          certificate: ""
+        });
+        await fetchConnectionsList();
+        await fetchDiagnosticInfo();
+      } else {
+        setConnFormError(data.error || "Falha ao salvar a conexão.");
+      }
+    } catch (err: any) {
+      setConnFormError("Erro de conexão ao salvar: " + err.message);
+    } finally {
+      setSavingConn(false);
+    }
+  };
+
+  const handleEditConnClick = (conn: any) => {
+    setEditingConnectionId(conn.id);
+    setConnForm({
+      name: conn.name || "",
+      type: conn.type || "mysql",
+      host: conn.host || "",
+      port: String(conn.port || "3306"),
+      database: conn.database || "pksig",
+      user: conn.user || "root",
+      password: "",
+      ssl: !!conn.ssl,
+      certificate: conn.encryptedCertificate ? "CA_SALVA" : ""
+    });
+    setConnFormSuccess("");
+    setConnFormError("");
+    setShowConnectionForm(true);
+  };
+
+  const handleDeleteConn = async (id: string, name: string) => {
+    if (!confirm(`Deseja realmente remover o cadastro da conexão '${name}'?`)) return;
+
+    try {
+      const res = await fetch(`/api/database/connections/${id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        alert(data.message || "Conexão removida com sucesso!");
+        await fetchConnectionsList();
+      } else {
+        alert(data.error || "Não foi possível remover a conexão.");
+      }
+    } catch (err: any) {
+      alert("Erro ao comunicar com o servidor: " + err.message);
+    }
+  };
+
+  const handleExecuteTransfer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTransferSuccess(null);
+    setTransferError("");
+    setTransferLoading(true);
+
+    try {
+      const res = await fetch("/api/database/transfer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          originConnectionId: transferOriginId,
+          targetConnectionId: transferTargetId,
+          transferMode: "copy_empty",
+          confirmationText: transferConfirmText,
+          adminPassword: transferAdminPass
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTransferSuccess(data.report || data);
+        setTransferConfirmText("");
+        setTransferAdminPass("");
+        await fetchDiagnosticInfo();
+        await fetchConnectionsList();
+        if (onDatabaseUpdated) onDatabaseUpdated();
+      } else {
+        setTransferError(data.error || "Falha ao executar transferência entre conexões.");
+      }
+    } catch (err: any) {
+      setTransferError("Erro ao se comunicar com o servidor: " + err.message);
+    } finally {
+      setTransferLoading(false);
+    }
+  };
+
+  const handleExportSystemConfigOnly = async () => {
+    try {
+      const res = await fetch("/api/database/export-config");
+      if (!res.ok) throw new Error("Erro ao exportar parâmetros");
+      const data = await res.json();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `pksig_parametros_sistema_${new Date().toISOString().split("T")[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert("Erro ao exportar parâmetros do sistema: " + err.message);
+    }
+  };
+
   const fetchDiagnosticInfo = async () => {
     setLoadingDiagnostic(true);
     try {
@@ -574,6 +791,7 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
       fetchDbConfig();
       handleVerifyDbIntegrity();
       fetchDiagnosticInfo();
+      fetchConnectionsList();
     }
     if (activeSection === "financeiro") {
       fetchFinCategories();
@@ -1694,7 +1912,466 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
                 </div>
               </div>
 
-              {/* Diagnóstico de Integridade e Compatibilidade */}
+              {/* PAINEL DE GESTÃO DE MÚLTIPLAS CONEXÕES DE BANCO DE DADOS */}
+              <div className="bg-white border border-gray-200 rounded-md p-5 space-y-4 shadow-sm">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-gray-100 pb-3 gap-2">
+                  <div>
+                    <h4 className="font-bold text-gray-900 text-xs flex items-center">
+                      <Server className="h-4.5 w-4.5 mr-2 text-indigo-600" />
+                      Múltiplas Conexões de Banco de Dados Cadastradas
+                    </h4>
+                    <p className="text-gray-500 text-[11px] mt-0.5">
+                      Gerencie e alterne dinamicamente entre servidores MySQL / MariaDB (Local, Nuvem, Testes). O sistema protege suas credenciais com criptografia AES-256.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingConnectionId(null);
+                      setConnForm({
+                        name: "",
+                        type: "mysql",
+                        host: "",
+                        port: "3306",
+                        database: "pksig",
+                        user: "root",
+                        password: "",
+                        ssl: false,
+                        certificate: ""
+                      });
+                      setConnFormSuccess("");
+                      setConnFormError("");
+                      setShowConnectionForm(!showConnectionForm);
+                    }}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-bold transition flex items-center space-x-1.5 cursor-pointer shrink-0"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    <span>{showConnectionForm ? "Fechar Formulário" : "Cadastrar Nova Conexão"}</span>
+                  </button>
+                </div>
+
+                {/* FORMULÁRIO DE CADASTRO / EDIÇÃO DE CONEXÃO */}
+                {showConnectionForm && (
+                  <form onSubmit={handleSaveConnection} className="bg-gray-50 border border-gray-200 rounded-md p-4 space-y-3">
+                    <h5 className="font-bold text-gray-800 text-xs flex items-center justify-between border-b border-gray-200 pb-2">
+                      <span>{editingConnectionId ? "Editar Conexão de Banco" : "Cadastrar Nova Conexão de Banco"}</span>
+                      <span className="text-[10px] text-gray-400 font-normal">Criptografia AES-256 ativa</span>
+                    </h5>
+
+                    {connFormSuccess && (
+                      <div className="p-2.5 bg-green-50 border border-green-200 text-green-800 text-xs rounded flex items-center space-x-1.5">
+                        <Check className="h-4 w-4 text-green-600 shrink-0" />
+                        <span>{connFormSuccess}</span>
+                      </div>
+                    )}
+
+                    {connFormError && (
+                      <div className="p-2.5 bg-red-50 border border-red-200 text-red-800 text-xs rounded flex items-center space-x-1.5">
+                        <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
+                        <span>{connFormError}</span>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+                      <div>
+                        <label className="block text-gray-700 font-semibold mb-1">Nome de Identificação *</label>
+                        <input
+                          type="text"
+                          required
+                          value={connForm.name}
+                          onChange={(e) => setConnForm({ ...connForm, name: e.target.value })}
+                          placeholder="Ex: Servidor de Produção Nuvem"
+                          className="w-full px-2.5 py-1.5 border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 bg-white font-bold"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-gray-700 font-semibold mb-1">Motor de Banco *</label>
+                        <select
+                          value={connForm.type}
+                          onChange={(e) => setConnForm({ ...connForm, type: e.target.value as any })}
+                          className="w-full px-2.5 py-1.5 border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 bg-white font-semibold"
+                        >
+                          <option value="mysql">MySQL 5.7+ / 8.x</option>
+                          <option value="mariadb">MariaDB 10.x+</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-gray-700 font-semibold mb-1">Host / Endereço IP *</label>
+                        <input
+                          type="text"
+                          required
+                          value={connForm.host}
+                          onChange={(e) => setConnForm({ ...connForm, host: e.target.value })}
+                          placeholder="Ex: mysql.meudominio.com ou 127.0.0.1"
+                          className="w-full px-2.5 py-1.5 border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 font-mono bg-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-gray-700 font-semibold mb-1">Porta *</label>
+                        <input
+                          type="number"
+                          required
+                          value={connForm.port}
+                          onChange={(e) => setConnForm({ ...connForm, port: e.target.value })}
+                          placeholder="3306"
+                          className="w-full px-2.5 py-1.5 border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 font-mono bg-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-gray-700 font-semibold mb-1">Nome do Banco de Dados *</label>
+                        <input
+                          type="text"
+                          required
+                          value={connForm.database}
+                          onChange={(e) => setConnForm({ ...connForm, database: e.target.value })}
+                          placeholder="Ex: pksig"
+                          className="w-full px-2.5 py-1.5 border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 font-mono bg-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-gray-700 font-semibold mb-1">Usuário de Acesso *</label>
+                        <input
+                          type="text"
+                          required
+                          value={connForm.user}
+                          onChange={(e) => setConnForm({ ...connForm, user: e.target.value })}
+                          placeholder="Ex: root"
+                          className="w-full px-2.5 py-1.5 border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 font-mono bg-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-gray-700 font-semibold mb-1">
+                          Senha {editingConnectionId ? "(Deixe em branco para manter atual)" : "*"}
+                        </label>
+                        <input
+                          type="password"
+                          required={!editingConnectionId}
+                          value={connForm.password}
+                          onChange={(e) => setConnForm({ ...connForm, password: e.target.value })}
+                          placeholder="••••••••"
+                          className="w-full px-2.5 py-1.5 border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 bg-white"
+                        />
+                      </div>
+
+                      <div className="flex items-center space-x-2 pt-5">
+                        <label className="flex items-center space-x-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={connForm.ssl}
+                            onChange={(e) => setConnForm({ ...connForm, ssl: e.target.checked })}
+                            className="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                          />
+                          <span className="font-semibold text-gray-700 text-xs">Exigir Conexão SSL/TLS</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {connForm.ssl && (
+                      <div className="pt-1">
+                        <label className="block text-gray-700 font-semibold mb-1 text-xs">
+                          Certificado CA / SSL (Opcional - Formato PEM)
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={connForm.certificate}
+                          onChange={(e) => setConnForm({ ...connForm, certificate: e.target.value })}
+                          placeholder="-----BEGIN CERTIFICATE-----..."
+                          className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-[11px] font-mono bg-white focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </div>
+                    )}
+
+                    <div className="flex justify-end space-x-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowConnectionForm(false);
+                          setEditingConnectionId(null);
+                        }}
+                        className="px-3.5 py-1.5 bg-white border border-gray-300 text-gray-700 rounded text-xs font-semibold hover:bg-gray-50 cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={savingConn}
+                        className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                      >
+                        {savingConn && <Loader className="animate-spin h-3.5 w-3.5" />}
+                        <span>{editingConnectionId ? "Atualizar Conexão" : "Testar e Salvar Conexão"}</span>
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {/* TABELA DE CONEXÕES CADASTRADAS */}
+                {loadingConnections ? (
+                  <div className="flex items-center justify-center py-6 text-gray-500 text-xs space-x-2">
+                    <Loader className="animate-spin h-4 w-4 text-indigo-600" />
+                    <span>Carregando conexões de banco de dados...</span>
+                  </div>
+                ) : connectionsList.length === 0 ? (
+                  <div className="text-center py-6 text-gray-400 text-xs border border-dashed border-gray-200 rounded">
+                    Nenhuma conexão cadastrada no gerenciador.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto border border-gray-200 rounded-md">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 text-[10px] font-bold uppercase tracking-wider">
+                          <th className="p-2.5">Status</th>
+                          <th className="p-2.5">Identificação</th>
+                          <th className="p-2.5">Servidor & Banco</th>
+                          <th className="p-2.5">Último Teste</th>
+                          <th className="p-2.5 text-right">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {connectionsList.map((conn) => {
+                          const isActive = conn.isActive;
+                          return (
+                            <tr key={conn.id} className={isActive ? "bg-emerald-50/40 font-semibold" : "hover:bg-gray-50/60"}>
+                              <td className="p-2.5">
+                                {isActive ? (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                    <Check className="h-3 w-3 mr-1 text-emerald-600" />
+                                    Ativa
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600 border border-gray-200">
+                                    Inativa
+                                  </span>
+                                )}
+                              </td>
+                              <td className="p-2.5">
+                                <div className="font-bold text-gray-900 text-xs">{conn.name}</div>
+                                <div className="text-[10px] text-gray-400 font-mono flex items-center space-x-1">
+                                  <span>Fingerprint: {conn.connectionFingerprint ? conn.connectionFingerprint.substring(0, 10) + "..." : "N/A"}</span>
+                                </div>
+                              </td>
+                              <td className="p-2.5 font-mono text-[11px] text-gray-700">
+                                <div>{conn.user}@{conn.host}:{conn.port}</div>
+                                <div className="text-[10px] text-indigo-600 font-bold">BD: {conn.database}</div>
+                              </td>
+                              <td className="p-2.5 text-[10px] text-gray-500">
+                                {conn.lastTestedAt ? (
+                                  <div>
+                                    <span className={conn.lastTestStatus === "ok" ? "text-emerald-600 font-bold" : "text-red-600 font-bold"}>
+                                      {conn.lastTestStatus === "ok" ? "Sucesso" : "Falha"}
+                                    </span>
+                                    <span className="block text-gray-400">{new Date(conn.lastTestedAt).toLocaleString("pt-BR")}</span>
+                                  </div>
+                                ) : (
+                                  <span className="text-gray-400 italic">Nunca testado</span>
+                                )}
+                              </td>
+                              <td className="p-2.5 text-right space-x-1 whitespace-nowrap">
+                                {!isActive && (
+                                  <button
+                                    onClick={() => handleActivateConn(conn.id)}
+                                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10.5px] font-bold transition cursor-pointer"
+                                    title="Ativar como banco de dados principal"
+                                  >
+                                    Ativar
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => handleBackupConn(conn.id)}
+                                  className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded text-[10.5px] font-bold transition cursor-pointer"
+                                  title="Exportar backup .SQL desta conexão"
+                                >
+                                  Backup .SQL
+                                </button>
+                                <button
+                                  onClick={() => handleEditConnClick(conn)}
+                                  className="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-[10.5px] font-bold transition cursor-pointer"
+                                  title="Editar parâmetros de acesso"
+                                >
+                                  <Edit className="h-3 w-3" />
+                                </button>
+                                {!isActive && connectionsList.length > 1 && (
+                                  <button
+                                    onClick={() => handleDeleteConn(conn.id, conn.name)}
+                                    className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded text-[10.5px] font-bold transition cursor-pointer"
+                                    title="Excluir cadastro da conexão"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* PAINEL DE CÓPIA E TRANSFERÊNCIA DE DADOS ENTRE BANCOS DE DADOS */}
+              <div className="bg-white border border-indigo-200 rounded-md p-5 space-y-4 shadow-sm bg-indigo-50/10">
+                <div className="border-b border-indigo-100 pb-3">
+                  <h4 className="font-bold text-gray-900 text-xs flex items-center">
+                    <ArrowLeftRight className="h-4.5 w-4.5 mr-2 text-indigo-600" />
+                    Cópia e Migração de Dados Entre Conexões de Banco
+                  </h4>
+                  <p className="text-gray-500 text-[11px] mt-0.5">
+                    Transfira com segurança todo o acervo operacional (clientes, OS, pagamentos, estoque, garantias) de um banco para outro. O sistema realiza automaticamente um backup de segurança do banco de destino antes de iniciar.
+                  </p>
+                </div>
+
+                {transferSuccess && (
+                  <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-md space-y-2 text-xs">
+                    <div className="flex items-center font-bold text-emerald-800">
+                      <Check className="h-4 w-4 mr-1.5 text-emerald-600 shrink-0" />
+                      <span>Transferência de Dados Concluída com Sucesso!</span>
+                    </div>
+                    <p className="text-[11px] text-emerald-700">
+                      <strong>Tabelas Copiadas:</strong> {transferSuccess.copiedTablesCount} de {transferSuccess.totalTables}
+                    </p>
+                    {transferSuccess.targetBackupFilename && (
+                      <p className="text-[10.5px] font-mono text-emerald-800">
+                        Backup automático de segurança do destino gerado em: <code className="bg-emerald-100 px-1 py-0.5 rounded">{transferSuccess.targetBackupFilename}</code>
+                      </p>
+                    )}
+                    {transferSuccess.tableSummaries && (
+                      <div className="pt-2 border-t border-emerald-200 text-[10px] grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                        {Object.entries(transferSuccess.tableSummaries).map(([tbl, info]: [string, any]) => (
+                          <div key={tbl} className="bg-white/80 p-1.5 rounded border border-emerald-200/60 font-mono">
+                            <span className="block text-gray-500 font-sans font-bold">{tbl}</span>
+                            <span className="text-emerald-800 font-bold">{info.recordsCopied} registro(s)</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {transferError && (
+                  <div className="p-3 bg-red-50 border border-red-200 text-red-800 text-xs rounded-md flex items-start space-x-2">
+                    <AlertCircle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-bold">Falha na Transferência de Dados</p>
+                      <p className="text-[11px] mt-0.5">{transferError}</p>
+                    </div>
+                  </div>
+                )}
+
+                <form onSubmit={handleExecuteTransfer} className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* ORIGEM */}
+                    <div className="bg-white p-3.5 rounded border border-gray-200 space-y-2">
+                      <label className="block text-gray-800 font-bold text-xs flex items-center">
+                        <Database className="h-3.5 w-3.5 mr-1.5 text-indigo-600" />
+                        Conexão de Origem (Copiar De)
+                      </label>
+                      <select
+                        required
+                        value={transferOriginId}
+                        onChange={(e) => setTransferOriginId(e.target.value)}
+                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-xs bg-white font-semibold focus:ring-1 focus:ring-indigo-500"
+                      >
+                        <option value="">-- Selecione a Conexão de Origem --</option>
+                        {connectionsList.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name} ({c.host} / {c.database}) {c.isActive ? "[ATIVA]" : ""}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-gray-400">
+                        Os dados desta base serão lidos e preservados sem alterações.
+                      </p>
+                    </div>
+
+                    {/* DESTINO */}
+                    <div className="bg-white p-3.5 rounded border border-gray-200 space-y-2">
+                      <label className="block text-gray-800 font-bold text-xs flex items-center">
+                        <ArrowRight className="h-3.5 w-3.5 mr-1.5 text-emerald-600" />
+                        Conexão de Destino (Gravar Em)
+                      </label>
+                      <select
+                        required
+                        value={transferTargetId}
+                        onChange={(e) => setTransferTargetId(e.target.value)}
+                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-xs bg-white font-semibold focus:ring-1 focus:ring-indigo-500"
+                      >
+                        <option value="">-- Selecione a Conexão de Destino --</option>
+                        {connectionsList.map((c) => (
+                          <option key={c.id} value={c.id} disabled={c.id === transferOriginId}>
+                            {c.name} ({c.host} / {c.database}) {c.isActive ? "[ATIVA]" : ""}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-gray-400">
+                        Atenção: Os dados do destino serão sobrescritos após a geração do backup automático.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white p-3.5 rounded border border-gray-200">
+                    <div>
+                      <label className="block text-gray-700 font-bold text-xs mb-1">
+                        Digite a frase de confirmação: <span className="bg-indigo-100 text-indigo-900 px-1 py-0.5 rounded font-mono uppercase">COPIAR DADOS</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={transferConfirmText}
+                        onChange={(e) => setTransferConfirmText(e.target.value)}
+                        placeholder="Digite COPIAR DADOS"
+                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-xs uppercase font-bold focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-gray-700 font-bold text-xs mb-1">
+                        Sua Senha de Administrador *
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        value={transferAdminPass}
+                        onChange={(e) => setTransferAdminPass(e.target.value)}
+                        placeholder="Sua senha atual de login"
+                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    <button
+                      type="button"
+                      onClick={handleExportSystemConfigOnly}
+                      className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer"
+                      title="Exportar apenas tabelas de parâmetros em JSON"
+                    >
+                      <Download className="h-3.5 w-3.5 text-indigo-600" />
+                      <span>Exportar Apenas Parâmetros do Sistema (.JSON)</span>
+                    </button>
+
+                    <button
+                      type="submit"
+                      disabled={
+                        transferLoading ||
+                        !transferOriginId ||
+                        !transferTargetId ||
+                        transferConfirmText.trim().toUpperCase() !== "COPIAR DADOS" ||
+                        !transferAdminPass
+                      }
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-bold transition flex items-center space-x-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
+                    >
+                      {transferLoading && <Loader className="animate-spin h-3.5 w-3.5" />}
+                      <span>Executar Cópia de Dados Segura</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
               <div className="bg-white border border-gray-200 rounded-md p-4 space-y-3 shadow-sm">
                 <div className="flex items-center justify-between border-b border-gray-100 pb-2">
                   <h4 className="font-bold text-gray-800 text-xs flex items-center">
