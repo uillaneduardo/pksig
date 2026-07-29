@@ -38,6 +38,8 @@ import {
   successOperation,
   getOperation
 } from "./src/lib/operationProgress.js";
+import { getSmtpConfigStatus, sendPasswordResetEmail, testSmtpConnection } from "./src/lib/email.js";
+import { logAdminAction } from "./src/lib/audit.js";
 
 // ==========================================
 // Zod Input Validation Schemas & Middleware
@@ -1028,7 +1030,7 @@ app.post("/api/operations/test", (req: any, res: any) => {
 // 2. AUTHENTICATION ENDPOINTS
 // ==========================================
 
-// Login endpoint
+// Login endpoint (supports username or email)
 app.post("/api/auth/login", validateBody(loginSchema), async (req: any, res: any) => {
   const { username, password } = req.body;
   const ip = req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress || "127.0.0.1";
@@ -1038,27 +1040,31 @@ app.post("/api/auth/login", validateBody(loginSchema), async (req: any, res: any
   }
 
   try {
+    const cleanIdentifier = String(username).trim().toLowerCase();
+
     // Basic rate limit check: count failures in last 5 mins
     const recentFailures = await query(
       "SELECT COUNT(*) as failures FROM login_attempts WHERE username = ? AND success = 0 AND attempted_at > NOW() - INTERVAL 5 MINUTE",
-      [username]
+      [cleanIdentifier]
     );
     if (recentFailures[0]?.failures >= 5) {
       return res.status(429).json({ error: "Muitas tentativas malsucedidas. Tente novamente em 5 minutos." });
     }
 
-    const admins = await query("SELECT * FROM admins WHERE username = ?", [username]);
+    const admins = await query(
+      "SELECT * FROM admins WHERE LOWER(username) = ? OR LOWER(email) = ?",
+      [cleanIdentifier, cleanIdentifier]
+    );
     const admin = admins[0];
 
-    if (!admin || !bcrypt.compareSync(password, admin.password_hash)) {
+    if (!admin || admin.status !== 'active' || !bcrypt.compareSync(password, admin.password_hash)) {
       // Log failed attempt
-      await execute("INSERT INTO login_attempts (username, ip_address, success) VALUES (?, ?, 0)", [username, ip]);
-      return res.status(401).json({ error: "Usuário ou senha incorretos" });
+      await execute("INSERT INTO login_attempts (username, ip_address, success) VALUES (?, ?, 0)", [cleanIdentifier, ip]);
+      return res.status(401).json({ error: "Usuário/e-mail ou senha incorretos" });
     }
 
     // Log success
-    await execute("INSERT INTO login_attempts (username, ip_address, success) VALUES (?, ?, 1)", [username, ip]);
-    
+    await execute("INSERT INTO login_attempts (username, ip_address, success) VALUES (?, ?, 1)", [cleanIdentifier, ip]);
     await execute("UPDATE admins SET last_login_at = NOW() WHERE id = ?", [admin.id]);
 
     // Create session token
@@ -1067,12 +1073,23 @@ app.post("/api/auth/login", validateBody(loginSchema), async (req: any, res: any
     // Set secure/lax cookie dynamically
     res.cookie("session_token", token, getCookieOptions(req));
 
+    // Log audit
+    await logAdminAction({
+      adminId: admin.id,
+      action: "LOGIN",
+      description: "Acesso efetuado com sucesso no sistema",
+      ipAddress: ip,
+      userAgent: req.headers["user-agent"]
+    });
+
     return res.json({
       success: true,
       user: {
         id: admin.id,
         username: admin.username,
-        name: admin.name
+        name: admin.name,
+        email: admin.email,
+        phone: admin.phone
       }
     });
   } catch (err: any) {
@@ -1081,15 +1098,13 @@ app.post("/api/auth/login", validateBody(loginSchema), async (req: any, res: any
   }
 });
 
-// Store temporary password recovery tokens in memory
-const recoveryTokens = new Map<string, { adminId: number; username: string; expiresAt: number }>();
+// Request Password Reset Email endpoint
+app.post("/api/auth/forgot-password", async (req: any, res: any) => {
+  const { email } = req.body;
+  const ip = req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress || "127.0.0.1";
 
-// Password Recovery Verification endpoint
-app.post("/api/auth/recover-verify", async (req: any, res: any) => {
-  const { username, verification_info } = req.body;
-
-  if (!username || !verification_info) {
-    return res.status(400).json({ error: "Informe o nome de usuário e a informação de verificação." });
+  if (!email || typeof email !== "string") {
+    return res.status(400).json({ error: "Informe um endereço de e-mail válido." });
   }
 
   if (!isDatabaseConfigured()) {
@@ -1097,108 +1112,137 @@ app.post("/api/auth/recover-verify", async (req: any, res: any) => {
   }
 
   try {
-    const cleanUsername = String(username).trim();
-    const cleanVerification = String(verification_info).trim().toLowerCase();
-    const digitsOnlyVerification = cleanVerification.replace(/\D/g, "");
-
-    const admins = await query("SELECT id, name, username FROM admins WHERE LOWER(username) = ?", [cleanUsername.toLowerCase()]);
+    const cleanEmail = email.trim().toLowerCase();
+    const admins = await query("SELECT id, name, username, email FROM admins WHERE LOWER(email) = ? AND status = 'active'", [cleanEmail]);
     const admin = admins[0];
 
-    if (!admin) {
-      return res.status(404).json({ error: "Usuário administrador não encontrado." });
-    }
-
-    const companyRows = await query("SELECT company_name, trade_name, tax_id, email, phone, whatsapp FROM company_settings LIMIT 1");
-    const company = companyRows[0] || {};
-
-    const companyTaxIdDigits = (company.tax_id || "").replace(/\D/g, "");
-    const companyEmail = (company.email || "").trim().toLowerCase();
-    const companyPhoneDigits = (company.phone || "").replace(/\D/g, "");
-    const companyWhatsappDigits = (company.whatsapp || "").replace(/\D/g, "");
-    const companyNameClean = (company.company_name || "").trim().toLowerCase();
-    const tradeNameClean = (company.trade_name || "").trim().toLowerCase();
-
-    let isMatch = false;
-
-    // Check tax_id digits match if digits provided
-    if (digitsOnlyVerification.length >= 4 && companyTaxIdDigits.length >= 4 && companyTaxIdDigits.includes(digitsOnlyVerification)) {
-      isMatch = true;
-    }
-    // Check email match
-    if (cleanVerification && companyEmail && companyEmail === cleanVerification) {
-      isMatch = true;
-    }
-    // Check phone or whatsapp digits match
-    if (digitsOnlyVerification.length >= 8 && ((companyPhoneDigits && companyPhoneDigits.includes(digitsOnlyVerification)) || (companyWhatsappDigits && companyWhatsappDigits.includes(digitsOnlyVerification)))) {
-      isMatch = true;
-    }
-    // Check company_name / trade_name or admin name
-    if (cleanVerification.length >= 3 && (companyNameClean.includes(cleanVerification) || tradeNameClean.includes(cleanVerification) || admin.name.toLowerCase().includes(cleanVerification))) {
-      isMatch = true;
-    }
-
-    // Fallback if company_settings has no info configured
-    if (!company.tax_id && !company.email && !company.phone && !company.company_name) {
-      isMatch = true;
-    }
-
-    if (!isMatch) {
-      return res.status(400).json({
-        error: "Informação de verificação incorreta. Insira o CNPJ/CPF, E-mail ou Telefone cadastrado na empresa."
-      });
-    }
-
-    // Generate temporary recovery token valid for 15 minutes
-    const resetToken = crypto.randomBytes(24).toString("hex");
-    recoveryTokens.set(resetToken, {
-      adminId: admin.id,
-      username: admin.username,
-      expiresAt: Date.now() + 15 * 60 * 1000
-    });
-
-    return res.json({
+    // Always return generic response to avoid user enumeration attacks
+    const genericResponse = {
       success: true,
-      resetToken,
-      username: admin.username,
-      adminName: admin.name,
-      message: "Verificação concluída com sucesso. Defina sua nova senha abaixo."
+      message: "Se o e-mail estiver cadastrado, você receberá as instruções para redefinir sua senha."
+    };
+
+    if (!admin) {
+      return res.json(genericResponse);
+    }
+
+    // Generate crypto token and insert SHA-256 hash in DB
+    const rawToken = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+
+    // Invalidate existing active tokens for this admin
+    await execute("UPDATE password_reset_tokens SET used_at = NOW() WHERE admin_id = ? AND used_at IS NULL", [admin.id]);
+
+    // Insert new token valid for 1 hour
+    await execute(
+      "INSERT INTO password_reset_tokens (admin_id, token_hash, expires_at) VALUES (?, ?, NOW() + INTERVAL 1 HOUR)",
+      [admin.id, tokenHash]
+    );
+
+    const smtpConfig = getSmtpConfigStatus();
+    const resetUrl = `${smtpConfig.appBaseUrl}/?resetToken=${rawToken}`;
+
+    // Send reset email or log simulation link
+    await sendPasswordResetEmail(admin.email, admin.name, resetUrl);
+
+    // Audit log
+    await logAdminAction({
+      adminId: admin.id,
+      action: "PASSWORD_RESET_REQUEST",
+      description: "Solicitação de recuperação de senha via e-mail",
+      ipAddress: ip,
+      userAgent: req.headers["user-agent"]
     });
+
+    return res.json(genericResponse);
   } catch (err: any) {
-    console.error("Recover verify error:", err);
-    return res.status(500).json({ error: err.message || "Erro ao verificar dados de recuperação." });
+    console.error("Forgot password error:", err);
+    return res.status(500).json({ error: "Erro ao processar solicitação de recuperação de senha." });
   }
 });
 
-// Reset Password endpoint
-app.post("/api/auth/reset-password", async (req: any, res: any) => {
-  const { resetToken, newPassword, confirmPassword } = req.body;
+// Validate Password Reset Token endpoint
+app.get("/api/auth/reset-password/validate", async (req: any, res: any) => {
+  const { token } = req.query;
 
-  if (!resetToken || !newPassword) {
-    return res.status(400).json({ error: "Token de recuperação e nova senha são obrigatórios." });
+  if (!token || typeof token !== "string") {
+    return res.status(400).json({ valid: false, message: "Token de redefinição ausente." });
+  }
+
+  try {
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    const rows = await query(
+      `SELECT prt.id, prt.admin_id, prt.expires_at, a.username 
+       FROM password_reset_tokens prt 
+       JOIN admins a ON a.id = prt.admin_id 
+       WHERE prt.token_hash = ? AND prt.used_at IS NULL AND prt.expires_at > NOW() AND a.status = 'active' 
+       LIMIT 1`,
+      [tokenHash]
+    );
+
+    if (rows && rows.length > 0) {
+      return res.json({ valid: true, username: rows[0].username });
+    } else {
+      return res.status(400).json({ valid: false, message: "Link de redefinição de senha inválido, expirado ou já utilizado." });
+    }
+  } catch (err: any) {
+    console.error("Validate reset token error:", err);
+    return res.status(500).json({ valid: false, message: "Erro ao validar token de redefinição." });
+  }
+});
+
+// Reset Password with Token endpoint
+app.post("/api/auth/reset-password", async (req: any, res: any) => {
+  const { token, newPassword, confirmPassword } = req.body;
+  const ip = req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress || "127.0.0.1";
+
+  if (!token || !newPassword) {
+    return res.status(400).json({ error: "Token e nova senha são obrigatórios." });
   }
 
   if (newPassword !== confirmPassword) {
     return res.status(400).json({ error: "A confirmação da senha não confere com a nova senha." });
   }
 
-  if (newPassword.length < 4) {
-    return res.status(400).json({ error: "A nova senha deve ter pelo menos 4 caracteres." });
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: "A nova senha deve possuir no mínimo 8 caracteres." });
   }
 
   try {
-    const tokenData = recoveryTokens.get(resetToken);
-    if (!tokenData || tokenData.expiresAt < Date.now()) {
-      recoveryTokens.delete(resetToken);
-      return res.status(400).json({ error: "Sessão de recuperação expirada ou inválida. Por favor, inicie o processo novamente." });
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    const rows = await query(
+      `SELECT prt.id, prt.admin_id, a.username 
+       FROM password_reset_tokens prt 
+       JOIN admins a ON a.id = prt.admin_id 
+       WHERE prt.token_hash = ? AND prt.used_at IS NULL AND prt.expires_at > NOW() AND a.status = 'active' 
+       LIMIT 1`,
+      [tokenHash]
+    );
+
+    const record = rows[0];
+    if (!record) {
+      return res.status(400).json({ error: "Link de redefinição de senha inválido, expirado ou já utilizado." });
     }
 
-    const salt = bcrypt.genSaltSync(10);
-    const passwordHash = bcrypt.hashSync(newPassword, salt);
+    const passwordHash = bcrypt.hashSync(newPassword, 10);
 
-    await execute("UPDATE admins SET password_hash = ? WHERE id = ?", [passwordHash, tokenData.adminId]);
+    // Update admin password and timestamp
+    await execute("UPDATE admins SET password_hash = ?, password_changed_at = NOW() WHERE id = ?", [passwordHash, record.admin_id]);
 
-    // Clean up used token
-    recoveryTokens.delete(resetToken);
+    // Mark token as used
+    await execute("UPDATE password_reset_tokens SET used_at = NOW() WHERE id = ?", [record.id]);
+
+    // Terminate all active sessions for this admin (force re-login)
+    await destroyAllUserSessions(record.admin_id);
+
+    // Audit log
+    await logAdminAction({
+      adminId: record.admin_id,
+      action: "PASSWORD_RESET",
+      description: "Senha redefinida com sucesso utilizando link de recuperação por e-mail",
+      ipAddress: ip,
+      userAgent: req.headers["user-agent"]
+    });
 
     return res.json({
       success: true,
@@ -1218,6 +1262,306 @@ app.post("/api/auth/logout", async (req: any, res: any) => {
   }
   res.clearCookie("session_token", getCookieOptions(req));
   return res.json({ success: true, message: "Logout efetuado com sucesso" });
+});
+
+// ==========================================
+// 2.1 ADMIN PROFILE & AUDIT LOG ENDPOINTS
+// ==========================================
+
+// Get Current Admin Profile
+app.get("/api/admin/profile", requireAuth, async (req: any, res: any) => {
+  try {
+    const adminId = req.session.adminId;
+    const rows = await query(
+      "SELECT id, name, username, email, phone, created_at, last_login_at, password_changed_at, status FROM admins WHERE id = ?",
+      [adminId]
+    );
+
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({ error: "Administrador não encontrado." });
+    }
+
+    return res.json({ success: true, admin: rows[0] });
+  } catch (err: any) {
+    console.error("Get admin profile error:", err);
+    return res.status(500).json({ error: "Erro ao buscar dados do perfil." });
+  }
+});
+
+// Update Admin Profile Information
+app.put("/api/admin/profile", requireAuth, async (req: any, res: any) => {
+  const adminId = req.session.adminId;
+  const { name, username, email, phone } = req.body;
+
+  if (!name || !username || !email) {
+    return res.status(400).json({ error: "Nome, nome de usuário e e-mail são obrigatórios." });
+  }
+
+  const cleanName = String(name).trim();
+  const cleanUsername = String(username).trim().toLowerCase();
+  const cleanEmail = String(email).trim().toLowerCase();
+  const cleanPhone = phone ? String(phone).trim() : null;
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(cleanEmail)) {
+    return res.status(400).json({ error: "Endereço de e-mail inválido." });
+  }
+
+  try {
+    // Check if username already used by another admin
+    const userCheck = await query("SELECT id FROM admins WHERE LOWER(username) = ? AND id != ?", [cleanUsername, adminId]);
+    if (userCheck && userCheck.length > 0) {
+      return res.status(400).json({ error: "Este nome de usuário já está em uso por outro administrador." });
+    }
+
+    // Check if email already used by another admin
+    const emailCheck = await query("SELECT id FROM admins WHERE LOWER(email) = ? AND id != ?", [cleanEmail, adminId]);
+    if (emailCheck && emailCheck.length > 0) {
+      return res.status(400).json({ error: "Este endereço de e-mail já está em uso por outro administrador." });
+    }
+
+    // Perform update
+    await execute(
+      "UPDATE admins SET name = ?, username = ?, email = ?, phone = ? WHERE id = ?",
+      [cleanName, cleanUsername, cleanEmail, cleanPhone, adminId]
+    );
+
+    // Audit log
+    await logAdminAction({
+      adminId: adminId,
+      action: "PROFILE_UPDATE",
+      description: `Dados cadastrais do perfil atualizados (Nome: ${cleanName}, Usuário: @${cleanUsername}, Email: ${cleanEmail})`,
+      ipAddress: req.session.ipAddress,
+      userAgent: req.headers["user-agent"]
+    });
+
+    return res.json({
+      success: true,
+      user: {
+        id: adminId,
+        name: cleanName,
+        username: cleanUsername,
+        email: cleanEmail,
+        phone: cleanPhone
+      }
+    });
+  } catch (err: any) {
+    console.error("Update admin profile error:", err);
+    return res.status(500).json({ error: "Erro ao atualizar perfil do administrador." });
+  }
+});
+
+// Change Admin Password
+app.put("/api/admin/profile/password", requireAuth, async (req: any, res: any) => {
+  const adminId = req.session.adminId;
+  const { currentPassword, newPassword, confirmPassword } = req.body;
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: "Senha atual e nova senha são obrigatórias." });
+  }
+
+  if (newPassword !== confirmPassword) {
+    return res.status(400).json({ error: "A confirmação da senha não coincide com a nova senha." });
+  }
+
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: "A nova senha deve possuir no mínimo 8 caracteres." });
+  }
+
+  if (currentPassword === newPassword) {
+    return res.status(400).json({ error: "A nova senha deve ser diferente da senha atual." });
+  }
+
+  try {
+    const admins = await query("SELECT password_hash FROM admins WHERE id = ?", [adminId]);
+    const admin = admins[0];
+
+    if (!admin || !bcrypt.compareSync(currentPassword, admin.password_hash)) {
+      return res.status(401).json({ error: "Senha atual incorreta." });
+    }
+
+    const newHash = bcrypt.hashSync(newPassword, 10);
+    await execute("UPDATE admins SET password_hash = ?, password_changed_at = NOW() WHERE id = ?", [newHash, adminId]);
+
+    // Invalidate other sessions except current
+    const currentTokenHash = crypto.createHash("sha256").update(req.cookies.session_token).digest("hex");
+    await execute("DELETE FROM admin_sessions WHERE admin_id = ? AND token_hash != ?", [adminId, currentTokenHash]);
+
+    // Audit log
+    await logAdminAction({
+      adminId: adminId,
+      action: "PASSWORD_CHANGE",
+      description: "Senha do administrador alterada e outras sessões encerradas",
+      ipAddress: req.session.ipAddress,
+      userAgent: req.headers["user-agent"]
+    });
+
+    return res.json({ success: true, message: "Senha alterada com sucesso!" });
+  } catch (err: any) {
+    console.error("Change password error:", err);
+    return res.status(500).json({ error: "Erro ao alterar senha do administrador." });
+  }
+});
+
+// Get Active Admin Sessions
+app.get("/api/admin/profile/sessions", requireAuth, async (req: any, res: any) => {
+  try {
+    const adminId = req.session.adminId;
+    const currentTokenHash = crypto.createHash("sha256").update(req.cookies.session_token).digest("hex");
+
+    const rows = await query(
+      "SELECT id, token_hash, ip_address, user_agent, created_at, last_activity_at FROM admin_sessions WHERE admin_id = ? ORDER BY last_activity_at DESC",
+      [adminId]
+    );
+
+    const sessions = (rows || []).map((r: any) => ({
+      id: r.id,
+      ip_address: r.ip_address,
+      user_agent: r.user_agent,
+      created_at: r.created_at,
+      last_activity_at: r.last_activity_at,
+      isCurrent: r.token_hash === currentTokenHash
+    }));
+
+    return res.json({ success: true, sessions });
+  } catch (err: any) {
+    console.error("Get sessions error:", err);
+    return res.status(500).json({ error: "Erro ao buscar sessões ativas." });
+  }
+});
+
+// Revoke Other Admin Sessions
+app.delete("/api/admin/profile/sessions/others", requireAuth, async (req: any, res: any) => {
+  try {
+    const adminId = req.session.adminId;
+    const currentTokenHash = crypto.createHash("sha256").update(req.cookies.session_token).digest("hex");
+
+    await execute("DELETE FROM admin_sessions WHERE admin_id = ? AND token_hash != ?", [adminId, currentTokenHash]);
+
+    await logAdminAction({
+      adminId: adminId,
+      action: "SESSIONS_REVOKE",
+      description: "Encerradas todas as outras sessões ativas do administrador",
+      ipAddress: req.session.ipAddress,
+      userAgent: req.headers["user-agent"]
+    });
+
+    return res.json({ success: true, message: "Outras sessões encerradas com sucesso." });
+  } catch (err: any) {
+    console.error("Revoke sessions error:", err);
+    return res.status(500).json({ error: "Erro ao encerrar sessões." });
+  }
+});
+
+// Get Admin Audit History
+app.get("/api/admin/profile/history", requireAuth, async (req: any, res: any) => {
+  try {
+    const adminId = req.session.adminId;
+    const page = Math.max(1, parseInt(String(req.query.page)) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit)) || 15));
+    const offset = (page - 1) * limit;
+    const actionFilter = req.query.action ? String(req.query.action).trim() : "";
+    const periodFilter = req.query.period ? String(req.query.period).trim() : "all";
+
+    let whereClause = "WHERE admin_id = ?";
+    const params: any[] = [adminId];
+
+    if (actionFilter) {
+      whereClause += " AND action = ?";
+      params.push(actionFilter);
+    }
+
+    if (periodFilter === "7d") {
+      whereClause += " AND created_at >= NOW() - INTERVAL 7 DAY";
+    } else if (periodFilter === "30d") {
+      whereClause += " AND created_at >= NOW() - INTERVAL 30 DAY";
+    } else if (periodFilter === "90d") {
+      whereClause += " AND created_at >= NOW() - INTERVAL 90 DAY";
+    }
+
+    const countResult = await query(`SELECT COUNT(*) as total FROM admin_audit_logs ${whereClause}`, params);
+    const total = countResult[0]?.total || 0;
+
+    const logs = await query(
+      `SELECT id, action, description, entity_type, entity_id, ip_address, user_agent, created_at 
+       FROM admin_audit_logs ${whereClause} 
+       ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+
+    return res.json({
+      success: true,
+      logs: logs || [],
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit) || 1
+      }
+    });
+  } catch (err: any) {
+    console.error("Get audit history error:", err);
+    return res.status(500).json({ error: "Erro ao carregar histórico de ações." });
+  }
+});
+
+// ==========================================
+// 2.2 SMTP EMAIL CONFIGURATION & TEST ENDPOINTS
+// ==========================================
+
+// Get SMTP Configuration Status
+app.get("/api/settings/email/status", requireAuth, async (req: any, res: any) => {
+  try {
+    const cfg = getSmtpConfigStatus();
+    return res.json({
+      configured: cfg.isConfigured,
+      host: cfg.host,
+      port: cfg.port,
+      user: cfg.user,
+      from: `${cfg.fromName} <${cfg.fromEmail}>`
+    });
+  } catch (err: any) {
+    console.error("Get SMTP status error:", err);
+    return res.status(500).json({ error: "Erro ao verificar status do servidor SMTP." });
+  }
+});
+
+// Send Test Email
+app.post("/api/settings/email/test", requireAuth, async (req: any, res: any) => {
+  const { testEmail } = req.body;
+
+  if (!testEmail || typeof testEmail !== "string") {
+    return res.status(400).json({ error: "Endereço de e-mail de destino é obrigatório." });
+  }
+
+  const cleanEmail = testEmail.trim().toLowerCase();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(cleanEmail)) {
+    return res.status(400).json({ error: "Endereço de e-mail inválido." });
+  }
+
+  try {
+    const result = await testSmtpConnection(cleanEmail);
+
+    if (result.success) {
+      await logAdminAction({
+        adminId: req.session.adminId,
+        action: "SMTP_TEST",
+        description: `E-mail de teste de SMTP enviado com sucesso para ${cleanEmail}`,
+        ipAddress: req.session.ipAddress,
+        userAgent: req.headers["user-agent"]
+      });
+
+      return res.json({ success: true, message: result.message });
+    } else {
+      return res.status(400).json({
+        error: result.message
+      });
+    }
+  } catch (err: any) {
+    console.error("Test email error:", err);
+    return res.status(500).json({ error: "Erro ao enviar e-mail de teste." });
+  }
 });
 
 // Me (Session status)

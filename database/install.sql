@@ -20,11 +20,17 @@ CREATE TABLE admins (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     username VARCHAR(100) NOT NULL UNIQUE,
+    email VARCHAR(255) NULL,
+    phone VARCHAR(50) NULL,
     password_hash VARCHAR(255) NOT NULL,
+    active TINYINT(1) NOT NULL DEFAULT 1,
+    email_verified_at TIMESTAMP NULL,
+    password_changed_at TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     last_login_at TIMESTAMP NULL,
-    INDEX idx_admins_username (username)
+    INDEX idx_admins_username (username),
+    UNIQUE INDEX uq_admins_email (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2B. Admin Sessions
@@ -40,6 +46,42 @@ CREATE TABLE admin_sessions (
     user_agent TEXT NULL,
     FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE,
     INDEX idx_sessions_token_hash (token_hash)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 2C. Password Reset Tokens
+DROP TABLE IF EXISTS password_reset_tokens;
+CREATE TABLE password_reset_tokens (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    admin_id INT NOT NULL,
+    token_hash VARCHAR(64) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL,
+    used_at TIMESTAMP NULL,
+    requested_ip VARCHAR(45) NULL,
+    requested_user_agent TEXT NULL,
+    FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE,
+    INDEX idx_prt_admin_id (admin_id),
+    INDEX idx_prt_token_hash (token_hash),
+    INDEX idx_prt_expires_at (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 2D. Admin Audit Logs
+DROP TABLE IF EXISTS admin_audit_logs;
+CREATE TABLE admin_audit_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    admin_id INT NULL,
+    action VARCHAR(100) NOT NULL,
+    entity_type VARCHAR(100) NULL,
+    entity_id VARCHAR(100) NULL,
+    description TEXT NOT NULL,
+    metadata JSON NULL,
+    ip_address VARCHAR(45) NULL,
+    user_agent TEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_aal_admin_id (admin_id),
+    INDEX idx_aal_action (action),
+    INDEX idx_aal_entity_type (entity_type),
+    INDEX idx_aal_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 3. Login Attempts

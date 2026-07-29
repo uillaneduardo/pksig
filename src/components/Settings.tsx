@@ -6,7 +6,7 @@ import {
   Settings as SettingsIcon, Save, Plus, Check, Trash2, 
   RefreshCw, DollarSign, Laptop, ShieldCheck, Tag, Loader, AlertCircle,
   Building, Edit, Database, Server, ArrowLeftRight, Download, Upload,
-  Smartphone, Shield
+  Smartphone, Shield, Mail
 } from "lucide-react";
 
 interface SettingsProps {
@@ -50,7 +50,56 @@ const formatPhone = (value: string) => {
 };
 
 export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated, onDatabaseUpdated }: SettingsProps) {
-  const [activeSection, setActiveSection] = useState<"geral" | "categorias" | "pagamentos" | "garantias" | "acessorios" | "empresa" | "armazenamento" | "pwa" | "financeiro">("geral");
+  const [activeSection, setActiveSection] = useState<"geral" | "categorias" | "pagamentos" | "garantias" | "acessorios" | "empresa" | "armazenamento" | "pwa" | "financeiro" | "smtp">("geral");
+
+  // SMTP States
+  const [smtpStatus, setSmtpStatus] = useState<any>(null);
+  const [loadingSmtp, setLoadingSmtp] = useState(false);
+  const [testEmail, setTestEmail] = useState("");
+  const [sendingSmtpTest, setSendingSmtpTest] = useState(false);
+  const [smtpTestResult, setSmtpTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const fetchSmtpStatus = async () => {
+    setLoadingSmtp(true);
+    try {
+      const res = await fetch("/api/settings/email/status");
+      if (res.ok) {
+        const data = await res.json();
+        setSmtpStatus(data);
+      }
+    } catch (err) {
+      console.error("Error fetching SMTP status:", err);
+    } finally {
+      setLoadingSmtp(false);
+    }
+  };
+
+  const handleTestSmtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!testEmail) return;
+
+    setSendingSmtpTest(true);
+    setSmtpTestResult(null);
+    try {
+      const res = await fetch("/api/settings/email/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ testEmail })
+      });
+      const data = await res.json();
+      setSmtpTestResult({
+        success: res.ok && data.success,
+        message: data.message || data.error || (res.ok ? "E-mail de teste enviado com sucesso!" : "Falha ao enviar e-mail de teste.")
+      });
+    } catch (err) {
+      setSmtpTestResult({
+        success: false,
+        message: "Erro de conexão ao testar servidor SMTP."
+      });
+    } finally {
+      setSendingSmtpTest(false);
+    }
+  };
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -512,6 +561,9 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
     if (activeSection === "financeiro") {
       fetchFinCategories();
     }
+    if (activeSection === "smtp") {
+      fetchSmtpStatus();
+    }
   }, [activeSection]);
 
   const handleSaveGeneral = async (e: React.FormEvent) => {
@@ -819,7 +871,8 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
             { id: "garantias", label: "Termos de Garantia", icon: ShieldCheck },
             { id: "acessorios", label: "Acessórios Checklist", icon: Tag },
             { id: "armazenamento", label: "Armazenamento", icon: Database },
-            { id: "pwa", label: "Configurar Aplicativo (PWA)", icon: Smartphone }
+            { id: "pwa", label: "Configurar Aplicativo (PWA)", icon: Smartphone },
+            { id: "smtp", label: "E-mail e Servidor SMTP", icon: Mail }
           ].map((sec) => {
             const IconComp = sec.icon;
             return (
@@ -2372,6 +2425,126 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
                 </div>
 
               </div>
+            </div>
+          )}
+
+          {/* SECTION: E-MAIL E SERVIDOR SMTP */}
+          {activeSection === "smtp" && (
+            <div className="space-y-6">
+              <div className="border-b border-gray-100 pb-2 flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-gray-900 text-sm">Servidor de E-mail (SMTP)</h3>
+                  <p className="text-gray-400 text-[10px]">Status da integração para envio de recuperação de senha e notificações aos clientes</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={fetchSmtpStatus}
+                  className="p-1.5 text-gray-500 hover:text-gray-800 border border-gray-200 rounded-md hover:bg-gray-50 transition"
+                  title="Atualizar Status"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${loadingSmtp ? "animate-spin" : ""}`} />
+                </button>
+              </div>
+
+              {/* Status Box */}
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-gray-800 text-xs">Status do Envio de E-mails:</span>
+                  {smtpStatus?.configured ? (
+                    <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 border border-emerald-200 rounded text-xs font-bold flex items-center space-x-1">
+                      <Check className="h-3.5 w-3.5 text-emerald-600" />
+                      <span>SMTP Configurado</span>
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-1 bg-amber-100 text-amber-800 border border-amber-200 rounded text-xs font-bold flex items-center space-x-1">
+                      <AlertCircle className="h-3.5 w-3.5 text-amber-600" />
+                      <span>Modo Simulação (Envio Real Desativado)</span>
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs pt-2 border-t border-gray-200/60">
+                  <div>
+                    <span className="text-gray-400 block text-[10px]">Servidor Host:</span>
+                    <span className="font-mono font-medium text-gray-800">{smtpStatus?.host || "Não configurado"}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400 block text-[10px]">Porta:</span>
+                    <span className="font-mono font-medium text-gray-800">{smtpStatus?.port || "-"}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400 block text-[10px]">Usuário Autenticado:</span>
+                    <span className="font-mono font-medium text-gray-800 truncate block" title={smtpStatus?.user}>
+                      {smtpStatus?.user || "-"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400 block text-[10px]">E-mail Remetente:</span>
+                    <span className="font-mono font-medium text-gray-800 truncate block" title={smtpStatus?.from}>
+                      {smtpStatus?.from || "suporte@pksig.com"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {!smtpStatus?.configured && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-md text-xs text-amber-800 leading-relaxed space-y-1">
+                  <p className="font-bold">Aviso sobre o Servidor SMTP:</p>
+                  <p>
+                    As variáveis de ambiente do SMTP não estão configuradas no servidor. No modo simulação, o sistema gera links de recuperação e simula o envio no console.
+                  </p>
+                  <p className="text-[11px] text-amber-700">
+                    Para habilitar o envio real de e-mails, configure as variáveis <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">SMTP_HOST</code>, <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">SMTP_PORT</code>, <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">SMTP_USER</code>, <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">SMTP_PASS</code> e <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">SMTP_FROM</code> no arquivo <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">.env</code> da sua aplicação.
+                  </p>
+                </div>
+              )}
+
+              {/* Test Email Section */}
+              <div className="border border-gray-200 rounded-lg p-4 space-y-3 bg-white">
+                <div>
+                  <h4 className="font-bold text-gray-800 text-xs">Testar Envio de E-mail de Teste</h4>
+                  <p className="text-gray-500 text-[11px]">Envie uma mensagem de verificação para testar a comunicação com o provedor SMTP</p>
+                </div>
+
+                {smtpTestResult && (
+                  <div className={`p-3 rounded-md text-xs font-medium flex items-start space-x-2 ${
+                    smtpTestResult.success 
+                      ? "bg-emerald-50 border border-emerald-200 text-emerald-800" 
+                      : "bg-red-50 border border-red-200 text-red-800"
+                  }`}>
+                    {smtpTestResult.success ? (
+                      <Check className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
+                    )}
+                    <span>{smtpTestResult.message}</span>
+                  </div>
+                )}
+
+                <form onSubmit={handleTestSmtp} className="flex flex-col sm:flex-row gap-3">
+                  <input
+                    type="email"
+                    required
+                    value={testEmail}
+                    onChange={(e) => setTestEmail(e.target.value)}
+                    placeholder="Informe um e-mail para receber o teste (ex: seuemail@dominio.com)"
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+                  />
+                  <button
+                    type="submit"
+                    disabled={sendingSmtpTest}
+                    className="px-4 py-2 bg-[#0e131f] hover:bg-[#1a2336] text-white text-xs font-bold rounded-md transition flex items-center justify-center space-x-2 cursor-pointer shrink-0"
+                  >
+                    {sendingSmtpTest ? (
+                      <Loader className="animate-spin h-3.5 w-3.5" />
+                    ) : (
+                      <Mail className="h-3.5 w-3.5" />
+                    )}
+                    <span>Enviar E-mail de Teste</span>
+                  </button>
+                </form>
+              </div>
+
             </div>
           )}
 

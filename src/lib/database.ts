@@ -650,8 +650,99 @@ async function ensureMasterSeedData() {
         await execute("INSERT INTO sequences (type, `last_value`) VALUES (?, 0)", [t]);
       }
     }
+
+    // 8. Ensure Admin Profile & Security Columns and Tables
+    await ensureAdminSecurityColumnsAndTables();
   } catch (err) {
     console.error("Error seeding default database records:", err);
+  }
+}
+
+async function ensureAdminSecurityColumnsAndTables() {
+  try {
+    // 1. Columns on admins table
+    const adminCols = [
+      { name: "email", type: "VARCHAR(255) NULL" },
+      { name: "phone", type: "VARCHAR(50) NULL" },
+      { name: "active", type: "TINYINT(1) NOT NULL DEFAULT 1" },
+      { name: "email_verified_at", type: "TIMESTAMP NULL" },
+      { name: "password_changed_at", type: "TIMESTAMP NULL" }
+    ];
+
+    for (const col of adminCols) {
+      try {
+        const cols = await query(`SHOW COLUMNS FROM admins LIKE '${col.name}'`);
+        if (!cols || cols.length === 0) {
+          await execute(`ALTER TABLE admins ADD COLUMN ${col.name} ${col.type}`);
+          console.log(`[Database Migration] Added ${col.name} column to admins table.`);
+        }
+      } catch (e) {
+        // Ignore column addition error
+      }
+    }
+
+    // Ensure email unique index on admins
+    try {
+      const idxs = await query("SHOW INDEX FROM admins WHERE Key_name = 'uq_admins_email'");
+      if (!idxs || idxs.length === 0) {
+        await execute("CREATE UNIQUE INDEX uq_admins_email ON admins (email)");
+        console.log("[Database Migration] Created uq_admins_email index on admins table.");
+      }
+    } catch (e) {
+      // Ignore index check error
+    }
+
+    // 2. password_reset_tokens table
+    try {
+      await query("SELECT 1 FROM password_reset_tokens LIMIT 1");
+    } catch (e) {
+      console.log("[Database Migration] Creating password_reset_tokens table...");
+      await execute(`
+        CREATE TABLE password_reset_tokens (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            admin_id INT NOT NULL,
+            token_hash VARCHAR(64) NOT NULL UNIQUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP NOT NULL,
+            used_at TIMESTAMP NULL,
+            requested_ip VARCHAR(45) NULL,
+            requested_user_agent TEXT NULL,
+            FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE,
+            INDEX idx_prt_admin_id (admin_id),
+            INDEX idx_prt_token_hash (token_hash),
+            INDEX idx_prt_expires_at (expires_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+      console.log("[Database Migration] password_reset_tokens table created.");
+    }
+
+    // 3. admin_audit_logs table
+    try {
+      await query("SELECT 1 FROM admin_audit_logs LIMIT 1");
+    } catch (e) {
+      console.log("[Database Migration] Creating admin_audit_logs table...");
+      await execute(`
+        CREATE TABLE admin_audit_logs (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            admin_id INT NULL,
+            action VARCHAR(100) NOT NULL,
+            entity_type VARCHAR(100) NULL,
+            entity_id VARCHAR(100) NULL,
+            description TEXT NOT NULL,
+            metadata JSON NULL,
+            ip_address VARCHAR(45) NULL,
+            user_agent TEXT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_aal_admin_id (admin_id),
+            INDEX idx_aal_action (action),
+            INDEX idx_aal_entity_type (entity_type),
+            INDEX idx_aal_created_at (created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+      console.log("[Database Migration] admin_audit_logs table created.");
+    }
+  } catch (err) {
+    console.error("Error in ensureAdminSecurityColumnsAndTables:", err);
   }
 }
 

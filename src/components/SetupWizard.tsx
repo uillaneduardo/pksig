@@ -35,6 +35,7 @@ export default function SetupWizard({ onCompleted }: SetupWizardProps) {
   // Admin fields
   const [adminName, setAdminName] = useState("");
   const [adminUser, setAdminUser] = useState("");
+  const [adminEmail, setAdminEmail] = useState("");
   const [adminPass, setAdminPass] = useState("");
   const [adminPassConfirm, setAdminPassConfirm] = useState("");
 
@@ -139,7 +140,7 @@ export default function SetupWizard({ onCompleted }: SetupWizardProps) {
     try {
       const payload = {
         connection: { mode, type: dbType, host, port, database, user, password, ssl },
-        admin: { name: adminName, username: adminUser, password: adminPass },
+        admin: { name: adminName, username: adminUser, email: adminEmail.trim().toLowerCase(), password: adminPass },
         company: {
           name: companyName,
           tradeName: companyTrade,
@@ -172,8 +173,13 @@ export default function SetupWizard({ onCompleted }: SetupWizardProps) {
   };
 
   const validateAdminStep = () => {
-    if (!adminName || !adminUser || !adminPass) {
-      setErrorMsg("Por favor, preencha todos os campos obrigatórios");
+    if (!adminName || !adminUser || !adminEmail || !adminPass) {
+      setErrorMsg("Por favor, preencha todos os campos obrigatórios, incluindo o e-mail");
+      return false;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(adminEmail.trim())) {
+      setErrorMsg("Por favor, informe um endereço de e-mail válido");
       return false;
     }
     if (adminPass.length < 8) {
@@ -302,15 +308,27 @@ export default function SetupWizard({ onCompleted }: SetupWizardProps) {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Nome de Usuário (Login) *</label>
-                  <input
-                    type="text"
-                    value={adminUser}
-                    onChange={(e) => setAdminUser(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                    placeholder="Ex: uillan.silva"
-                  />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Nome de Usuário (Login) *</label>
+                    <input
+                      type="text"
+                      value={adminUser}
+                      onChange={(e) => setAdminUser(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      placeholder="Ex: uillan.silva"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">E-mail Cadastral *</label>
+                    <input
+                      type="email"
+                      value={adminEmail}
+                      onChange={(e) => setAdminEmail(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      placeholder="Ex: admin@empresa.com"
+                    />
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">

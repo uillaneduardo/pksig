@@ -4,7 +4,7 @@ import {
   Shield, LayoutDashboard, Users, FileText, Settings as SettingsIcon, 
   LogOut, AlertCircle, RefreshCw, ChevronRight, Menu, DollarSign,
   ChevronLeft, Database, Cloud, Upload, Download, Check, AlertTriangle,
-  Wifi, WifiOff
+  Wifi, WifiOff, User
 } from "lucide-react";
 import { fetchCsrfToken } from "./lib/api";
 import { DataService, type SyncStatus } from "./lib/dataService";
@@ -21,6 +21,7 @@ import ServiceOrderDetails from "./components/ServiceOrderDetails";
 import Settings from "./components/Settings";
 import Finance from "./components/Finance";
 import PwaStatusDashboard from "./components/PwaStatusDashboard";
+import AdminProfile from "./components/AdminProfile";
 
 export default function App() {
   // useRegisterSW hook for PWA update management
@@ -377,6 +378,19 @@ export default function App() {
             </button>
 
             <button
+              onClick={() => navigateTo("profile")}
+              className={`w-full flex items-center rounded-md font-semibold transition cursor-pointer ${
+                isSidebarCollapsed 
+                  ? "md:justify-center md:px-0 md:py-3 space-x-3 md:space-x-0" 
+                  : "space-x-3 px-3 py-2.5"
+              } ${activeTab === "profile" ? "bg-indigo-600 text-white font-bold" : "hover:bg-gray-800/50 hover:text-white"}`}
+              title={isSidebarCollapsed ? "Meu Perfil" : ""}
+            >
+              <User className="h-4.5 w-4.5 shrink-0" />
+              <span className={isSidebarCollapsed ? "md:hidden" : ""}>Meu Perfil</span>
+            </button>
+
+            <button
               onClick={() => navigateTo("settings")}
               className={`w-full flex items-center rounded-md font-semibold transition cursor-pointer ${
                 isSidebarCollapsed 
@@ -698,6 +712,15 @@ export default function App() {
           {activeTab === "financeiro" && (
             <Finance 
               currency={currency}
+            />
+          )}
+
+          {activeTab === "profile" && (
+            <AdminProfile 
+              currentUser={currentUser} 
+              onUserUpdated={(updatedUser) => {
+                setCurrentUser((prev: any) => ({ ...prev, ...updatedUser }));
+              }} 
             />
           )}
 
