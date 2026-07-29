@@ -122,8 +122,38 @@ export function DocumentPreview({ osId, documentType, initialData, snapshotInfo,
     }
   };
 
+  const docTypeFileNames: Record<string, string> = {
+    opening: "Comprovante_Abertura",
+    technical: "Relatorio_Tecnico",
+    budget: "Orcamento",
+    financial: "Guia_Financeira",
+    payment: "Comprovante_Pagamento",
+    warranty: "Termo_Garantia",
+    full: "Relatorio_Completo"
+  };
+
+  // Set document title for PDF print filename matching [TipoDocumento]_OS_[NumeroOS]
+  useEffect(() => {
+    if (docData?.order) {
+      const osCode = docData.order.code || osId;
+      const typeLabel = docTypeFileNames[documentType] || documentType;
+      const titleName = `${typeLabel}_OS_${osCode}`;
+      const previousTitle = document.title;
+      document.title = titleName;
+
+      return () => {
+        document.title = previousTitle;
+      };
+    }
+  }, [docData, documentType, osId]);
+
   // Handle trigger native print
   const handlePrint = () => {
+    if (docData?.order) {
+      const osCode = docData.order.code || osId;
+      const typeLabel = docTypeFileNames[documentType] || documentType;
+      document.title = `${typeLabel}_OS_${osCode}`;
+    }
     window.print();
   };
 
