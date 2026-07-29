@@ -1377,11 +1377,11 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
                       <div className="w-16 h-16 flex-shrink-0 bg-gray-100 rounded border border-gray-200 overflow-hidden flex items-center justify-center relative group">
                         {isImage ? (
                           <img
-                            src={`/api/attachments/${file.id}`}
+                            src={file.thumbnail_view_url || `/api/attachments/${file.id}/thumbnail`}
                             referrerPolicy="no-referrer"
                             className="w-full h-full object-cover cursor-zoom-in"
                             alt={file.filename}
-                            onClick={() => window.open(`/api/attachments/${file.id}`, "_blank")}
+                            onClick={() => window.open(file.original_view_url || `/api/attachments/${file.id}/view`, "_blank")}
                           />
                         ) : isVideo ? (
                           <video

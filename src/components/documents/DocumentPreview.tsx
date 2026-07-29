@@ -368,7 +368,7 @@ export function DocumentPreview({ osId, documentType, initialData, snapshotInfo,
                       className="rounded text-indigo-600"
                     />
                     <img
-                      src={att.view_url}
+                      src={att.thumbnail_view_url || att.view_url || `/api/attachments/${att.id}/thumbnail`}
                       alt={att.filename}
                       className="w-8 h-8 object-cover rounded border"
                     />

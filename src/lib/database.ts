@@ -696,7 +696,17 @@ async function ensureAllSchemaTablesAndColumnsExist() {
       { name: "description", type: "TEXT NULL" },
       { name: "category", type: "VARCHAR(50) NULL" },
       { name: "uploaded_by", type: "INT NULL" },
-      { name: "file_hash", type: "VARCHAR(64) NULL" }
+      { name: "file_hash", type: "VARCHAR(64) NULL" },
+      { name: "thumbnail_path", type: "VARCHAR(255) NULL" },
+      { name: "print_path", type: "VARCHAR(255) NULL" },
+      { name: "original_width", type: "INT NULL" },
+      { name: "original_height", type: "INT NULL" },
+      { name: "print_width", type: "INT NULL" },
+      { name: "print_height", type: "INT NULL" },
+      { name: "original_size", type: "INT NULL" },
+      { name: "print_size", type: "INT NULL" },
+      { name: "processing_status", type: "VARCHAR(30) NULL" },
+      { name: "processing_error", type: "TEXT NULL" }
     ];
     for (const col of attachmentCols) {
       try {

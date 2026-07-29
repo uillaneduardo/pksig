@@ -45,7 +45,7 @@ export function PhotoGrid({ attachments = [], title = "Fotos do Atendimento", em
               <div key={img.id} className="photo-card border border-gray-300 rounded p-1.5 bg-white flex flex-col justify-between">
                 <div className="flex items-center justify-center bg-gray-50 rounded overflow-hidden photo-img-container">
                   <img
-                    src={img.view_url || `/api/attachments/${img.id}/view`}
+                    src={img.print_view_url || img.view_url || `/api/attachments/${img.id}/print`}
                     alt={img.description || img.filename}
                     className="photo-img max-h-[140px] w-auto max-w-full object-contain"
                   />

@@ -492,6 +492,16 @@ CREATE TABLE attachments (
     category VARCHAR(50) NULL,
     uploaded_by INT NULL,
     file_hash VARCHAR(64) NULL,
+    thumbnail_path VARCHAR(255) NULL,
+    print_path VARCHAR(255) NULL,
+    original_width INT NULL,
+    original_height INT NULL,
+    print_width INT NULL,
+    print_height INT NULL,
+    original_size INT NULL,
+    print_size INT NULL,
+    processing_status VARCHAR(30) NULL,
+    processing_error TEXT NULL,
     uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (service_order_id) REFERENCES service_orders(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
