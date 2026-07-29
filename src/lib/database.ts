@@ -64,7 +64,7 @@ export function generateFingerprint(
 }
 
 export function ensureStorageDirsExist() {
-  const subdirs = ["config", "backups", "attachments", "documents"];
+  const subdirs = ["config", "backups", "attachments", "attachments/thumbnail", "attachments/document", "attachments/print", "documents"];
   const storageRoot = path.join(process.cwd(), "storage");
   if (!fs.existsSync(storageRoot)) {
     fs.mkdirSync(storageRoot, { recursive: true });
@@ -949,15 +949,20 @@ async function ensureAllSchemaTablesAndColumnsExist() {
       { name: "uploaded_by", type: "INT NULL" },
       { name: "file_hash", type: "VARCHAR(64) NULL" },
       { name: "thumbnail_path", type: "VARCHAR(255) NULL" },
+      { name: "document_path", type: "VARCHAR(255) NULL" },
       { name: "print_path", type: "VARCHAR(255) NULL" },
       { name: "original_width", type: "INT NULL" },
       { name: "original_height", type: "INT NULL" },
+      { name: "document_width", type: "INT NULL" },
+      { name: "document_height", type: "INT NULL" },
       { name: "print_width", type: "INT NULL" },
       { name: "print_height", type: "INT NULL" },
       { name: "original_size", type: "INT NULL" },
+      { name: "document_size", type: "INT NULL" },
       { name: "print_size", type: "INT NULL" },
       { name: "processing_status", type: "VARCHAR(30) NULL" },
-      { name: "processing_error", type: "TEXT NULL" }
+      { name: "processing_error", type: "TEXT NULL" },
+      { name: "processed_at", type: "DATETIME NULL" }
     ];
     for (const col of attachmentCols) {
       try {

@@ -76,29 +76,39 @@ async function runOptimization() {
         await execute(
           `UPDATE attachments SET 
             thumbnail_path = ?, 
+            document_path = ?,
             print_path = ?, 
             original_width = ?, 
             original_height = ?, 
+            document_width = ?,
+            document_height = ?,
             print_width = ?, 
             print_height = ?, 
             original_size = ?, 
+            document_size = ?,
             print_size = ?, 
             file_hash = ?, 
             processing_status = ?, 
-            processing_error = ? 
+            processing_error = ?,
+            processed_at = ?
           WHERE id = ?`,
           [
             result.thumbnailPath,
+            result.documentPath,
             result.printPath,
             result.originalWidth,
             result.originalHeight,
+            result.documentWidth,
+            result.documentHeight,
             result.printWidth,
             result.printHeight,
             result.originalSize,
+            result.documentSize,
             result.printSize,
             result.fileHash,
             result.processingStatus,
             result.processingError || null,
+            new Date(),
             att.id
           ]
         );

@@ -61,6 +61,51 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
   const [sendingSmtpTest, setSendingSmtpTest] = useState(false);
   const [smtpTestResult, setSmtpTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
+  // Attachment Optimization States
+  const [attachmentStats, setAttachmentStats] = useState<any>(null);
+  const [loadingAttachmentStats, setLoadingAttachmentStats] = useState(false);
+  const [optimizingImages, setOptimizingImages] = useState(false);
+  const [optimizationResult, setOptimizationResult] = useState<any>(null);
+
+  const fetchAttachmentStats = async () => {
+    setLoadingAttachmentStats(true);
+    try {
+      const res = await fetch("/api/admin/attachment-stats");
+      if (res.ok) {
+        const data = await res.json();
+        setAttachmentStats(data.stats);
+      }
+    } catch (err) {
+      console.error("Erro ao carregar estatísticas de anexos:", err);
+    } finally {
+      setLoadingAttachmentStats(false);
+    }
+  };
+
+  const handleOptimizeImages = async (onlyFailed: boolean = false) => {
+    setOptimizingImages(true);
+    setOptimizationResult(null);
+    try {
+      const res = await fetch("/api/admin/optimize-images", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ only_failed: onlyFailed })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setOptimizationResult(data.summary);
+        await fetchAttachmentStats();
+      } else {
+        alert(`Erro no processamento: ${data.error || "Falha ao otimizar imagens."}`);
+      }
+    } catch (err: any) {
+      console.error("Erro ao otimizar imagens:", err);
+      alert("Erro de conexão ao executar rotina de otimização.");
+    } finally {
+      setOptimizingImages(false);
+    }
+  };
+
   const fetchSmtpStatus = async () => {
     setLoadingSmtp(true);
     try {
@@ -792,6 +837,7 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
       handleVerifyDbIntegrity();
       fetchDiagnosticInfo();
       fetchConnectionsList();
+      fetchAttachmentStats();
     }
     if (activeSection === "financeiro") {
       fetchFinCategories();
@@ -1909,6 +1955,134 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
                       <span className="font-bold text-red-600 text-sm">{dbDiagnosticInfo?.localStats?.conflictCount ?? 0}</span>
                     </div>
                   </div>
+                </div>
+              </div>
+
+              {/* ROTINA ADMINISTRATIVA DE OTIMIZAÇÃO DE FOTOS E ANEXOS */}
+              <div className="bg-white border border-gray-200 rounded-md p-5 space-y-4 shadow-sm">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-gray-100 pb-3 gap-2">
+                  <div>
+                    <h4 className="font-bold text-gray-900 text-xs flex items-center">
+                      <HardDrive className="h-4.5 w-4.5 mr-2 text-indigo-600" />
+                      Otimização de Fotos e Anexos para Documentos (PDFs)
+                    </h4>
+                    <p className="text-gray-500 text-[11px] mt-0.5">
+                      Gera versões otimizadas de imagens (máx 1200px, JPEG progressivo q76) para inclusão leve em documentos A4 e PDFs, preservando as fotos originais intactas no servidor.
+                    </p>
+                  </div>
+                  <div className="flex items-center space-x-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={fetchAttachmentStats}
+                      disabled={loadingAttachmentStats}
+                      className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-[11px] font-bold transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${loadingAttachmentStats ? "animate-spin" : ""}`} />
+                      <span>ATUALIZAR</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* STATS GRID */}
+                {attachmentStats ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-center">
+                    <div className="bg-gray-50 border border-gray-200 rounded p-2.5">
+                      <span className="text-gray-400 text-[10px] block font-medium">Total de Fotos</span>
+                      <span className="font-bold text-gray-900 text-sm">{attachmentStats.total_images}</span>
+                    </div>
+                    <div className="bg-emerald-50 border border-emerald-200 rounded p-2.5">
+                      <span className="text-emerald-700 text-[10px] block font-medium">Otimizadas</span>
+                      <span className="font-bold text-emerald-900 text-sm">{attachmentStats.optimized_count}</span>
+                    </div>
+                    <div className="bg-amber-50 border border-amber-200 rounded p-2.5">
+                      <span className="text-amber-700 text-[10px] block font-medium">Pendentes</span>
+                      <span className="font-bold text-amber-900 text-sm">{attachmentStats.pending_count}</span>
+                    </div>
+                    <div className="bg-red-50 border border-red-200 rounded p-2.5">
+                      <span className="text-red-700 text-[10px] block font-medium">Falhas</span>
+                      <span className="font-bold text-red-900 text-sm">{attachmentStats.failed_count}</span>
+                    </div>
+                    <div className="bg-indigo-50 border border-indigo-200 rounded p-2.5">
+                      <span className="text-indigo-700 text-[10px] block font-medium">Tamanho Documentos</span>
+                      <span className="font-bold text-indigo-900 text-sm">{attachmentStats.total_document_mb} MB</span>
+                      <span className="text-[9px] text-gray-400 block line-through">Orig: {attachmentStats.total_original_mb} MB</span>
+                    </div>
+                    <div className="bg-emerald-50 border border-emerald-200 rounded p-2.5">
+                      <span className="text-emerald-700 text-[10px] block font-medium">Economia Total</span>
+                      <span className="font-bold text-emerald-800 text-sm">+{attachmentStats.saved_mb} MB</span>
+                      <span className="text-[9px] text-emerald-600 block font-semibold">({attachmentStats.reduction_percent}% menor)</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-4 text-center text-xs text-gray-400">
+                    Carregando estatísticas dos anexos...
+                  </div>
+                )}
+
+                {/* LAST RUN SUMMARY */}
+                {optimizationResult && (
+                  <div className="bg-blue-50 border border-blue-200 rounded p-3 text-xs text-blue-900 space-y-1">
+                    <div className="font-bold flex items-center text-blue-800">
+                      <Check className="h-4 w-4 mr-1 text-blue-600" />
+                      Última Otimização Concluída
+                    </div>
+                    <p className="text-[11px]">
+                      Encontradas: {optimizationResult.total_found} | Processadas: {optimizationResult.processed} | Sucesso: {optimizationResult.succeeded} | Falhas: {optimizationResult.failed} | Espaço Economizado: +{optimizationResult.saved_mb} MB
+                    </p>
+                  </div>
+                )}
+
+                {/* FAILED ITEMS TABLE IF ANY */}
+                {attachmentStats?.failed_items && attachmentStats.failed_items.length > 0 && (
+                  <div className="bg-red-50/60 border border-red-200 rounded p-3 space-y-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-red-800 flex items-center">
+                        <AlertCircle className="h-4 w-4 mr-1.5 text-red-600" />
+                        Fotos com Falha no Processamento ({attachmentStats.failed_items.length})
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleOptimizeImages(true)}
+                        disabled={optimizingImages}
+                        className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-[10px] font-bold transition cursor-pointer disabled:opacity-50"
+                      >
+                        Repetir Apenas Falhas
+                      </button>
+                    </div>
+                    <div className="max-h-32 overflow-y-auto space-y-1 text-[11px]">
+                      {attachmentStats.failed_items.map((item: any) => (
+                        <div key={item.id} className="bg-white p-1.5 rounded border border-red-100 flex items-center justify-between">
+                          <span className="font-mono text-gray-800 truncate max-w-xs">#{item.id} - {item.filename}</span>
+                          <span className="text-red-600 font-semibold text-[10px] truncate max-w-sm">{item.error}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* CONTROL BUTTONS */}
+                <div className="flex flex-wrap items-center gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => handleOptimizeImages(false)}
+                    disabled={optimizingImages}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-bold transition flex items-center space-x-2 cursor-pointer disabled:opacity-50 shadow-xs"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${optimizingImages ? "animate-spin" : ""}`} />
+                    <span>{optimizingImages ? "PROCESSANDO IMAGENS..." : "EXECUTAR OTIMIZAÇÃO DE FOTOS ANTIGAS"}</span>
+                  </button>
+
+                  {attachmentStats?.failed_count > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => handleOptimizeImages(true)}
+                      disabled={optimizingImages}
+                      className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded text-xs font-bold transition flex items-center space-x-2 cursor-pointer disabled:opacity-50 shadow-xs"
+                    >
+                      <RefreshCw className={`h-4 w-4 ${optimizingImages ? "animate-spin" : ""}`} />
+                      <span>REPETIR APENAS FALHAS</span>
+                    </button>
+                  )}
                 </div>
               </div>
 

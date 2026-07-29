@@ -2777,15 +2777,16 @@ app.get("/api/service-orders/:id", requireAuth, async (req: any, res: any) => {
 
     // Load attachments
     const attRows = await query(
-      "SELECT id, service_order_id, filename, file_size, mime_type, description, category, uploaded_at, thumbnail_path, print_path, original_width, original_height, print_width, print_height, original_size, print_size, processing_status FROM attachments WHERE service_order_id = ? ORDER BY id DESC", 
+      "SELECT id, service_order_id, filename, file_size, mime_type, description, category, uploaded_at, thumbnail_path, document_path, print_path, original_width, original_height, document_width, document_height, print_width, print_height, original_size, document_size, print_size, processing_status FROM attachments WHERE service_order_id = ? ORDER BY id DESC", 
       [id]
     );
     const attachmentRecords = attRows.map((att: any) => ({
       ...att,
       original_view_url: `/api/attachments/${att.id}/view`,
-      thumbnail_view_url: att.thumbnail_path ? `/api/attachments/${att.id}/thumbnail` : `/api/attachments/${att.id}/view`,
-      print_view_url: att.print_path ? `/api/attachments/${att.id}/print` : `/api/attachments/${att.id}/view`,
-      view_url: att.print_path ? `/api/attachments/${att.id}/print` : `/api/attachments/${att.id}/view`
+      thumbnail_view_url: `/api/attachments/${att.id}/thumbnail`,
+      document_view_url: `/api/attachments/${att.id}/document`,
+      print_view_url: `/api/attachments/${att.id}/document`,
+      view_url: `/api/attachments/${att.id}/document`
     }));
 
     return res.json({
@@ -3813,31 +3814,41 @@ app.post("/api/service-orders/:id/attachments", requireAuth, uploadSingle, async
   try {
     const fullPath = path.join(process.cwd(), relativePath);
     let thumbnailPath: string | null = null;
+    let documentPath: string | null = null;
     let printPath: string | null = null;
     let originalWidth: number | null = null;
     let originalHeight: number | null = null;
+    let documentWidth: number | null = null;
+    let documentHeight: number | null = null;
     let printWidth: number | null = null;
     let printHeight: number | null = null;
     let originalSize = fileSize;
+    let documentSize: number | null = null;
     let printSize: number | null = null;
     let fileHash: string | null = null;
     let processingStatus: string | null = null;
     let processingError: string | null = null;
+    let processedAt: Date | null = null;
 
     if (isProcessableImage(mimeType, filename)) {
       try {
         const imgResult = await processImageFile(fullPath, ATTACHMENTS_DIR, filename);
         thumbnailPath = imgResult.thumbnailPath;
-        printPath = imgResult.printPath;
+        documentPath = imgResult.documentPath;
+        printPath = imgResult.printPath || imgResult.documentPath;
         originalWidth = imgResult.originalWidth;
         originalHeight = imgResult.originalHeight;
-        printWidth = imgResult.printWidth;
-        printHeight = imgResult.printHeight;
+        documentWidth = imgResult.documentWidth;
+        documentHeight = imgResult.documentHeight;
+        printWidth = imgResult.printWidth || imgResult.documentWidth;
+        printHeight = imgResult.printHeight || imgResult.documentHeight;
         originalSize = imgResult.originalSize;
-        printSize = imgResult.printSize;
+        documentSize = imgResult.documentSize;
+        printSize = imgResult.printSize || imgResult.documentSize;
         fileHash = imgResult.fileHash;
         processingStatus = imgResult.processingStatus;
         processingError = imgResult.processingError || null;
+        processedAt = imgResult.processedAt || new Date();
       } catch (procErr: any) {
         console.error("Image processing error during upload:", procErr);
         processingStatus = "failed";
@@ -3856,14 +3867,16 @@ app.post("/api/service-orders/:id/attachments", requireAuth, uploadSingle, async
     const result = await execute(`
       INSERT INTO attachments (
         service_order_id, filename, file_path, file_size, mime_type, description,
-        file_hash, thumbnail_path, print_path, original_width, original_height,
-        print_width, print_height, original_size, print_size, processing_status, processing_error
+        file_hash, thumbnail_path, document_path, print_path, original_width, original_height,
+        document_width, document_height, print_width, print_height, original_size, document_size, print_size,
+        processing_status, processing_error, processed_at
       ) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id, filename, relativePath, fileSize, mimeType, description || null,
-        fileHash, thumbnailPath, printPath, originalWidth, originalHeight,
-        printWidth, printHeight, originalSize, printSize, processingStatus, processingError
+        fileHash, thumbnailPath, documentPath, printPath, originalWidth, originalHeight,
+        documentWidth, documentHeight, printWidth, printHeight, originalSize, documentSize, printSize,
+        processingStatus, processingError, processedAt
       ]
     );
 
@@ -3879,11 +3892,13 @@ app.post("/api/service-orders/:id/attachments", requireAuth, uploadSingle, async
         mime_type: mimeType,
         description: description || null,
         thumbnail_path: thumbnailPath,
-        print_path: printPath,
+        document_path: documentPath || printPath,
+        print_path: printPath || documentPath,
         original_view_url: `/api/attachments/${insertId}/view`,
-        thumbnail_view_url: thumbnailPath ? `/api/attachments/${insertId}/thumbnail` : `/api/attachments/${insertId}/view`,
-        print_view_url: printPath ? `/api/attachments/${insertId}/print` : `/api/attachments/${insertId}/view`,
-        view_url: printPath ? `/api/attachments/${insertId}/print` : `/api/attachments/${insertId}/view`,
+        thumbnail_view_url: `/api/attachments/${insertId}/thumbnail`,
+        document_view_url: `/api/attachments/${insertId}/document`,
+        print_view_url: `/api/attachments/${insertId}/document`,
+        view_url: `/api/attachments/${insertId}/document`,
         uploaded_at: new Date()
       } 
     });
@@ -4041,8 +4056,8 @@ app.get("/api/attachments/:id/view", requireAuth, async (req: any, res: any) => 
   }
 });
 
-// View 1200px print version inline for A4 documents / PDF rendering
-app.get("/api/attachments/:id/print", requireAuth, async (req: any, res: any) => {
+// View 1200px document version inline for A4 documents / PDF rendering
+app.get(["/api/attachments/:id/document", "/api/attachments/:id/print"], requireAuth, async (req: any, res: any) => {
   const { id } = req.params;
   try {
     const records = await query("SELECT * FROM attachments WHERE id = ?", [id]);
@@ -4051,47 +4066,58 @@ app.get("/api/attachments/:id/print", requireAuth, async (req: any, res: any) =>
       return res.status(404).json({ error: "Anexo não encontrado" });
     }
 
-    // 1. Return print version if already generated and exists
-    if (record.print_path) {
-      const check = getSecureAttachmentPath(record.print_path);
+    // 1. Return document/print version if already generated and exists on disk
+    const targetRelPath = record.document_path || record.print_path;
+    if (targetRelPath) {
+      const check = getSecureAttachmentPath(targetRelPath);
       if (check.valid && check.absolutePath) {
-        const mime = record.print_path.endsWith(".webp") ? "image/webp" : "image/jpeg";
-        res.setHeader("Content-Type", mime);
+        res.setHeader("Content-Type", "image/jpeg");
         res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
         return res.sendFile(check.absolutePath);
       }
     }
 
-    // 2. On-the-fly lazy generation if print version is missing
+    // 2. On-the-fly lazy generation if document version is missing
     if (record.file_path && isProcessableImage(record.mime_type, record.filename)) {
       const origCheck = getSecureAttachmentPath(record.file_path);
       if (origCheck.valid && origCheck.absolutePath) {
         try {
           const imgResult = await processImageFile(origCheck.absolutePath, ATTACHMENTS_DIR, record.filename);
-          if (imgResult.printPath) {
+          if (imgResult.documentPath || imgResult.printPath) {
             await execute(
-              `UPDATE attachments SET thumbnail_path = ?, print_path = ?, original_width = ?, original_height = ?, print_width = ?, print_height = ?, original_size = ?, print_size = ?, file_hash = ?, processing_status = ?, processing_error = ? WHERE id = ?`,
+              `UPDATE attachments SET 
+                thumbnail_path = ?, document_path = ?, print_path = ?, 
+                original_width = ?, original_height = ?, 
+                document_width = ?, document_height = ?, print_width = ?, print_height = ?, 
+                original_size = ?, document_size = ?, print_size = ?, 
+                file_hash = ?, processing_status = ?, processing_error = ?, processed_at = ? 
+              WHERE id = ?`,
               [
-                imgResult.thumbnailPath, imgResult.printPath, imgResult.originalWidth, imgResult.originalHeight,
-                imgResult.printWidth, imgResult.printHeight, imgResult.originalSize, imgResult.printSize,
-                imgResult.fileHash, imgResult.processingStatus, imgResult.processingError || null, id
+                imgResult.thumbnailPath, imgResult.documentPath, imgResult.printPath,
+                imgResult.originalWidth, imgResult.originalHeight,
+                imgResult.documentWidth, imgResult.documentHeight, imgResult.printWidth, imgResult.printHeight,
+                imgResult.originalSize, imgResult.documentSize, imgResult.printSize,
+                imgResult.fileHash, imgResult.processingStatus, imgResult.processingError || null, new Date(), id
               ]
             );
-            const newPrintCheck = getSecureAttachmentPath(imgResult.printPath);
-            if (newPrintCheck.valid && newPrintCheck.absolutePath) {
-              const mime = imgResult.printPath.endsWith(".webp") ? "image/webp" : "image/jpeg";
-              res.setHeader("Content-Type", mime);
-              res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-              return res.sendFile(newPrintCheck.absolutePath);
+            const newDocRelPath = imgResult.documentPath || imgResult.printPath;
+            if (newDocRelPath) {
+              const newDocCheck = getSecureAttachmentPath(newDocRelPath);
+              if (newDocCheck.valid && newDocCheck.absolutePath) {
+                res.setHeader("Content-Type", "image/jpeg");
+                res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+                return res.sendFile(newDocCheck.absolutePath);
+              }
             }
           }
-        } catch (lazyErr) {
-          console.error("Erro na geração preguiçosa da versão de impressão:", lazyErr);
+        } catch (lazyErr: any) {
+          console.error("Erro na geração preguiçosa da versão de documento:", lazyErr);
+          await execute(`UPDATE attachments SET processing_status = 'failed', processing_error = ? WHERE id = ?`, [lazyErr.message || "Erro na geração preguiçosa", id]);
         }
       }
     }
 
-    // 3. Fallback to original file view
+    // 3. Fallback to original file view if image processing is not applicable
     const check = getSecureAttachmentPath(record.file_path);
     if (!check.valid || !check.absolutePath) {
       return res.status(check.status).json({ error: check.error });
@@ -4100,12 +4126,12 @@ app.get("/api/attachments/:id/print", requireAuth, async (req: any, res: any) =>
     res.setHeader("Content-Type", record.mime_type || "application/octet-stream");
     return res.sendFile(check.absolutePath);
   } catch (err) {
-    console.error("Erro ao servir versão de impressão:", err);
-    return res.status(500).json({ error: "Erro interno ao servir imagem de impressão." });
+    console.error("Erro ao servir versão de documento:", err);
+    return res.status(500).json({ error: "Erro interno ao servir imagem do documento." });
   }
 });
 
-// View 320px thumbnail inline for list views and UI grids
+// View 300px thumbnail inline for list views and UI grids
 app.get("/api/attachments/:id/thumbnail", requireAuth, async (req: any, res: any) => {
   const { id } = req.params;
   try {
@@ -4119,8 +4145,7 @@ app.get("/api/attachments/:id/thumbnail", requireAuth, async (req: any, res: any
     if (record.thumbnail_path) {
       const check = getSecureAttachmentPath(record.thumbnail_path);
       if (check.valid && check.absolutePath) {
-        const mime = record.thumbnail_path.endsWith(".webp") ? "image/webp" : "image/jpeg";
-        res.setHeader("Content-Type", mime);
+        res.setHeader("Content-Type", "image/jpeg");
         res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
         return res.sendFile(check.absolutePath);
       }
@@ -4134,29 +4159,36 @@ app.get("/api/attachments/:id/thumbnail", requireAuth, async (req: any, res: any
           const imgResult = await processImageFile(origCheck.absolutePath, ATTACHMENTS_DIR, record.filename);
           if (imgResult.thumbnailPath) {
             await execute(
-              `UPDATE attachments SET thumbnail_path = ?, print_path = ?, original_width = ?, original_height = ?, print_width = ?, print_height = ?, original_size = ?, print_size = ?, file_hash = ?, processing_status = ?, processing_error = ? WHERE id = ?`,
+              `UPDATE attachments SET 
+                thumbnail_path = ?, document_path = ?, print_path = ?, 
+                original_width = ?, original_height = ?, 
+                document_width = ?, document_height = ?, print_width = ?, print_height = ?, 
+                original_size = ?, document_size = ?, print_size = ?, 
+                file_hash = ?, processing_status = ?, processing_error = ?, processed_at = ? 
+              WHERE id = ?`,
               [
-                imgResult.thumbnailPath, imgResult.printPath, imgResult.originalWidth, imgResult.originalHeight,
-                imgResult.printWidth, imgResult.printHeight, imgResult.originalSize, imgResult.printSize,
-                imgResult.fileHash, imgResult.processingStatus, imgResult.processingError || null, id
+                imgResult.thumbnailPath, imgResult.documentPath, imgResult.printPath,
+                imgResult.originalWidth, imgResult.originalHeight,
+                imgResult.documentWidth, imgResult.documentHeight, imgResult.printWidth, imgResult.printHeight,
+                imgResult.originalSize, imgResult.documentSize, imgResult.printSize,
+                imgResult.fileHash, imgResult.processingStatus, imgResult.processingError || null, new Date(), id
               ]
             );
             const newThumbCheck = getSecureAttachmentPath(imgResult.thumbnailPath);
             if (newThumbCheck.valid && newThumbCheck.absolutePath) {
-              const mime = imgResult.thumbnailPath.endsWith(".webp") ? "image/webp" : "image/jpeg";
-              res.setHeader("Content-Type", mime);
+              res.setHeader("Content-Type", "image/jpeg");
               res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
               return res.sendFile(newThumbCheck.absolutePath);
             }
           }
-        } catch (lazyErr) {
+        } catch (lazyErr: any) {
           console.error("Erro na geração preguiçosa da miniatura:", lazyErr);
         }
       }
     }
 
-    // 3. Fallback to print or original file
-    let fallbackPath = record.print_path || record.file_path;
+    // 3. Fallback to document or original file
+    let fallbackPath = record.document_path || record.print_path || record.file_path;
     const check = getSecureAttachmentPath(fallbackPath);
     if (!check.valid || !check.absolutePath) {
       return res.status(check.status).json({ error: check.error });
@@ -4170,52 +4202,153 @@ app.get("/api/attachments/:id/thumbnail", requireAuth, async (req: any, res: any
   }
 });
 
+// Admin endpoint to get attachment statistics and diagnostic info
+app.get("/api/admin/attachment-stats", requireAuth, async (req: any, res: any) => {
+  try {
+    const allAttachments = await query(`
+      SELECT id, filename, file_size, mime_type, document_path, print_path, thumbnail_path, 
+             original_size, document_size, print_size, processing_status, processing_error
+      FROM attachments
+    `);
+
+    const imageAttachments = allAttachments.filter((att: any) => isProcessableImage(att.mime_type, att.filename));
+
+    const totalCount = allAttachments.length;
+    const totalImages = imageAttachments.length;
+    let optimizedCount = 0;
+    let pendingCount = 0;
+    let failedCount = 0;
+    let totalOriginalBytes = 0;
+    let totalDocumentBytes = 0;
+
+    const failedItems: any[] = [];
+
+    for (const att of imageAttachments) {
+      const origSize = Number(att.original_size || att.file_size || 0);
+      const docSize = Number(att.document_size || att.print_size || 0);
+
+      totalOriginalBytes += origSize;
+
+      if (att.processing_status === "completed" && (att.document_path || att.print_path)) {
+        optimizedCount++;
+        totalDocumentBytes += (docSize || origSize);
+      } else if (att.processing_status === "failed") {
+        failedCount++;
+        failedItems.push({
+          id: att.id,
+          filename: att.filename,
+          error: att.processing_error || "Falha desconhecida no processamento"
+        });
+      } else {
+        pendingCount++;
+      }
+    }
+
+    const savedBytes = Math.max(0, totalOriginalBytes - totalDocumentBytes);
+    const savedMb = (savedBytes / (1024 * 1024)).toFixed(2);
+    const totalOriginalMb = (totalOriginalBytes / (1024 * 1024)).toFixed(2);
+    const totalDocumentMb = (totalDocumentBytes / (1024 * 1024)).toFixed(2);
+    const reductionPercent = totalOriginalBytes > 0 && totalDocumentBytes > 0
+      ? Math.round((1 - totalDocumentBytes / totalOriginalBytes) * 100)
+      : 0;
+
+    return res.json({
+      success: true,
+      stats: {
+        total_attachments: totalCount,
+        total_images: totalImages,
+        optimized_count: optimizedCount,
+        pending_count: pendingCount,
+        failed_count: failedCount,
+        total_original_mb: Number(totalOriginalMb),
+        total_document_mb: Number(totalDocumentMb),
+        saved_mb: Number(savedMb),
+        reduction_percent: reductionPercent,
+        failed_items: failedItems
+      }
+    });
+  } catch (err: any) {
+    console.error("Erro ao obter estatísticas de anexos:", err);
+    return res.status(500).json({ error: err.message || "Erro ao consultar estatísticas de anexos." });
+  }
+});
+
 // Admin endpoint to trigger image optimization on existing attachments
 app.post("/api/admin/optimize-images", requireAuth, async (req: any, res: any) => {
   try {
-    const unoptimized = await query(`
-      SELECT id, filename, file_path, mime_type 
-      FROM attachments 
-      WHERE (print_path IS NULL OR thumbnail_path IS NULL OR processing_status IS NULL OR processing_status != 'completed')
-      ORDER BY id ASC
-    `);
+    const { only_failed, force_reprocess } = req.body || {};
 
-    const imageAttachments = unoptimized.filter((att: any) => isProcessableImage(att.mime_type, att.filename));
+    let sql = `
+      SELECT id, filename, file_path, mime_type, processing_status, file_size
+      FROM attachments
+    `;
+
+    if (only_failed) {
+      sql += ` WHERE processing_status = 'failed'`;
+    } else if (!force_reprocess) {
+      sql += ` WHERE (document_path IS NULL OR print_path IS NULL OR thumbnail_path IS NULL OR processing_status IS NULL OR processing_status != 'completed')`;
+    }
+
+    sql += ` ORDER BY id ASC`;
+
+    const candidates = await query(sql);
+    const imageAttachments = candidates.filter((att: any) => isProcessableImage(att.mime_type, att.filename));
 
     let processed = 0;
     let succeeded = 0;
     let failed = 0;
+    let totalOriginalBytes = 0;
+    let totalDocumentBytes = 0;
+    const failedItems: any[] = [];
 
     for (const att of imageAttachments) {
       const absPath = path.join(process.cwd(), att.file_path);
       if (!fs.existsSync(absPath)) {
-        await execute(`UPDATE attachments SET processing_status = 'failed', processing_error = 'Arquivo original não encontrado' WHERE id = ?`, [att.id]);
+        await execute(`UPDATE attachments SET processing_status = 'failed', processing_error = 'Arquivo original não encontrado no disco' WHERE id = ?`, [att.id]);
         failed++;
         processed++;
+        failedItems.push({ id: att.id, filename: att.filename, error: "Arquivo original não encontrado no disco" });
         continue;
       }
 
       try {
         const result = await processImageFile(absPath, ATTACHMENTS_DIR, att.filename);
         await execute(
-          `UPDATE attachments SET thumbnail_path = ?, print_path = ?, original_width = ?, original_height = ?, print_width = ?, print_height = ?, original_size = ?, print_size = ?, file_hash = ?, processing_status = ?, processing_error = ? WHERE id = ?`,
+          `UPDATE attachments SET 
+            thumbnail_path = ?, document_path = ?, print_path = ?, 
+            original_width = ?, original_height = ?, 
+            document_width = ?, document_height = ?, print_width = ?, print_height = ?, 
+            original_size = ?, document_size = ?, print_size = ?, 
+            file_hash = ?, processing_status = ?, processing_error = ?, processed_at = ? 
+          WHERE id = ?`,
           [
-            result.thumbnailPath, result.printPath, result.originalWidth, result.originalHeight,
-            result.printWidth, result.printHeight, result.originalSize, result.printSize,
-            result.fileHash, result.processingStatus, result.processingError || null, att.id
+            result.thumbnailPath, result.documentPath, result.printPath,
+            result.originalWidth, result.originalHeight,
+            result.documentWidth, result.documentHeight, result.printWidth, result.printHeight,
+            result.originalSize, result.documentSize, result.printSize,
+            result.fileHash, result.processingStatus, result.processingError || null, new Date(), att.id
           ]
         );
+
+        totalOriginalBytes += result.originalSize;
+
         if (result.processingStatus === "completed") {
           succeeded++;
+          totalDocumentBytes += (result.documentSize || result.originalSize);
         } else {
           failed++;
+          failedItems.push({ id: att.id, filename: att.filename, error: result.processingError || "Erro desconhecido" });
         }
       } catch (e: any) {
         failed++;
+        failedItems.push({ id: att.id, filename: att.filename, error: e.message || "Erro de processamento" });
         await execute(`UPDATE attachments SET processing_status = 'failed', processing_error = ? WHERE id = ?`, [e.message || "Erro de processamento", att.id]);
       }
       processed++;
     }
+
+    const savedBytes = Math.max(0, totalOriginalBytes - totalDocumentBytes);
+    const savedMb = (savedBytes / (1024 * 1024)).toFixed(2);
 
     return res.json({
       success: true,
@@ -4223,7 +4356,11 @@ app.post("/api/admin/optimize-images", requireAuth, async (req: any, res: any) =
         total_found: imageAttachments.length,
         processed,
         succeeded,
-        failed
+        failed,
+        total_original_mb: Number((totalOriginalBytes / (1024 * 1024)).toFixed(2)),
+        total_document_mb: Number((totalDocumentBytes / (1024 * 1024)).toFixed(2)),
+        saved_mb: Number(savedMb),
+        failed_items: failedItems
       }
     });
   } catch (err: any) {
@@ -4306,15 +4443,16 @@ async function fetchFullServiceOrderDocumentData(osId: number, req: any) {
   const accessories = accRows.map(a => a.accessory_name);
 
   const attRows = await query(
-    "SELECT id, service_order_id, filename, file_size, mime_type, description, category, uploaded_at, thumbnail_path, print_path, original_width, original_height, print_width, print_height, original_size, print_size, processing_status FROM attachments WHERE service_order_id = ? ORDER BY id ASC",
+    "SELECT id, service_order_id, filename, file_size, mime_type, description, category, uploaded_at, thumbnail_path, document_path, print_path, original_width, original_height, document_width, document_height, print_width, print_height, original_size, document_size, print_size, processing_status FROM attachments WHERE service_order_id = ? ORDER BY id ASC",
     [osId]
   );
   const attachments = attRows.map((att: any) => ({
     ...att,
     original_view_url: `/api/attachments/${att.id}/view`,
-    thumbnail_view_url: att.thumbnail_path ? `/api/attachments/${att.id}/thumbnail` : `/api/attachments/${att.id}/view`,
-    print_view_url: att.print_path ? `/api/attachments/${att.id}/print` : `/api/attachments/${att.id}/view`,
-    view_url: att.print_path ? `/api/attachments/${att.id}/print` : `/api/attachments/${att.id}/view`
+    thumbnail_view_url: `/api/attachments/${att.id}/thumbnail`,
+    document_view_url: `/api/attachments/${att.id}/document`,
+    print_view_url: `/api/attachments/${att.id}/document`,
+    view_url: `/api/attachments/${att.id}/document`
   }));
 
   const budgetItems = await query("SELECT * FROM budget_items WHERE service_order_id = ? ORDER BY id ASC", [osId]);
