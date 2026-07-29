@@ -65,6 +65,7 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
   const [payAmount, setPayAmount] = useState("");
   const [payMethodId, setPayMethodId] = useState("");
   const [payNotes, setPayNotes] = useState("");
+  const [payDate, setPayDate] = useState(new Date().toISOString().split("T")[0]);
 
   // Load Client details
   const loadClientDetails = async () => {
@@ -248,6 +249,7 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
         const data = await res.json();
         setSelectedGuide(data);
         setPayAmount(data.guide.balance_amount.toString());
+        setPayDate(new Date().toISOString().split("T")[0]);
         if (paymentMethods.length > 0) {
           setPayMethodId(paymentMethods[0].id.toString());
         }
@@ -270,12 +272,14 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
         body: JSON.stringify({
           amount: parseFloat(payAmount),
           method_id: parseInt(payMethodId),
-          notes: payNotes
+          notes: payNotes,
+          payment_date: payDate
         })
       });
       if (res.ok) {
         setShowPaymentModal(false);
         setPayNotes("");
+        setPayDate(new Date().toISOString().split("T")[0]);
         loadClientDetails();
       } else {
         const d = await res.json();
@@ -1201,9 +1205,9 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
                     <span>Registrar Novo Pagamento</span>
                   </h4>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div>
-                      <label className="block text-gray-600 mb-1 font-semibold">Valor do Recebimento *</label>
+                      <label className="block text-gray-600 mb-1 font-semibold">Valor *</label>
                       <input
                         type="number"
                         step="0.01"
@@ -1215,7 +1219,7 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
                       />
                     </div>
                     <div>
-                      <label className="block text-gray-600 mb-1 font-semibold">Forma Utilizada *</label>
+                      <label className="block text-gray-600 mb-1 font-semibold">Forma *</label>
                       <select
                         required
                         value={payMethodId}
@@ -1224,6 +1228,16 @@ export default function ClientDetails({ clientId, onBack, onOpenOS, currency }: 
                       >
                         {paymentMethods.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
                       </select>
+                    </div>
+                    <div>
+                      <label className="block text-gray-600 mb-1 font-semibold">Data do Pagamento *</label>
+                      <input
+                        type="date"
+                        required
+                        value={payDate}
+                        onChange={(e) => setPayDate(e.target.value)}
+                        className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none bg-white text-xs font-bold font-mono"
+                      />
                     </div>
                   </div>
 

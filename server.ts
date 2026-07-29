@@ -1081,6 +1081,135 @@ app.post("/api/auth/login", validateBody(loginSchema), async (req: any, res: any
   }
 });
 
+// Store temporary password recovery tokens in memory
+const recoveryTokens = new Map<string, { adminId: number; username: string; expiresAt: number }>();
+
+// Password Recovery Verification endpoint
+app.post("/api/auth/recover-verify", async (req: any, res: any) => {
+  const { username, verification_info } = req.body;
+
+  if (!username || !verification_info) {
+    return res.status(400).json({ error: "Informe o nome de usuário e a informação de verificação." });
+  }
+
+  if (!isDatabaseConfigured()) {
+    return res.status(400).json({ error: "Sistema não configurado. Por favor, faça o setup." });
+  }
+
+  try {
+    const cleanUsername = String(username).trim();
+    const cleanVerification = String(verification_info).trim().toLowerCase();
+    const digitsOnlyVerification = cleanVerification.replace(/\D/g, "");
+
+    const admins = await query("SELECT id, name, username FROM admins WHERE LOWER(username) = ?", [cleanUsername.toLowerCase()]);
+    const admin = admins[0];
+
+    if (!admin) {
+      return res.status(404).json({ error: "Usuário administrador não encontrado." });
+    }
+
+    const companyRows = await query("SELECT company_name, trade_name, tax_id, email, phone, whatsapp FROM company_settings LIMIT 1");
+    const company = companyRows[0] || {};
+
+    const companyTaxIdDigits = (company.tax_id || "").replace(/\D/g, "");
+    const companyEmail = (company.email || "").trim().toLowerCase();
+    const companyPhoneDigits = (company.phone || "").replace(/\D/g, "");
+    const companyWhatsappDigits = (company.whatsapp || "").replace(/\D/g, "");
+    const companyNameClean = (company.company_name || "").trim().toLowerCase();
+    const tradeNameClean = (company.trade_name || "").trim().toLowerCase();
+
+    let isMatch = false;
+
+    // Check tax_id digits match if digits provided
+    if (digitsOnlyVerification.length >= 4 && companyTaxIdDigits.length >= 4 && companyTaxIdDigits.includes(digitsOnlyVerification)) {
+      isMatch = true;
+    }
+    // Check email match
+    if (cleanVerification && companyEmail && companyEmail === cleanVerification) {
+      isMatch = true;
+    }
+    // Check phone or whatsapp digits match
+    if (digitsOnlyVerification.length >= 8 && ((companyPhoneDigits && companyPhoneDigits.includes(digitsOnlyVerification)) || (companyWhatsappDigits && companyWhatsappDigits.includes(digitsOnlyVerification)))) {
+      isMatch = true;
+    }
+    // Check company_name / trade_name or admin name
+    if (cleanVerification.length >= 3 && (companyNameClean.includes(cleanVerification) || tradeNameClean.includes(cleanVerification) || admin.name.toLowerCase().includes(cleanVerification))) {
+      isMatch = true;
+    }
+
+    // Fallback if company_settings has no info configured
+    if (!company.tax_id && !company.email && !company.phone && !company.company_name) {
+      isMatch = true;
+    }
+
+    if (!isMatch) {
+      return res.status(400).json({
+        error: "Informação de verificação incorreta. Insira o CNPJ/CPF, E-mail ou Telefone cadastrado na empresa."
+      });
+    }
+
+    // Generate temporary recovery token valid for 15 minutes
+    const resetToken = crypto.randomBytes(24).toString("hex");
+    recoveryTokens.set(resetToken, {
+      adminId: admin.id,
+      username: admin.username,
+      expiresAt: Date.now() + 15 * 60 * 1000
+    });
+
+    return res.json({
+      success: true,
+      resetToken,
+      username: admin.username,
+      adminName: admin.name,
+      message: "Verificação concluída com sucesso. Defina sua nova senha abaixo."
+    });
+  } catch (err: any) {
+    console.error("Recover verify error:", err);
+    return res.status(500).json({ error: err.message || "Erro ao verificar dados de recuperação." });
+  }
+});
+
+// Reset Password endpoint
+app.post("/api/auth/reset-password", async (req: any, res: any) => {
+  const { resetToken, newPassword, confirmPassword } = req.body;
+
+  if (!resetToken || !newPassword) {
+    return res.status(400).json({ error: "Token de recuperação e nova senha são obrigatórios." });
+  }
+
+  if (newPassword !== confirmPassword) {
+    return res.status(400).json({ error: "A confirmação da senha não confere com a nova senha." });
+  }
+
+  if (newPassword.length < 4) {
+    return res.status(400).json({ error: "A nova senha deve ter pelo menos 4 caracteres." });
+  }
+
+  try {
+    const tokenData = recoveryTokens.get(resetToken);
+    if (!tokenData || tokenData.expiresAt < Date.now()) {
+      recoveryTokens.delete(resetToken);
+      return res.status(400).json({ error: "Sessão de recuperação expirada ou inválida. Por favor, inicie o processo novamente." });
+    }
+
+    const salt = bcrypt.genSaltSync(10);
+    const passwordHash = bcrypt.hashSync(newPassword, salt);
+
+    await execute("UPDATE admins SET password_hash = ? WHERE id = ?", [passwordHash, tokenData.adminId]);
+
+    // Clean up used token
+    recoveryTokens.delete(resetToken);
+
+    return res.json({
+      success: true,
+      message: "Senha redefinida com sucesso! Você já pode entrar no sistema com a nova senha."
+    });
+  } catch (err: any) {
+    console.error("Reset password error:", err);
+    return res.status(500).json({ error: err.message || "Erro ao redefinir a senha." });
+  }
+});
+
 // Logout endpoint
 app.post("/api/auth/logout", async (req: any, res: any) => {
   const token = req.cookies.session_token;
@@ -2010,7 +2139,7 @@ async function recalculateGuidePayments(guideId: number, txExec?: (sql: string, 
 // Register payment against a guide
 app.post("/api/payment-guides/:id/pay", requireAuth, async (req: any, res: any) => {
   const { id } = req.params;
-  const { amount, method_id, notes, installment_id } = req.body;
+  const { amount, method_id, notes, installment_id, payment_date } = req.body;
 
   if (!amount || !method_id) {
     return res.status(400).json({ error: "Valor e forma de pagamento são obrigatórios" });
@@ -2020,6 +2149,8 @@ app.post("/api/payment-guides/:id/pay", requireAuth, async (req: any, res: any) 
   if (paymentAmount <= 0) {
     return res.status(400).json({ error: "Valor do pagamento deve ser maior que zero" });
   }
+
+  const payDate = payment_date || new Date().toISOString().split("T")[0];
 
   try {
     const updatedGuide = await runInTransaction(async (exec) => {
@@ -2039,8 +2170,8 @@ app.post("/api/payment-guides/:id/pay", requireAuth, async (req: any, res: any) 
       // 1. Log Payment
       const paymentResult = await exec(`
         INSERT INTO payments (payment_guide_id, installment_id, amount, payment_date, method_id, method_name, notes) 
-        VALUES (?, ?, ?, CURRENT_DATE(), ?, ?, ?)`,
-        [id, installment_id || null, paymentAmount, method_id, methodName, notes || null]
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [id, installment_id || null, paymentAmount, payDate, method_id, methodName, notes || null]
       );
 
       const paymentId = paymentResult.insertId || paymentResult.id;
@@ -2066,8 +2197,8 @@ app.post("/api/payment-guides/:id/pay", requireAuth, async (req: any, res: any) 
         // Log in financial_transactions
         await exec(`
           INSERT INTO financial_transactions (description, type, amount, transaction_date, category_id, os_id, payment_id)
-          VALUES (?, 'entrada', ?, CURRENT_DATE(), ?, ?, ?)`,
-          [paymentDesc, paymentAmount, categoryId, osId, paymentId]
+          VALUES (?, 'entrada', ?, ?, ?, ?, ?)`,
+          [paymentDesc, paymentAmount, payDate, categoryId, osId, paymentId]
         );
       }
 
@@ -2125,10 +2256,12 @@ app.put("/api/payments/:id", requireAuth, async (req: any, res: any) => {
     const methods = await query("SELECT name FROM payment_methods WHERE id = ?", [method_id]);
     const methodName = methods[0]?.name || "Outro";
 
+    const newPayDate = payment_date || (payment.payment_date ? String(payment.payment_date).split("T")[0] : new Date().toISOString().split("T")[0]);
+
     // Update payment record
     await execute(
-      "UPDATE payments SET amount = ?, method_id = ?, method_name = ?, notes = ?, payment_date = COALESCE(?, payment_date) WHERE id = ?",
-      [paymentAmount, method_id, methodName, notes || null, payment_date || null, id]
+      "UPDATE payments SET amount = ?, method_id = ?, method_name = ?, notes = ?, payment_date = ? WHERE id = ?",
+      [paymentAmount, method_id, methodName, notes || null, newPayDate, id]
     );
 
     // Sync to financial_transactions

@@ -61,6 +61,7 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
   const [payAmount, setPayAmount] = useState("");
   const [payMethodId, setPayMethodId] = useState("");
   const [payNotes, setPayNotes] = useState("");
+  const [payDate, setPayDate] = useState(new Date().toISOString().split("T")[0]);
   const [isRegisteringPayment, setIsRegisteringPayment] = useState(false);
   const [editingPayment, setEditingPayment] = useState<any | null>(null);
 
@@ -90,6 +91,7 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
     setPayAmount(p.amount.toString());
     setPayMethodId(p.method_id.toString());
     setPayNotes(p.notes || "");
+    setPayDate(p.payment_date ? String(p.payment_date).split("T")[0] : new Date().toISOString().split("T")[0]);
   };
 
   const handleCancelEdit = () => {
@@ -103,6 +105,7 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
       setPayAmount("");
     }
     setPayNotes("");
+    setPayDate(new Date().toISOString().split("T")[0]);
   };
 
   const handleDeletePayment = async (paymentId: number) => {
@@ -147,11 +150,13 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
         body: JSON.stringify({
           amount: parseFloat(payAmount),
           method_id: parseInt(payMethodId),
-          notes: payNotes
+          notes: payNotes,
+          payment_date: payDate
         })
       });
       if (res.ok) {
         setPayNotes("");
+        setPayDate(new Date().toISOString().split("T")[0]);
         setEditingPayment(null);
         setSuccessMsg(editingPayment ? "Pagamento alterado com sucesso!" : "Pagamento registrado com sucesso!");
         setTimeout(() => setSuccessMsg(""), 3000);
@@ -1121,9 +1126,9 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
                           : "Informe os detalhes para liquidar ou amortizar o saldo devedor."}
                       </p>
 
-                      <div className="grid grid-cols-2 gap-3 pt-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
                         <div>
-                          <label className="block text-gray-600 mb-1 font-semibold">Valor do Recebimento *</label>
+                          <label className="block text-gray-600 mb-1 font-semibold">Valor *</label>
                           <input
                             type="number"
                             step="0.01"
@@ -1135,7 +1140,7 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
                           />
                         </div>
                         <div>
-                          <label className="block text-gray-600 mb-1 font-semibold">Forma Utilizada *</label>
+                          <label className="block text-gray-600 mb-1 font-semibold">Forma *</label>
                           <select
                             required
                             value={payMethodId}
@@ -1144,6 +1149,16 @@ export default function ServiceOrderDetails({ osId, onBack, currency }: ServiceO
                           >
                             {paymentMethods.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
                           </select>
+                        </div>
+                        <div>
+                          <label className="block text-gray-600 mb-1 font-semibold">Data de Pagamento *</label>
+                          <input
+                            type="date"
+                            required
+                            value={payDate}
+                            onChange={(e) => setPayDate(e.target.value)}
+                            className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none bg-white text-xs font-bold font-mono"
+                          />
                         </div>
                       </div>
 
