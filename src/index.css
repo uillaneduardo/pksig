@@ -6,17 +6,43 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  background: white;
+}
+
+.print-page {
+  width: 210mm;
+  min-height: 297mm;
+  margin: 0 auto;
+  padding: 0;
+  background: white;
+}
+
 @page {
   size: A4 portrait;
-  margin: 14mm;
+  margin: 7mm;
 }
 
 @media print {
-  body {
-    background: #ffffff !important;
-    color: #000000 !important;
+  html,
+  body,
+  #root {
     margin: 0 !important;
     padding: 0 !important;
+    background: white !important;
+  }
+
+  .print-page {
+    width: auto;
+    min-height: auto;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+    border: none;
   }
 
   /* Hide UI elements on print */
@@ -36,8 +62,9 @@
 
   .document-section,
   .signature-block,
+  .photo-card,
+  .photo-row,
   .summary-card,
-  table,
   tr {
     break-inside: avoid;
     page-break-inside: avoid;
@@ -51,18 +78,19 @@
   .photo-list {
     display: flex !important;
     flex-direction: column !important;
-    gap: 7mm !important;
+    gap: 4mm !important;
   }
 
   .photo-row {
     display: grid !important;
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-    gap: 7mm !important;
+    gap: 4mm !important;
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
 
   .photo-card {
+    padding: 2mm !important;
     break-inside: avoid !important;
     page-break-inside: avoid !important;
     overflow: hidden !important;
@@ -71,8 +99,8 @@
   .photo-card img {
     display: block !important;
     width: 100% !important;
-    height: 52mm !important;
-    max-height: 52mm !important;
+    height: 45mm !important;
+    max-height: 45mm !important;
     object-fit: contain !important;
   }
 
@@ -89,9 +117,9 @@
   .signature-grid {
     display: grid !important;
     grid-template-columns: 1fr 1fr !important;
-    gap: 18mm !important;
+    gap: 12mm !important;
     break-inside: avoid !important;
     page-break-inside: avoid !important;
+    margin-top: 8mm !important;
   }
 }
-

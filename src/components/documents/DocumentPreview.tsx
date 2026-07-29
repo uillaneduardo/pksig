@@ -26,6 +26,7 @@ export function DocumentPreview({ osId, documentType, initialData, snapshotInfo,
   const [showPhotoSelector, setShowPhotoSelector] = useState<boolean>(false);
   const [selectedPhotoIds, setSelectedPhotoIds] = useState<number[]>([]);
   const [selectedPaymentId, setSelectedPaymentId] = useState<number | undefined>(undefined);
+  const [popupBlockedUrl, setPopupBlockedUrl] = useState<string | null>(null);
 
   // Load document data if not provided
   useEffect(() => {
@@ -147,14 +148,36 @@ export function DocumentPreview({ osId, documentType, initialData, snapshotInfo,
     }
   }, [docData, documentType, osId]);
 
-  // Handle trigger native print
+  // Handle trigger print in dedicated tab / page
   const handlePrint = () => {
-    if (docData?.order) {
-      const osCode = docData.order.code || osId;
-      const typeLabel = docTypeFileNames[documentType] || documentType;
-      document.title = `${typeLabel}_OS_${osCode}`;
+    setPopupBlockedUrl(null);
+    const queryParams: string[] = [];
+
+    if (selectedPhotoIds && selectedPhotoIds.length > 0) {
+      queryParams.push(`photos=${selectedPhotoIds.join(",")}`);
     }
-    window.print();
+    if (selectedPaymentId) {
+      queryParams.push(`payment_id=${selectedPaymentId}`);
+    }
+    if (emittedSnapshot?.id) {
+      queryParams.push(`snapshot_id=${emittedSnapshot.id}`);
+    }
+
+    const queryString = queryParams.length > 0 ? `?${queryParams.join("&")}` : "";
+    let printUrl = "";
+
+    if (documentType === "payment" && selectedPaymentId) {
+      printUrl = `/print/payments/${selectedPaymentId}${queryString}`;
+    } else if (documentType === "warranty" && docData?.target_warranty?.id) {
+      printUrl = `/print/warranties/${docData.target_warranty.id}${queryString}`;
+    } else {
+      printUrl = `/print/service-orders/${osId}/${documentType}${queryString}`;
+    }
+
+    const newWin = window.open(printUrl, "_blank", "noopener,noreferrer");
+    if (!newWin || newWin.closed || typeof newWin.closed === "undefined") {
+      setPopupBlockedUrl(printUrl);
+    }
   };
 
   if (loading) {
@@ -279,6 +302,26 @@ export function DocumentPreview({ osId, documentType, initialData, snapshotInfo,
             <span>
               <strong>Atenção:</strong> O técnico responsável não foi informado nesta OS. Preencha na OS para garantir a validade das assinaturas.
             </span>
+          </div>
+        )}
+
+        {/* Fallback Banner if Browser Pop-up was Blocked */}
+        {popupBlockedUrl && (
+          <div className="max-w-5xl mx-auto mt-2.5 bg-indigo-50 border border-indigo-300 rounded p-3 text-xs text-indigo-900 flex items-center justify-between shadow-sm">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+              <span>
+                O seu navegador impediu a abertura da janela de impressão. Clique no botão ao lado para abrir a página de impressão dedicada.
+              </span>
+            </div>
+            <a
+              href={popupBlockedUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded text-xs transition shadow-xs"
+            >
+              Abrir página de impressão
+            </a>
           </div>
         )}
 

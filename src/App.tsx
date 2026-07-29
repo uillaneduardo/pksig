@@ -22,6 +22,7 @@ import Settings from "./components/Settings";
 import Finance from "./components/Finance";
 import PwaStatusDashboard from "./components/PwaStatusDashboard";
 import AdminProfile from "./components/AdminProfile";
+import PrintDocumentPage from "./pages/PrintDocumentPage";
 
 export default function App() {
   // useRegisterSW hook for PWA update management
@@ -279,6 +280,11 @@ export default function App() {
         }} 
       />
     );
+  }
+
+  // Render dedicated print page if route starts with /print/
+  if (typeof window !== "undefined" && window.location.pathname.startsWith("/print/")) {
+    return <PrintDocumentPage />;
   }
 
   return (
