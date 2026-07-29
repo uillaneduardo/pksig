@@ -463,6 +463,7 @@ CREATE TABLE warranties (
     client_id INT NOT NULL,
     equipment_id INT NOT NULL,
     service_order_id INT NOT NULL,
+    warranty_rule_id INT NULL,
     code VARCHAR(50) NOT NULL UNIQUE,
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
@@ -473,6 +474,7 @@ CREATE TABLE warranties (
     FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE RESTRICT,
     FOREIGN KEY (equipment_id) REFERENCES equipments(id) ON DELETE RESTRICT,
     FOREIGN KEY (service_order_id) REFERENCES service_orders(id) ON DELETE RESTRICT,
+    FOREIGN KEY (warranty_rule_id) REFERENCES warranty_rules(id) ON DELETE SET NULL,
     INDEX idx_warranties_code (code),
     INDEX idx_warranties_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -504,6 +506,8 @@ CREATE TABLE service_order_document_snapshots (
     snapshot_json LONGTEXT NOT NULL,
     content_hash VARCHAR(64) NULL,
     generated_by VARCHAR(255) NULL,
+    generated_by_name VARCHAR(255) NULL,
+    generated_by_admin_id INT NULL,
     generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     service_order_status VARCHAR(100) NULL,
     FOREIGN KEY (service_order_id) REFERENCES service_orders(id) ON DELETE CASCADE,

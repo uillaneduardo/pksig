@@ -678,10 +678,22 @@ async function ensureMasterSeedData() {
   }
 }
 
+// Helper function to normalize budget item types cleanly
+export function normalizeBudgetItemType(type: any): string {
+  if (type === null || type === undefined) return "";
+  return String(type)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // remove accents
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+}
+
 async function ensureAllSchemaTablesAndColumnsExist() {
   try {
-    // 1. Attachments table columns
+    // 1. Consolidated Attachments table columns check
     const attachmentCols = [
+      { name: "description", type: "TEXT NULL" },
       { name: "category", type: "VARCHAR(50) NULL" },
       { name: "uploaded_by", type: "INT NULL" },
       { name: "file_hash", type: "VARCHAR(64) NULL" }
@@ -698,7 +710,7 @@ async function ensureAllSchemaTablesAndColumnsExist() {
       }
     }
 
-    // 2. Service Order Document Snapshots table
+    // 2. Service Order Document Snapshots table and column validation
     try {
       await query("SELECT 1 FROM service_order_document_snapshots LIMIT 1");
     } catch (e) {
@@ -712,6 +724,8 @@ async function ensureAllSchemaTablesAndColumnsExist() {
             snapshot_json LONGTEXT NOT NULL,
             content_hash VARCHAR(64) NULL,
             generated_by VARCHAR(255) NULL,
+            generated_by_name VARCHAR(255) NULL,
+            generated_by_admin_id INT NULL,
             generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             service_order_status VARCHAR(100) NULL,
             FOREIGN KEY (service_order_id) REFERENCES service_orders(id) ON DELETE CASCADE,
@@ -721,7 +735,48 @@ async function ensureAllSchemaTablesAndColumnsExist() {
       console.log("[Database Repair] service_order_document_snapshots table created successfully.");
     }
 
-    // 3. Service Orders columns
+    // Individual column checks for service_order_document_snapshots
+    const snapshotCols = [
+      { name: "service_order_id", type: "INT NOT NULL" },
+      { name: "document_type", type: "VARCHAR(50) NOT NULL" },
+      { name: "version", type: "INT NOT NULL DEFAULT 1" },
+      { name: "snapshot_json", type: "LONGTEXT NOT NULL" },
+      { name: "content_hash", type: "VARCHAR(64) NULL" },
+      { name: "generated_by", type: "VARCHAR(255) NULL" },
+      { name: "generated_by_name", type: "VARCHAR(255) NULL" },
+      { name: "generated_by_admin_id", type: "INT NULL" },
+      { name: "generated_at", type: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP" },
+      { name: "service_order_status", type: "VARCHAR(100) NULL" }
+    ];
+    for (const col of snapshotCols) {
+      try {
+        const cols = await query(`SHOW COLUMNS FROM service_order_document_snapshots LIKE '${col.name}'`);
+        if (!cols || cols.length === 0) {
+          await execute(`ALTER TABLE service_order_document_snapshots ADD COLUMN ${col.name} ${col.type}`);
+          console.log(`[Database Repair] Added ${col.name} column to service_order_document_snapshots table.`);
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    // 3. Warranties columns check
+    const warrantyCols = [
+      { name: "warranty_rule_id", type: "INT NULL" }
+    ];
+    for (const col of warrantyCols) {
+      try {
+        const cols = await query(`SHOW COLUMNS FROM warranties LIKE '${col.name}'`);
+        if (!cols || cols.length === 0) {
+          await execute(`ALTER TABLE warranties ADD COLUMN ${col.name} ${col.type}`);
+          console.log(`[Database Repair] Added ${col.name} column to warranties table.`);
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    // 4. Service Orders columns
     const soCols = [
       { name: "technical_defect", type: "TEXT NULL" },
       { name: "technical_diagnosis", type: "TEXT NULL" },
@@ -744,7 +799,7 @@ async function ensureAllSchemaTablesAndColumnsExist() {
       }
     }
 
-    // 4. System Settings PWA columns
+    // 5. System Settings PWA columns
     const sysCols = [
       { name: "pwa_name", type: "VARCHAR(255) DEFAULT NULL" },
       { name: "pwa_short_name", type: "VARCHAR(100) DEFAULT NULL" },

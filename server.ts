@@ -21,7 +21,8 @@ import {
   runInTransaction,
   verifyAndRepairDatabaseSchema,
   closePool,
-  recreateDatabaseFromZeroInternal
+  recreateDatabaseFromZeroInternal,
+  normalizeBudgetItemType
 } from "./src/lib/database.js";
 import { 
   createSession, 
@@ -3024,9 +3025,9 @@ app.post("/api/service-orders/:id/warranty", requireAuth, async (req: any, res: 
 
     const warrantyCode = await generateNextCode("warranty");
     const result = await execute(`
-      INSERT INTO warranties (client_id, equipment_id, service_order_id, code, start_date, end_date, status, pdf_reference) 
-      VALUES (?, ?, ?, ?, ?, ?, 'Vigente', ?)`,
-      [os.client_id, os.equipment_id, id, warrantyCode, startStr, endStr, `cert-${warrantyCode}.pdf`]
+      INSERT INTO warranties (client_id, equipment_id, service_order_id, warranty_rule_id, code, start_date, end_date, status, pdf_reference) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'Vigente', ?)`,
+      [os.client_id, os.equipment_id, id, rule_id ? parseInt(rule_id) : null, warrantyCode, startStr, endStr, `cert-${warrantyCode}.pdf`]
     );
 
     return res.json({ success: true, warrantyId: result.insertId, code: warrantyCode });
@@ -3220,6 +3221,29 @@ app.delete("/api/attachments/:id", requireAuth, async (req: any, res: any) => {
   }
 });
 
+function getSecureAttachmentPath(filePath: string): { valid: boolean; status: number; error?: string; absolutePath?: string } {
+  if (!filePath || typeof filePath !== "string") {
+    return { valid: false, status: 400, error: "Caminho do arquivo não fornecido" };
+  }
+  const normalized = path.normalize(filePath);
+  if (normalized.includes("..")) {
+    return { valid: false, status: 403, error: "Acesso negado: tentativa de navegação de diretório (../) detectada" };
+  }
+
+  const resolvedAttachmentsDir = path.resolve(ATTACHMENTS_DIR);
+  const absolutePath = path.resolve(process.cwd(), normalized);
+
+  if (!absolutePath.startsWith(resolvedAttachmentsDir)) {
+    return { valid: false, status: 403, error: "Acesso negado: arquivo fora do diretório de uploads autorizado" };
+  }
+
+  if (!fs.existsSync(absolutePath)) {
+    return { valid: false, status: 404, error: "Arquivo físico não encontrado" };
+  }
+
+  return { valid: true, status: 200, absolutePath };
+}
+
 // Download attachment
 app.get("/api/attachments/:id", requireAuth, async (req: any, res: any) => {
   const { id } = req.params;
@@ -3228,19 +3252,21 @@ app.get("/api/attachments/:id", requireAuth, async (req: any, res: any) => {
     const records = await query("SELECT * FROM attachments WHERE id = ?", [id]);
     const record = records[0];
     if (!record) {
-      return res.status(404).send("Anexo não encontrado");
+      return res.status(404).json({ error: "Anexo não encontrado" });
     }
 
-    const absolutePath = path.join(process.cwd(), record.file_path);
-    if (!fs.existsSync(absolutePath)) {
-      return res.status(404).send("Arquivo físico não encontrado");
+    const check = getSecureAttachmentPath(record.file_path);
+    if (!check.valid || !check.absolutePath) {
+      return res.status(check.status).json({ error: check.error });
     }
 
-    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(record.filename)}"`);
-    res.setHeader("Content-Type", record.mime_type);
-    return res.sendFile(absolutePath);
+    const safeFilename = encodeURIComponent(String(record.filename || "anexo").replace(/["\r\n]/g, "_"));
+    res.setHeader("Content-Disposition", `attachment; filename="${safeFilename}"`);
+    res.setHeader("Content-Type", record.mime_type || "application/octet-stream");
+    return res.sendFile(check.absolutePath);
   } catch (err) {
-    return res.status(500).send("Erro ao processar download");
+    console.error("Erro ao processar download do anexo:", err);
+    return res.status(500).json({ error: "Erro interno ao processar download do anexo." });
   }
 });
 
@@ -3251,19 +3277,34 @@ app.get("/api/attachments/:id/view", requireAuth, async (req: any, res: any) => 
     const records = await query("SELECT * FROM attachments WHERE id = ?", [id]);
     const record = records[0];
     if (!record) {
-      return res.status(404).send("Anexo não encontrado");
+      return res.status(404).json({ error: "Anexo não encontrado" });
     }
 
-    const absolutePath = path.join(process.cwd(), record.file_path);
-    if (!fs.existsSync(absolutePath)) {
-      return res.status(404).send("Arquivo físico não encontrado");
+    const check = getSecureAttachmentPath(record.file_path);
+    if (!check.valid || !check.absolutePath) {
+      return res.status(check.status).json({ error: check.error });
     }
 
-    res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(record.filename)}"`);
-    res.setHeader("Content-Type", record.mime_type || "application/octet-stream");
-    return res.sendFile(absolutePath);
+    const allowedInlineMimes = [
+      "image/jpeg",
+      "image/jpg",
+      "image/png",
+      "image/webp",
+      "image/gif",
+      "application/pdf"
+    ];
+
+    const rawMime = (record.mime_type || "application/octet-stream").toLowerCase();
+    const isInlineAllowed = allowedInlineMimes.includes(rawMime);
+    const disposition = isInlineAllowed ? "inline" : "attachment";
+
+    const safeFilename = encodeURIComponent(String(record.filename || "anexo").replace(/["\r\n]/g, "_"));
+    res.setHeader("Content-Disposition", `${disposition}; filename="${safeFilename}"`);
+    res.setHeader("Content-Type", rawMime);
+    return res.sendFile(check.absolutePath);
   } catch (err) {
-    return res.status(500).send("Erro ao processar exibição do anexo");
+    console.error("Erro ao processar exibição do anexo:", err);
+    return res.status(500).json({ error: "Erro interno ao processar a exibição do anexo." });
   }
 });
 
@@ -3361,7 +3402,7 @@ async function fetchFullServiceOrderDocumentData(osId: number, req: any) {
     const itemTotal = parseFloat(item.total_value) || (qty * unit);
     total_amount += itemTotal;
 
-    const t = String(item.type || "").toLowerCase();
+    const t = normalizeBudgetItemType(item.type);
     if (t === "servico" || t === "service") {
       subtotal_services += itemTotal;
     } else if (t === "peca" || t === "part") {
@@ -3399,13 +3440,16 @@ async function fetchFullServiceOrderDocumentData(osId: number, req: any) {
   const warrantyRows = await query(`
     SELECT w.*, wr.name as rule_name, wr.duration_days, wr.terms_description
     FROM warranties w
-    LEFT JOIN warranty_rules wr ON (wr.category_id = ? OR wr.active = 1)
+    LEFT JOIN warranty_rules wr ON w.warranty_rule_id = wr.id
     WHERE w.service_order_id = ?
-    ORDER BY w.id DESC`, [equipment.id, osId]
+    ORDER BY w.id DESC`, [osId]
   );
   const warranty = warrantyRows[0] || null;
 
-  const currentUser = req.session?.name || req.session?.username || "Administrador";
+  const currentUser = req.session?.name || req.session?.username;
+  if (!currentUser) {
+    throw new Error("UNAUTHENTICATED_ADMIN_EMISSION");
+  }
 
   return {
     company,
@@ -3421,7 +3465,9 @@ async function fetchFullServiceOrderDocumentData(osId: number, req: any) {
     warranty,
     meta: {
       generated_at: new Date().toISOString(),
-      generated_by: currentUser
+      generated_by: currentUser,
+      generated_by_name: currentUser,
+      generated_by_admin_id: req.session?.userId || null
     }
   };
 }
@@ -3437,8 +3483,11 @@ app.get("/api/service-orders/:id/documents/opening", requireAuth, async (req: an
 
     return res.json({ document_type: "opening", ...docData });
   } catch (err: any) {
+    if (err.message === "UNAUTHENTICATED_ADMIN_EMISSION") {
+      return res.status(401).json({ error: "Sessão inválida ou administrador não identificado para emissão de documento." });
+    }
     console.error("Error fetching opening doc:", err);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: "Erro interno do servidor ao gerar ou processar o documento." });
   }
 });
 
@@ -3453,8 +3502,11 @@ app.get("/api/service-orders/:id/documents/technical", requireAuth, async (req: 
 
     return res.json({ document_type: "technical", ...docData });
   } catch (err: any) {
+    if (err.message === "UNAUTHENTICATED_ADMIN_EMISSION") {
+      return res.status(401).json({ error: "Sessão inválida ou administrador não identificado para emissão de documento." });
+    }
     console.error("Error fetching technical doc:", err);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: "Erro interno do servidor ao gerar ou processar o documento." });
   }
 });
 
@@ -3469,8 +3521,11 @@ app.get("/api/service-orders/:id/documents/budget", requireAuth, async (req: any
 
     return res.json({ document_type: "budget", ...docData });
   } catch (err: any) {
+    if (err.message === "UNAUTHENTICATED_ADMIN_EMISSION") {
+      return res.status(401).json({ error: "Sessão inválida ou administrador não identificado para emissão de documento." });
+    }
     console.error("Error fetching budget doc:", err);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: "Erro interno do servidor ao gerar ou processar o documento." });
   }
 });
 
@@ -3485,8 +3540,11 @@ app.get("/api/service-orders/:id/documents/financial", requireAuth, async (req: 
 
     return res.json({ document_type: "financial", ...docData });
   } catch (err: any) {
+    if (err.message === "UNAUTHENTICATED_ADMIN_EMISSION") {
+      return res.status(401).json({ error: "Sessão inválida ou administrador não identificado para emissão de documento." });
+    }
     console.error("Error fetching financial doc:", err);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: "Erro interno do servidor ao gerar ou processar o documento." });
   }
 });
 
@@ -3501,8 +3559,11 @@ app.get("/api/service-orders/:id/documents/full", requireAuth, async (req: any, 
 
     return res.json({ document_type: "full", ...docData });
   } catch (err: any) {
+    if (err.message === "UNAUTHENTICATED_ADMIN_EMISSION") {
+      return res.status(401).json({ error: "Sessão inválida ou administrador não identificado para emissão de documento." });
+    }
     console.error("Error fetching full doc:", err);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: "Erro interno do servidor ao gerar ou processar o documento." });
   }
 });
 
@@ -3529,8 +3590,11 @@ app.get("/api/payments/:paymentId/document", requireAuth, async (req: any, res: 
       ...docData
     });
   } catch (err: any) {
+    if (err.message === "UNAUTHENTICATED_ADMIN_EMISSION") {
+      return res.status(401).json({ error: "Sessão inválida ou administrador não identificado para emissão de documento." });
+    }
     console.error("Error fetching payment receipt doc:", err);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: "Erro interno do servidor ao gerar ou processar o documento." });
   }
 });
 
@@ -3554,8 +3618,11 @@ app.get("/api/warranties/:warrantyId/document", requireAuth, async (req: any, re
       ...docData
     });
   } catch (err: any) {
+    if (err.message === "UNAUTHENTICATED_ADMIN_EMISSION") {
+      return res.status(401).json({ error: "Sessão inválida ou administrador não identificado para emissão de documento." });
+    }
     console.error("Error fetching warranty doc:", err);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: "Erro interno do servidor ao gerar ou processar o documento." });
   }
 });
 
@@ -3566,6 +3633,10 @@ app.post("/api/service-orders/:id/documents/emit", requireAuth, async (req: any,
 
   if (isNaN(osId) || !document_type) {
     return res.status(400).json({ error: "Parâmetros obrigatórios ausentes" });
+  }
+
+  if (!req.session || !req.session.userId || (!req.session.name && !req.session.username)) {
+    return res.status(401).json({ error: "Sessão inválida ou administrador não identificado para emissão de documento." });
   }
 
   try {
@@ -3604,12 +3675,14 @@ app.post("/api/service-orders/:id/documents/emit", requireAuth, async (req: any,
 
     const contentHash = crypto.createHash("sha256").update(snapshotJson).digest("hex");
     const generatedBy = fullData.meta.generated_by;
+    const generatedByName = fullData.meta.generated_by_name || generatedBy;
+    const generatedByAdminId = fullData.meta.generated_by_admin_id || req.session?.userId;
 
     const insertResult = await execute(
       `INSERT INTO service_order_document_snapshots 
-       (service_order_id, document_type, version, snapshot_json, content_hash, generated_by, service_order_status) 
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [osId, document_type, nextVersion, snapshotJson, contentHash, generatedBy, fullData.order.status_name]
+       (service_order_id, document_type, version, snapshot_json, content_hash, generated_by, generated_by_name, generated_by_admin_id, service_order_status) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [osId, document_type, nextVersion, snapshotJson, contentHash, generatedBy, generatedByName, generatedByAdminId, fullData.order.status_name]
     );
 
     const snapshotId = insertResult.insertId || insertResult.id || 0;
@@ -3638,6 +3711,7 @@ app.post("/api/service-orders/:id/documents/emit", requireAuth, async (req: any,
         os_id: osId,
         content_hash: contentHash,
         generated_by: generatedBy,
+        generated_by_admin_id: generatedByAdminId,
         snapshot_id: snapshotId
       },
       ipAddress: req.ip,
@@ -3652,8 +3726,11 @@ app.post("/api/service-orders/:id/documents/emit", requireAuth, async (req: any,
       snapshot: JSON.parse(snapshotJson)
     });
   } catch (err: any) {
+    if (err.message === "UNAUTHENTICATED_ADMIN_EMISSION") {
+      return res.status(401).json({ error: "Sessão inválida ou administrador não identificado para emissão de documento." });
+    }
     console.error("Error emitting document snapshot:", err);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: "Erro interno do servidor ao gerar ou emitir o documento." });
   }
 });
 
@@ -3664,7 +3741,7 @@ app.get("/api/service-orders/:id/documents/history", requireAuth, async (req: an
 
   try {
     const snapshots = await query(
-      `SELECT id, service_order_id, document_type, version, content_hash, generated_by, generated_at, service_order_status 
+      `SELECT id, service_order_id, document_type, version, content_hash, generated_by, generated_by_name, generated_by_admin_id, generated_at, service_order_status 
        FROM service_order_document_snapshots 
        WHERE service_order_id = ? 
        ORDER BY id DESC`,
@@ -3673,7 +3750,7 @@ app.get("/api/service-orders/:id/documents/history", requireAuth, async (req: an
     return res.json({ snapshots });
   } catch (err: any) {
     console.error("Error fetching document history:", err);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: "Erro interno ao buscar histórico de documentos." });
   }
 });
 
@@ -3699,6 +3776,8 @@ app.get("/api/service-orders/:id/documents/snapshot/:snapshotId", requireAuth, a
         version: snapshot.version,
         content_hash: snapshot.content_hash,
         generated_by: snapshot.generated_by,
+        generated_by_name: snapshot.generated_by_name || snapshot.generated_by,
+        generated_by_admin_id: snapshot.generated_by_admin_id,
         generated_at: snapshot.generated_at,
         service_order_status: snapshot.service_order_status
       },
@@ -3706,7 +3785,7 @@ app.get("/api/service-orders/:id/documents/snapshot/:snapshotId", requireAuth, a
     });
   } catch (err: any) {
     console.error("Error fetching snapshot:", err);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: "Erro interno ao buscar dados do documento emitido." });
   }
 });
 
@@ -4740,54 +4819,6 @@ async function ensureFinancialTransactionsPaymentIdColumn() {
 // ==========================================
 // VITE & FRONTEND BOOTSTRAP
 // ==========================================
-async function ensureAttachmentsDescriptionColumn() {
-  try {
-    if (!isDatabaseConfigured()) return;
-
-    const attachmentExtraCols = [
-      { name: "description", type: "TEXT NULL" },
-      { name: "category", type: "VARCHAR(50) NULL" },
-      { name: "uploaded_by", type: "INT NULL" },
-      { name: "file_hash", type: "VARCHAR(64) NULL" }
-    ];
-
-    for (const col of attachmentExtraCols) {
-      try {
-        const columns = await query(`SHOW COLUMNS FROM attachments LIKE '${col.name}'`);
-        if (!columns || columns.length === 0) {
-          await execute(`ALTER TABLE attachments ADD COLUMN ${col.name} ${col.type}`);
-          console.log(`Added ${col.name} column to attachments table`);
-        }
-      } catch (e) {
-        // Ignore
-      }
-    }
-
-    try {
-      await query("SELECT 1 FROM service_order_document_snapshots LIMIT 1");
-    } catch (e) {
-      console.log("Creating service_order_document_snapshots table...");
-      await execute(`
-        CREATE TABLE IF NOT EXISTS service_order_document_snapshots (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            service_order_id INT NOT NULL,
-            document_type VARCHAR(50) NOT NULL,
-            version INT NOT NULL DEFAULT 1,
-            snapshot_json LONGTEXT NOT NULL,
-            content_hash VARCHAR(64) NULL,
-            generated_by VARCHAR(255) NULL,
-            generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            service_order_status VARCHAR(100) NULL,
-            FOREIGN KEY (service_order_id) REFERENCES service_orders(id) ON DELETE CASCADE,
-            INDEX idx_doc_so_type (service_order_id, document_type)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-      `);
-    }
-  } catch (err) {
-    console.error("Error checking attachments columns or document snapshots table:", err);
-  }
-}
-
 async function ensureAdminSessionsTable() {
   try {
     if (!isDatabaseConfigured()) return;
