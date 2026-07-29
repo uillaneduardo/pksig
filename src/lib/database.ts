@@ -445,6 +445,7 @@ export async function verifyAndRepairDatabaseSchema(operationId?: string): Promi
     for (let i = 0; i < migrationFiles.length; i++) {
       const file = migrationFiles[i];
       if (appliedSet.has(file)) {
+        console.log(`[Database Migration Engine] Migration ${file} ignored (already applied).`);
         continue;
       }
 
@@ -485,18 +486,49 @@ export async function verifyAndRepairDatabaseSchema(operationId?: string): Promi
               stmtErr.code === "ER_DUP_FIELDNAME" ||
               stmtErr.code === "ER_DUP_KEYNAME" ||
               stmtErr.code === "ER_TABLE_EXISTS_ERROR";
-            
+
+            const isTableMissing = 
+              stmtErr.code === "ER_NO_SUCH_TABLE" || 
+              msg.includes("doesn't exist") || 
+              (msg.includes("table") && msg.includes("exist"));
+
             if (isDuplicate) {
-              console.log(`[Database Migration Engine] Skipping existing column/table statement in ${file}: ${stmtErr.message}`);
+              console.log(`[Database Migration Engine] Skipping existing column/table/index in ${file}: ${stmtErr.message}`);
+            } else if (isTableMissing) {
+              console.log(`[Database Migration Engine] Table missing detected in ${file}: ${stmtErr.message}`);
+              let missingTableName: string | null = null;
+              const alterMatch = statement.match(/ALTER\s+TABLE\s+`?([a-zA-Z0-9_]+)`?/i);
+              if (alterMatch && alterMatch[1]) {
+                missingTableName = alterMatch[1];
+              } else {
+                const tableErrMatch = stmtErr.message.match(/Table '[^']+\.([^']+)' doesn't exist/i);
+                if (tableErrMatch && tableErrMatch[1]) {
+                  missingTableName = tableErrMatch[1];
+                }
+              }
+
+              if (missingTableName) {
+                console.log(`[Database Migration Engine] Attempting auto-creation for missing table: ${missingTableName}...`);
+                const createStmt = getCreateTableStatement(missingTableName);
+                if (createStmt) {
+                  await execute(createStmt);
+                  console.log(`[Database Migration Engine] Table '${missingTableName}' created successfully.`);
+                  // Retry original statement
+                  await execute(statement);
+                  console.log(`[Database Migration Engine] Retried statement succeeded after auto-creating table '${missingTableName}'.`);
+                  continue;
+                }
+              }
+              throw stmtErr;
             } else {
               throw stmtErr;
             }
           }
         }
         
-        // Record as applied
+        // Record as applied ONLY after all statements succeed
         await execute("INSERT INTO schema_migrations (version) VALUES (?)", [file]);
-        console.log(`[Database Migration Engine] Migration ${file} applied successfully.`);
+        console.log(`[Database Migration Engine] Migration ${file} completed successfully.`);
         
         migrationsStatus[i].status = "success" as const;
         if (operationId) {
