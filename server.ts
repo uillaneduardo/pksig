@@ -6,6 +6,7 @@ import bcrypt from "bcryptjs";
 import helmet from "helmet";
 import multer from "multer";
 import crypto from "crypto";
+import os from "os";
 import { createServer as createViteServer } from "vite";
 import { 
   isDatabaseConfigured, 
@@ -653,6 +654,254 @@ app.get("/api/database/config", requireAuth, (req: any, res: any) => {
   return res.json(responseConfig);
 });
 
+// Diagnostic endpoint: GET /api/database/info (Real active database verification)
+app.get("/api/database/info", requireAuth, async (req: any, res: any) => {
+  const savedConfig = getDatabaseConfig();
+  const formattedSaved = {
+    mode: savedConfig?.mode || "remoto",
+    type: savedConfig?.type || "mysql",
+    host: savedConfig?.host || "Não configurado",
+    port: savedConfig?.port || 3306,
+    database: savedConfig?.database || "pksig",
+    user: savedConfig?.user || "root",
+    ssl: !!savedConfig?.ssl
+  };
+
+  if (!isDatabaseConfigured() || !savedConfig) {
+    const nowIso = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+    return res.json({
+      success: false,
+      error: "Banco de dados não está configurado",
+      savedConfig: formattedSaved,
+      liveConnection: {
+        status: "Desconectado",
+        databaseName: formattedSaved.database,
+        serverHostname: formattedSaved.host,
+        serverPort: formattedSaved.port,
+        serverVersion: "Desconhecido",
+        serverType: "Desconhecido",
+        authenticatedUser: formattedSaved.user,
+        connectionUser: formattedSaved.user,
+        connectionId: 0,
+        dataDirectory: null,
+        sslActive: false,
+        lastCheckedAt: nowIso,
+        probableOrigin: "Não configurado",
+        isLocalConnection: false,
+        connectionHash: "UNCONFIGURED"
+      },
+      mismatches: ["O arquivo de configuração do banco de dados não foi localizado ou está incompleto."],
+      recordCounts: {
+        admins: 0,
+        clients: 0,
+        equipment: 0,
+        serviceOrders: 0,
+        payments: 0,
+        warranties: 0,
+        latestClientAt: null,
+        latestServiceOrderAt: null
+      }
+    });
+  }
+
+  try {
+    const activePool = await getPool();
+    const connection = await activePool.getConnection();
+
+    try {
+      // 1. Current database query
+      const [dbRows] = await connection.query("SELECT DATABASE() AS database_name");
+      const confirmedDatabase = (dbRows as any[])?.[0]?.database_name || formattedSaved.database;
+
+      // 2. Server identity & connection status queries
+      const [serverRows] = await connection.query(`
+        SELECT 
+          @@hostname AS server_hostname, 
+          @@port AS server_port, 
+          @@version AS server_version, 
+          @@version_comment AS server_type, 
+          CURRENT_USER() AS authenticated_user, 
+          USER() AS connection_user, 
+          CONNECTION_ID() AS connection_id
+      `);
+      const sInfo = (serverRows as any[])?.[0] || {};
+
+      // 3. Optional Data Directory
+      let dataDirectory: string | null = null;
+      try {
+        const [dirRows] = await connection.query("SELECT @@datadir AS data_directory");
+        dataDirectory = (dirRows as any[])?.[0]?.data_directory || null;
+      } catch (e) {
+        // Data directory variable not accessible or unsupported
+      }
+
+      // 4. Optional SSL Status
+      let sslActive = false;
+      try {
+        const [sslRows] = await connection.query("SHOW SESSION STATUS LIKE 'Ssl_cipher'");
+        const cipherVal = (sslRows as any[])?.[0]?.Value || (sslRows as any[])?.[0]?.value;
+        if (cipherVal && String(cipherVal).trim().length > 0) {
+          sslActive = true;
+        }
+      } catch (e) {
+        sslActive = formattedSaved.ssl;
+      }
+
+      // Local connection detection signals
+      const serverHostname = sInfo.server_hostname || "";
+      const osHostname = os.hostname();
+      const hostLower = (formattedSaved.host || "").toLowerCase();
+      const isLocalHost = 
+        hostLower === "localhost" || 
+        hostLower === "127.0.0.1" || 
+        hostLower === "::1" || 
+        hostLower === "0.0.0.0" || 
+        serverHostname.toLowerCase() === osHostname.toLowerCase() ||
+        formattedSaved.mode === "local";
+
+      const probableOrigin = isLocalHost
+        ? "MySQL instalado nesta máquina (Local)"
+        : "Servidor MySQL Remoto (Rede / Nuvem)";
+
+      // Short non-reversible connection hash identifier
+      const hashInput = `${formattedSaved.host}:${formattedSaved.port}:${confirmedDatabase}:${sInfo.authenticated_user || formattedSaved.user}:${serverHostname}`;
+      const rawHash = crypto.createHash("sha256").update(hashInput).digest("hex").toUpperCase();
+      const connectionHash = `${rawHash.substring(0, 4)}-${rawHash.substring(4, 8)}`;
+
+      // Divergence analysis
+      const mismatches: string[] = [];
+      if (formattedSaved.database && confirmedDatabase && formattedSaved.database.toLowerCase() !== confirmedDatabase.toLowerCase()) {
+        mismatches.push(`Atenção: o nome do banco ativo (${confirmedDatabase}) é diferente do banco salvo na configuração (${formattedSaved.database}).`);
+      }
+
+      if (formattedSaved.host && serverHostname && 
+          formattedSaved.host.toLowerCase() !== "localhost" && 
+          formattedSaved.host.toLowerCase() !== "127.0.0.1" && 
+          formattedSaved.host.toLowerCase() !== serverHostname.toLowerCase() && 
+          serverHostname.toLowerCase() !== osHostname.toLowerCase()) {
+        mismatches.push(`Atenção: a aplicação está conectada a um servidor com hostname '${serverHostname}', que é diferente do host configurado '${formattedSaved.host}'.`);
+      }
+
+      if (formattedSaved.mode === "remoto" && isLocalHost) {
+        mismatches.push(`Atenção: a configuração indica banco remoto, mas o servidor identificado aparenta ser local (${serverHostname || formattedSaved.host}).`);
+      }
+
+      // Record counts on active MySQL database
+      async function safeCount(tbl: string): Promise<number> {
+        try {
+          const [r] = await connection.query(`SELECT COUNT(*) AS total FROM \`${tbl}\``);
+          return Number((r as any[])?.[0]?.total || 0);
+        } catch (e) {
+          return 0;
+        }
+      }
+
+      async function safeLatestDate(tbl: string): Promise<string | null> {
+        try {
+          const [r] = await connection.query(`SELECT MAX(created_at) AS latest FROM \`${tbl}\``);
+          const val = (r as any[])?.[0]?.latest;
+          if (!val) return null;
+          if (val instanceof Date) return val.toISOString();
+          return String(val);
+        } catch (e) {
+          return null;
+        }
+      }
+
+      const adminsCount = await safeCount("admins");
+      const clientsCount = await safeCount("clients");
+      const equipmentCount = await safeCount("equipment");
+      const serviceOrdersCount = await safeCount("service_orders");
+      
+      let paymentsCount = await safeCount("payment_guides");
+      if (paymentsCount === 0) paymentsCount = await safeCount("financial_records");
+
+      let warrantiesCount = await safeCount("warranty_rules");
+      if (warrantiesCount === 0) warrantiesCount = await safeCount("warranties");
+
+      const latestClientAt = await safeLatestDate("clients");
+      const latestServiceOrderAt = await safeLatestDate("service_orders");
+
+      connection.release();
+
+      const nowIso = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+
+      return res.json({
+        success: true,
+        savedConfig: formattedSaved,
+        liveConnection: {
+          status: "Conectado",
+          databaseName: confirmedDatabase,
+          serverHostname: serverHostname || formattedSaved.host,
+          serverPort: sInfo.server_port || formattedSaved.port,
+          serverVersion: sInfo.server_version || "8.x",
+          serverType: sInfo.server_type || "MySQL",
+          authenticatedUser: sInfo.authenticated_user || formattedSaved.user,
+          connectionUser: sInfo.connection_user || formattedSaved.user,
+          connectionId: sInfo.connection_id || 0,
+          dataDirectory,
+          sslActive,
+          lastCheckedAt: nowIso,
+          probableOrigin,
+          isLocalConnection: isLocalHost,
+          connectionHash
+        },
+        mismatches,
+        recordCounts: {
+          admins: adminsCount,
+          clients: clientsCount,
+          equipment: equipmentCount,
+          serviceOrders: serviceOrdersCount,
+          payments: paymentsCount,
+          warranties: warrantiesCount,
+          latestClientAt,
+          latestServiceOrderAt
+        }
+      });
+
+    } catch (innerErr: any) {
+      connection.release();
+      throw innerErr;
+    }
+
+  } catch (err: any) {
+    const nowIso = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+    return res.json({
+      success: false,
+      error: err.message || "Erro de conexão ao consultar o banco de dados ativo.",
+      savedConfig: formattedSaved,
+      liveConnection: {
+        status: "Desconectado",
+        databaseName: formattedSaved.database,
+        serverHostname: formattedSaved.host,
+        serverPort: formattedSaved.port,
+        serverVersion: "Desconhecido",
+        serverType: "Desconhecido",
+        authenticatedUser: formattedSaved.user,
+        connectionUser: formattedSaved.user,
+        connectionId: 0,
+        dataDirectory: null,
+        sslActive: false,
+        lastCheckedAt: nowIso,
+        probableOrigin: "Servidor Indisponível",
+        isLocalConnection: false,
+        connectionHash: "UNAVAILABLE"
+      },
+      mismatches: ["Atenção: Não foi possível estabelecer comunicação com o servidor MySQL ativo."],
+      recordCounts: {
+        admins: 0,
+        clients: 0,
+        equipment: 0,
+        serviceOrders: 0,
+        payments: 0,
+        warranties: 0,
+        latestClientAt: null,
+        latestServiceOrderAt: null
+      }
+    });
+  }
+});
+
 // Update active database configuration (MySQL only)
 app.post("/api/database/config", requireAuth, async (req: any, res: any) => {
   const { type, host, port, database, user, password, ssl, certificate } = req.body;
@@ -686,6 +935,42 @@ app.post("/api/database/config", requireAuth, async (req: any, res: any) => {
     if (certificate !== undefined) newConfig.certificate = certificate;
     
     saveDatabaseConfig(newConfig);
+
+    // Audit log
+    try {
+      const testRes = await testConnection(newConfig);
+      const adminId = req.session?.adminId || req.session?.id || null;
+      await logAdminAction({
+        adminId,
+        action: "UPDATE_DATABASE_CONFIG",
+        entityType: "database_config",
+        entityId: "1",
+        description: `Configuração do banco atualizada por ${req.session?.username || 'admin'}. [Anterior: Host ${oldConfig?.host || 'N/A'}:${oldConfig?.port || 3306}, Banco ${oldConfig?.database || 'N/A'}] -> [Novo: Host ${newConfig.host}:${newConfig.port}, Banco ${newConfig.database}]. Teste de conexão: ${testRes.success ? 'Sucesso' : 'Falha (' + testRes.message + ')'}`,
+        metadata: {
+          previousConfig: {
+            mode: oldConfig?.mode || "remoto",
+            host: oldConfig?.host || "",
+            port: oldConfig?.port || 3306,
+            database: oldConfig?.database || "",
+            user: oldConfig?.user || "",
+            ssl: !!oldConfig?.ssl
+          },
+          newConfig: {
+            mode: newConfig.mode,
+            host: newConfig.host,
+            port: newConfig.port,
+            database: newConfig.database,
+            user: newConfig.user,
+            ssl: !!newConfig.ssl
+          },
+          testResult: testRes.success ? "Sucesso" : testRes.message
+        },
+        ipAddress: req.ip || "127.0.0.1",
+        userAgent: req.headers["user-agent"]
+      });
+    } catch (auditErr) {
+      console.warn("Could not log admin audit action for database config change:", auditErr);
+    }
 
     return res.json({ success: true, message: `Banco de dados configurado para o modo Remoto (${newConfig.type?.toUpperCase() || "MYSQL"}) com sucesso!` });
   } catch (err: any) {

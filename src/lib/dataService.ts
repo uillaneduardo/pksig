@@ -885,6 +885,129 @@ class DataServiceClass {
       }
     }
   }
+
+  public async getDatabaseDiagnosticInfo(): Promise<any> {
+    let localStats = {
+      cachedClientsCount: 0,
+      cachedServiceOrdersCount: 0,
+      pendingQueueCount: 0,
+      conflictCount: 0,
+      lastSyncAt: null as string | null
+    };
+
+    try {
+      const allCached = await localDb.cachedRecords.toArray();
+      localStats.cachedClientsCount = allCached.filter(c => c.entityType === "clients" || c.localId?.startsWith("client_")).length;
+      localStats.cachedServiceOrdersCount = allCached.filter(c => c.entityType === "service_orders" || c.localId?.startsWith("os_")).length;
+
+      const pendingQueue = await localDb.syncQueue.where("status").equals("pending").toArray();
+      localStats.pendingQueueCount = pendingQueue.length;
+
+      const conflicts = await localDb.syncConflicts.where("status").equals("pending").toArray();
+      localStats.conflictCount = conflicts.length;
+
+      const meta = await localDb.appMetadata.get("last_sync_at");
+      localStats.lastSyncAt = meta ? meta.value : (typeof localStorage !== "undefined" ? localStorage.getItem("pksig_last_sync_at") : null);
+    } catch (e) {
+      console.warn("Could not query IndexedDB stats:", e);
+    }
+
+    try {
+      const res = await fetch("/api/database/info", { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        return {
+          ...data,
+          localStats
+        };
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        return {
+          success: false,
+          error: errData.error || `HTTP ${res.status}`,
+          savedConfig: {
+            mode: "remoto",
+            host: "Desconhecido",
+            port: 3306,
+            database: "pksig",
+            user: "root",
+            ssl: false
+          },
+          liveConnection: {
+            status: "Desconectado",
+            databaseName: "pksig",
+            serverHostname: "Desconhecido",
+            serverPort: 3306,
+            serverVersion: "N/A",
+            serverType: "N/A",
+            authenticatedUser: "N/A",
+            connectionUser: "N/A",
+            connectionId: 0,
+            dataDirectory: null,
+            sslActive: false,
+            lastCheckedAt: new Date().toLocaleTimeString("pt-BR"),
+            probableOrigin: "Servidor Indisponível",
+            isLocalConnection: false,
+            connectionHash: "UNAVAILABLE"
+          },
+          mismatches: [errData.error || "O servidor backend retornou uma falha ao consultar as informações da conexão."],
+          recordCounts: {
+            admins: 0,
+            clients: 0,
+            equipment: 0,
+            serviceOrders: 0,
+            payments: 0,
+            warranties: 0,
+            latestClientAt: null,
+            latestServiceOrderAt: null
+          },
+          localStats
+        };
+      }
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err.message || "Erro de rede ao consultar o backend",
+        savedConfig: {
+          mode: "remoto",
+          host: "Servidor Não Respondendo",
+          port: 3306,
+          database: "pksig",
+          user: "root",
+          ssl: false
+        },
+        liveConnection: {
+          status: "Desconectado",
+          databaseName: "pksig",
+          serverHostname: "Indisponível",
+          serverPort: 3306,
+          serverVersion: "N/A",
+          serverType: "N/A",
+          authenticatedUser: "N/A",
+          connectionUser: "N/A",
+          connectionId: 0,
+          dataDirectory: null,
+          sslActive: false,
+          lastCheckedAt: new Date().toLocaleTimeString("pt-BR"),
+          probableOrigin: "Offline / Sem Rede",
+          isLocalConnection: false,
+          connectionHash: "OFFLINE"
+        },
+        mismatches: ["Falha de rede ao se comunicar com o backend do PKSIG."],
+        recordCounts: {
+          admins: 0,
+          clients: 0,
+          equipment: 0,
+          serviceOrders: 0,
+          payments: 0,
+          warranties: 0,
+          latestClientAt: null,
+          latestServiceOrderAt: null
+        },
+        localStats
+      };
+    }
+  }
 }
 
 export const DataService = new DataServiceClass();

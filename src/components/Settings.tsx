@@ -2,11 +2,12 @@ import React, { useState, useEffect } from "react";
 import { EquipmentCategory, PaymentMethod, WarrantyRule } from "../types";
 import { useOperationProgress } from "../hooks/useOperationProgress";
 import { ProgressModal } from "./OperationProgress";
+import { DataService } from "../lib/dataService";
 import { 
   Settings as SettingsIcon, Save, Plus, Check, Trash2, 
   RefreshCw, DollarSign, Laptop, ShieldCheck, Tag, Loader, AlertCircle,
   Building, Edit, Database, Server, ArrowLeftRight, Download, Upload,
-  Smartphone, Shield, Mail
+  Smartphone, Shield, Mail, Activity, ShieldAlert, KeyRound, Clock, Hash, Cpu, Wifi, HardDrive
 } from "lucide-react";
 
 interface SettingsProps {
@@ -291,6 +292,21 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
   const [verifyingDb, setVerifyingDb] = useState(false);
   const [integrityError, setIntegrityError] = useState("");
 
+  const [dbDiagnosticInfo, setDbDiagnosticInfo] = useState<any>(null);
+  const [loadingDiagnostic, setLoadingDiagnostic] = useState(false);
+
+  const fetchDiagnosticInfo = async () => {
+    setLoadingDiagnostic(true);
+    try {
+      const data = await DataService.getDatabaseDiagnosticInfo();
+      setDbDiagnosticInfo(data);
+    } catch (err) {
+      console.error("Error fetching database diagnostic info:", err);
+    } finally {
+      setLoadingDiagnostic(false);
+    }
+  };
+
   const [resetLoading, setResetLoading] = useState(false);
   const [resetSuccess, setResetSuccess] = useState("");
   const [resetError, setResetError] = useState("");
@@ -557,6 +573,7 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
     if (activeSection === "armazenamento") {
       fetchDbConfig();
       handleVerifyDbIntegrity();
+      fetchDiagnosticInfo();
     }
     if (activeSection === "financeiro") {
       fetchFinCategories();
@@ -1446,20 +1463,234 @@ export default function Settings({ onUpdateCurrency, currency, onCompanyUpdated,
                 </div>
               </div>
 
-              {/* Status Banner */}
-              <div className="bg-gray-50 border border-gray-200 rounded-md p-4 flex items-start space-x-3 text-xs">
-                <Server className="h-5 w-5 text-indigo-600 mt-0.5 shrink-0" />
-                <div className="space-y-1">
-                  <p className="font-bold text-gray-900 text-xs">Banco de Dados Ativo Atualmente</p>
-                  <p className="text-gray-500 text-[11px]">
-                    O PK SIG está executando no modo:{" "}
-                    <span className="font-bold text-indigo-600 uppercase bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded text-[10px]">
-                      Remoto (MySQL / MariaDB)
+              {/* DIAGNÓSTICO E CONEXÃO CONFIRMADA EM TEMPO REAL PELO SERVIDOR */}
+              <div className="bg-white border border-gray-200 rounded-md p-5 space-y-4 shadow-sm">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-gray-100 pb-3 gap-2">
+                  <div>
+                    <h4 className="font-bold text-gray-900 text-xs flex items-center">
+                      <Activity className="h-4.5 w-4.5 mr-2 text-indigo-600" />
+                      Conexão e Banco de Dados Confirmados pelo Servidor
+                    </h4>
+                    <p className="text-gray-500 text-[11px] mt-0.5">
+                      Informações obtidas por consultas SQL executadas diretamente na conexão ativa do backend.
+                    </p>
+                  </div>
+                  <div className="flex items-center space-x-2 shrink-0">
+                    <span className="text-[10px] text-gray-400 font-medium">
+                      Verificado: {dbDiagnosticInfo?.liveConnection?.lastCheckedAt || "Pendente"}
                     </span>
-                  </p>
-                  <p className="text-gray-400 text-[10px]">
-                    Conectado ao servidor MySQL: <span className="font-mono bg-gray-100 px-1 rounded">{dbConfig?.host || "Servidor Remoto"}</span> | Banco: <span className="font-mono bg-gray-100 px-1 rounded">{dbConfig?.database || "pksig"}</span>
-                  </p>
+                    <button
+                      type="button"
+                      onClick={fetchDiagnosticInfo}
+                      disabled={loadingDiagnostic}
+                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-[11px] font-bold transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50 shadow-xs"
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${loadingDiagnostic ? "animate-spin" : ""}`} />
+                      <span>VERIFICAR CONEXÃO AGORA</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* DIVERGÊNCIA DE CONFIGURAÇÃO (SE HOUVER) */}
+                {dbDiagnosticInfo?.mismatches && dbDiagnosticInfo.mismatches.length > 0 && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-amber-900 text-xs space-y-1.5">
+                    <div className="flex items-center font-bold text-amber-800">
+                      <ShieldAlert className="h-4 w-4 mr-1.5 text-amber-600 shrink-0" />
+                      <span>Alertas de Divergência de Configuração</span>
+                    </div>
+                    <ul className="list-disc list-inside text-[11px] space-y-1 text-amber-800/90 pl-1">
+                      {dbDiagnosticInfo.mismatches.map((m: string, i: number) => (
+                        <li key={i}>{m}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* GRID DE COMPARAÇÃO: CONFIGURAÇÃO SALVA VS CONEXÃO ATIVA CONFIRMADA */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* CARD CONFIGURAÇÃO SALVA */}
+                  <div className="bg-gray-50/80 border border-gray-200 rounded-md p-3.5 space-y-2.5 text-xs">
+                    <div className="flex items-center justify-between border-b border-gray-200/80 pb-2">
+                      <span className="font-bold text-gray-700 text-[11px] flex items-center">
+                        <HardDrive className="h-3.5 w-3.5 mr-1.5 text-gray-500" />
+                        Configuração Salva (`database.json`)
+                      </span>
+                      <span className="text-[10px] bg-gray-200 text-gray-700 font-bold px-1.5 py-0.5 rounded uppercase">
+                        {dbDiagnosticInfo?.savedConfig?.mode || "Remoto"}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      <div>
+                        <span className="text-gray-400 block text-[10px]">Host Salvo</span>
+                        <span className="font-mono font-semibold text-gray-800">{dbDiagnosticInfo?.savedConfig?.host || "N/A"}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 block text-[10px]">Porta Salva</span>
+                        <span className="font-mono font-semibold text-gray-800">{dbDiagnosticInfo?.savedConfig?.port || 3306}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 block text-[10px]">Banco Salvo</span>
+                        <span className="font-mono font-semibold text-gray-800">{dbDiagnosticInfo?.savedConfig?.database || "pksig"}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 block text-[10px]">Usuário Salvo</span>
+                        <span className="font-mono font-semibold text-gray-800">{dbDiagnosticInfo?.savedConfig?.user || "root"}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 block text-[10px]">SSL Salvo</span>
+                        <span className="font-semibold text-gray-800">{dbDiagnosticInfo?.savedConfig?.ssl ? "Sim" : "Não"}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* CARD CONEXÃO CONFIRMADA PELO SERVIDOR */}
+                  <div className="bg-emerald-50/30 border border-emerald-200/80 rounded-md p-3.5 space-y-2.5 text-xs">
+                    <div className="flex items-center justify-between border-b border-emerald-200/60 pb-2">
+                      <span className="font-bold text-emerald-950 text-[11px] flex items-center">
+                        <Wifi className="h-3.5 w-3.5 mr-1.5 text-emerald-600" />
+                        Conexão Confirmada pelo Servidor
+                      </span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        dbDiagnosticInfo?.liveConnection?.status === "Conectado"
+                          ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                          : "bg-red-100 text-red-800 border border-red-200"
+                      }`}>
+                        {dbDiagnosticInfo?.liveConnection?.status || "Verificando..."}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      <div>
+                        <span className="text-gray-400 block text-[10px]">Banco Selecionado</span>
+                        <span className="font-mono font-bold text-indigo-700">{dbDiagnosticInfo?.liveConnection?.databaseName || "pksig"}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 block text-[10px]">Servidor (Hostname)</span>
+                        <span className="font-mono font-semibold text-gray-800">{dbDiagnosticInfo?.liveConnection?.serverHostname || "N/A"}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 block text-[10px]">Usuário Autenticado</span>
+                        <span className="font-mono font-semibold text-gray-800">{dbDiagnosticInfo?.liveConnection?.authenticatedUser || "N/A"}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 block text-[10px]">Motor e Versão</span>
+                        <span className="font-semibold text-gray-800">{dbDiagnosticInfo?.liveConnection?.serverType || "MySQL"} {dbDiagnosticInfo?.liveConnection?.serverVersion || ""}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 block text-[10px]">ID da Conexão</span>
+                        <span className="font-mono text-gray-800">{dbDiagnosticInfo?.liveConnection?.connectionId || 0}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 block text-[10px]">Sessão SSL</span>
+                        <span className="font-semibold text-gray-800">{dbDiagnosticInfo?.liveConnection?.sslActive ? "Ativa" : "Desativada"}</span>
+                      </div>
+                    </div>
+
+                    <div className="pt-1.5 border-t border-emerald-100 flex flex-wrap items-center justify-between gap-1 text-[10px]">
+                      <div className="flex items-center space-x-1">
+                        <span className="text-gray-400">Origem:</span>
+                        <span className="font-bold text-gray-700 bg-emerald-100/80 px-1.5 py-0.5 rounded">
+                          {dbDiagnosticInfo?.liveConnection?.probableOrigin || "Indefinida"}
+                        </span>
+                      </div>
+                      <div className="flex items-center space-x-1 font-mono text-gray-500">
+                        <Hash className="h-3 w-3 text-indigo-600" />
+                        <span>Hash ID: </span>
+                        <span className="font-bold text-indigo-900 bg-indigo-50 border border-indigo-100 px-1 rounded">
+                          {dbDiagnosticInfo?.liveConnection?.connectionHash || "N/A"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* CONTEÚDO E DADOS DO BANCO MYSQL ATIVO */}
+                <div className="border border-gray-200 rounded-md p-3.5 space-y-2.5 bg-gray-50/40">
+                  <h5 className="font-bold text-gray-800 text-[11px] flex items-center justify-between">
+                    <span className="flex items-center">
+                      <Database className="h-3.5 w-3.5 mr-1.5 text-indigo-600" />
+                      Registros Confirmados no Banco MySQL Ativo
+                    </span>
+                    <span className="text-[10px] text-gray-400 font-normal">Consultas SQL em tempo real</span>
+                  </h5>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-center text-xs">
+                    <div className="bg-white border border-gray-200 rounded p-2">
+                      <span className="text-gray-400 text-[10px] block">Admins</span>
+                      <span className="font-bold text-gray-900 text-sm">{dbDiagnosticInfo?.recordCounts?.admins ?? 0}</span>
+                    </div>
+                    <div className="bg-white border border-gray-200 rounded p-2">
+                      <span className="text-gray-400 text-[10px] block">Clientes</span>
+                      <span className="font-bold text-gray-900 text-sm">{dbDiagnosticInfo?.recordCounts?.clients ?? 0}</span>
+                    </div>
+                    <div className="bg-white border border-gray-200 rounded p-2">
+                      <span className="text-gray-400 text-[10px] block">Equipamentos</span>
+                      <span className="font-bold text-gray-900 text-sm">{dbDiagnosticInfo?.recordCounts?.equipment ?? 0}</span>
+                    </div>
+                    <div className="bg-white border border-gray-200 rounded p-2">
+                      <span className="text-gray-400 text-[10px] block">Ordens de Serviço</span>
+                      <span className="font-bold text-gray-900 text-sm">{dbDiagnosticInfo?.recordCounts?.serviceOrders ?? 0}</span>
+                    </div>
+                    <div className="bg-white border border-gray-200 rounded p-2">
+                      <span className="text-gray-400 text-[10px] block">Financeiro / Pagts</span>
+                      <span className="font-bold text-gray-900 text-sm">{dbDiagnosticInfo?.recordCounts?.payments ?? 0}</span>
+                    </div>
+                    <div className="bg-white border border-gray-200 rounded p-2">
+                      <span className="text-gray-400 text-[10px] block">Garantias</span>
+                      <span className="font-bold text-gray-900 text-sm">{dbDiagnosticInfo?.recordCounts?.warranties ?? 0}</span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10.5px] pt-1 border-t border-gray-200/60">
+                    <div className="flex justify-between items-center bg-white px-2.5 py-1.5 rounded border border-gray-200">
+                      <span className="text-gray-500">Último cliente cadastrado:</span>
+                      <span className="font-semibold text-gray-800">
+                        {dbDiagnosticInfo?.recordCounts?.latestClientAt
+                          ? new Date(dbDiagnosticInfo.recordCounts.latestClientAt).toLocaleString("pt-BR")
+                          : "Nenhum registro"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center bg-white px-2.5 py-1.5 rounded border border-gray-200">
+                      <span className="text-gray-500">Última ordem de serviço:</span>
+                      <span className="font-semibold text-gray-800">
+                        {dbDiagnosticInfo?.recordCounts?.latestServiceOrderAt
+                          ? new Date(dbDiagnosticInfo.recordCounts.latestServiceOrderAt).toLocaleString("pt-BR")
+                          : "Nenhuma ordem"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* DADOS NO NAVEGADOR (CACHE LOCAL PWA / INDEXEDDB) */}
+                <div className="border border-indigo-100 rounded-md p-3.5 space-y-2.5 bg-indigo-50/20">
+                  <div>
+                    <h5 className="font-bold text-gray-800 text-[11px] flex items-center">
+                      <Smartphone className="h-3.5 w-3.5 mr-1.5 text-indigo-600" />
+                      Dados no Navegador do Dispositivo (Cache Local PWA / IndexedDB)
+                    </h5>
+                    <p className="text-[10px] text-gray-500 mt-0.5">
+                      Estes dados pertencem exclusivamente ao armazenamento local do navegador deste dispositivo e não substituem o banco de dados central MySQL.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
+                    <div className="bg-white border border-indigo-100 rounded p-2">
+                      <span className="text-gray-400 text-[10px] block">Clientes em Cache</span>
+                      <span className="font-bold text-indigo-900 text-sm">{dbDiagnosticInfo?.localStats?.cachedClientsCount ?? 0}</span>
+                    </div>
+                    <div className="bg-white border border-indigo-100 rounded p-2">
+                      <span className="text-gray-400 text-[10px] block">OSs em Cache</span>
+                      <span className="font-bold text-indigo-900 text-sm">{dbDiagnosticInfo?.localStats?.cachedServiceOrdersCount ?? 0}</span>
+                    </div>
+                    <div className="bg-white border border-indigo-100 rounded p-2">
+                      <span className="text-gray-400 text-[10px] block">Operações Pendentes</span>
+                      <span className="font-bold text-amber-600 text-sm">{dbDiagnosticInfo?.localStats?.pendingQueueCount ?? 0}</span>
+                    </div>
+                    <div className="bg-white border border-indigo-100 rounded p-2">
+                      <span className="text-gray-400 text-[10px] block">Conflitos Pendentes</span>
+                      <span className="font-bold text-red-600 text-sm">{dbDiagnosticInfo?.localStats?.conflictCount ?? 0}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
