@@ -465,43 +465,25 @@ export default function App() {
               />
             )}
 
-            {/* PWA offline/sync status badge */}
+            {/* PWA / Connection status badge */}
             <button
               onClick={() => setShowPwaModal(true)}
               className={`text-[10px] font-bold px-3 py-1 rounded-full flex items-center transition cursor-pointer select-none border shadow-xs hover:shadow-sm ${
-                pwaStatus.conflictCount > 0
-                  ? "bg-red-50 border-red-200 text-red-800 hover:bg-red-100/50"
-                  : pwaStatus.isSyncing
-                    ? "bg-indigo-50 border-indigo-200 text-indigo-800 hover:bg-indigo-100/50"
-                    : pwaStatus.pendingCount > 0
-                      ? "bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100/50"
-                      : !pwaStatus.isOnline
-                        ? "bg-gray-100 border-gray-300 text-gray-700 hover:bg-gray-200"
-                        : "bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100/50"
+                pwaStatus.health?.canWrite
+                  ? "bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100/50"
+                  : "bg-amber-50 border-amber-200 text-amber-900 hover:bg-amber-100/50"
               }`}
-              title="Ver status de sincronização e suporte offline"
+              title="Ver detalhes da conexão e central de recuperação"
             >
               <span className={`h-1.5 w-1.5 rounded-full mr-1.5 ${
-                pwaStatus.conflictCount > 0
-                  ? "bg-red-500 animate-pulse"
-                  : pwaStatus.isSyncing
-                    ? "bg-indigo-500"
-                    : pwaStatus.pendingCount > 0
-                      ? "bg-amber-500 animate-bounce"
-                      : !pwaStatus.isOnline
-                        ? "bg-gray-500"
-                        : "bg-emerald-500"
+                pwaStatus.health?.canWrite
+                  ? "bg-emerald-500 animate-pulse"
+                  : "bg-amber-500 animate-bounce"
               }`} />
               
-              {pwaStatus.conflictCount > 0
-                ? `CONFLITOS (${pwaStatus.conflictCount})`
-                : pwaStatus.isSyncing
-                  ? "SINCRONIZANDO..."
-                  : pwaStatus.pendingCount > 0
-                    ? `PENDENTES (${pwaStatus.pendingCount})`
-                    : !pwaStatus.isOnline
-                      ? "OFFLINE"
-                      : "PWA SINCRONIZADO"
+              {pwaStatus.health?.canWrite
+                ? "BANCO MYSQL ONLINE"
+                : "GRAVAÇÃO BLOQUEADA (OFFLINE)"
               }
             </button>
 
@@ -512,135 +494,101 @@ export default function App() {
                 setSyncSuccess("");
               }}
               className={`text-[10px] font-bold px-3 py-1 rounded-full flex items-center transition cursor-pointer select-none border shadow-xs hover:shadow-sm ${
-                !dbConnected 
-                  ? "bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100/50" 
-                  : dbMode === "remoto" 
-                    ? "bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100/50" 
-                    : "bg-sky-50 border-sky-200 text-sky-800 hover:bg-sky-100/50"
+                pwaStatus.health?.canWrite
+                  ? "bg-indigo-50 border-indigo-200 text-indigo-800 hover:bg-indigo-100/50" 
+                  : "bg-red-50 border-red-200 text-red-800 hover:bg-red-100/50"
               }`}
             >
               <span className={`h-1.5 w-1.5 rounded-full mr-1.5 ${
-                !dbConnected 
-                  ? "bg-amber-500 animate-pulse" 
-                  : dbMode === "remoto" 
-                    ? "bg-emerald-500 animate-pulse" 
-                    : "bg-sky-500"
+                pwaStatus.health?.canWrite
+                  ? "bg-indigo-500" 
+                  : "bg-red-500"
               }`} />
               
-              {!dbConnected 
-                ? "ERRO DE CONEXÃO" 
-                : dbMode === "remoto" 
-                  ? "SISTEMA ONLINE (NUVEM)" 
-                  : "SISTEMA LOCAL (OFFLINE)"
+              {pwaStatus.health?.canWrite 
+                ? "SISTEMA ONLINE" 
+                : "SERVIDOR INDISPONÍVEL"
               }
             </button>
 
-            {/* Dropdown panel */}
+            {/* Status dropdown panel */}
             {showSyncDropdown && (
-              <div className="absolute right-0 top-full mt-2 w-76 bg-white rounded-lg shadow-lg border border-gray-100 p-4 space-y-3 z-50 text-xs text-gray-700 font-sans animate-in fade-in slide-in-from-top-1 duration-150">
+              <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-lg shadow-lg border border-gray-100 p-4 space-y-3 z-50 text-xs text-gray-700 font-sans animate-in fade-in slide-in-from-top-1 duration-150">
                 
                 {/* Header */}
                 <div className="flex items-center justify-between pb-2 border-b border-gray-100">
                   <div className="flex items-center space-x-1.5">
-                    <Database className="h-4 w-4 text-gray-500 shrink-0" />
-                    <span className="font-bold text-gray-900 text-xs uppercase tracking-tight">Status de Conexão</span>
+                    <Database className="h-4 w-4 text-indigo-600 shrink-0" />
+                    <span className="font-bold text-gray-900 text-xs uppercase tracking-tight">Status da Conexão Backend</span>
                   </div>
-                  <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold ${
-                    dbConnected ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
+                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${
+                    pwaStatus.health?.canWrite ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"
                   }`}>
-                    {dbConnected ? "Ativo" : "Offline"}
+                    {pwaStatus.health?.canWrite ? "Ativo" : "Bloqueado"}
                   </span>
                 </div>
 
                 {/* Database info list */}
-                <div className="space-y-1.5 bg-gray-50 rounded-md p-2.5 border border-gray-100">
+                <div className="space-y-2 bg-gray-50 rounded-md p-3 border border-gray-100 text-[11px]">
                   <div className="flex justify-between">
-                    <span className="text-gray-500 font-medium">Modo Ativo:</span>
-                    <span className="font-bold text-gray-900 capitalize">
-                      {dbMode === "local" ? "Local (SQLite)" : "Nuvem (MySQL/MariaDB)"}
+                    <span className="text-gray-500 font-medium">Servidor Backend:</span>
+                    <span className={`font-bold capitalize ${pwaStatus.health?.server === "online" ? "text-emerald-700" : "text-red-600"}`}>
+                      {pwaStatus.health?.server === "online" ? "Online" : "Indisponível"}
                     </span>
                   </div>
-                  
-                  {dbMode === "remoto" && dbConnected && (
-                    <div className="text-[10px] text-gray-500 flex flex-col space-y-0.5 border-t border-gray-200/60 pt-1.5 mt-1">
-                      <span className="truncate"><strong>Servidor:</strong> {dbType?.toUpperCase()}</span>
-                      <span className="truncate"><strong>Diretório:</strong> Remoto</span>
-                    </div>
-                  )}
 
-                  {dbMode === "local" && (
-                    <div className="border-t border-gray-200/60 pt-1.5 mt-1 space-y-1">
-                      <div className="flex justify-between text-[10px]">
-                        <span className="text-gray-500">Última Sincronização:</span>
-                        <span className="font-semibold text-gray-700 truncate max-w-[130px] text-right" title={formatSyncDate(lastSyncAt)}>
-                          {lastSyncAt ? new Date(lastSyncAt).toLocaleDateString("pt-BR") + " " + new Date(lastSyncAt).toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit"}) : "Nunca"}
-                        </span>
-                      </div>
-                      {lastSyncDirection && (
-                        <div className="flex justify-between text-[10px]">
-                          <span className="text-gray-500">Fluxo:</span>
-                          <span className="font-semibold text-gray-700 font-mono">
-                            {lastSyncDirection === "local-to-remote" ? "Local → Nuvem" : "Nuvem → Local"}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  <div className="flex justify-between border-t border-gray-200/60 pt-1.5">
+                    <span className="text-gray-500 font-medium">Banco MySQL:</span>
+                    <span className={`font-bold capitalize ${pwaStatus.health?.database === "connected" ? "text-emerald-700" : "text-red-600"}`}>
+                      {pwaStatus.health?.database === "connected" ? "Conectado" : "Desconectado"}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between border-t border-gray-200/60 pt-1.5">
+                    <span className="text-gray-500 font-medium">Modo do Sistema:</span>
+                    <span className="font-bold text-gray-800 capitalize">
+                      {pwaStatus.health?.mode || "Remoto"}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between border-t border-gray-200/60 pt-1.5">
+                    <span className="text-gray-500 font-medium">Nome do Banco:</span>
+                    <span className="font-mono font-bold text-gray-800">
+                      {pwaStatus.health?.databaseName || "pksig"}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between border-t border-gray-200/60 pt-1.5">
+                    <span className="text-gray-500 font-medium">Servidor / Host:</span>
+                    <span className="font-mono font-semibold text-gray-700 truncate max-w-[140px]" title={pwaStatus.health?.host}>
+                      {pwaStatus.health?.host || "Servidor configurado"}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between border-t border-gray-200/60 pt-1.5 text-[10px]">
+                    <span className="text-gray-500">Última Checagem:</span>
+                    <span className="font-semibold text-gray-700">
+                      {pwaStatus.health?.lastCheckedAt || "Agora"}
+                    </span>
+                  </div>
                 </div>
 
-                {/* Operations Section */}
-                <div className="space-y-2 pt-1">
-                  <h5 className="font-bold text-[10px] text-gray-400 uppercase tracking-wider">Ações de Sincronização</h5>
-                  
-                  {dbMode === "local" ? (
-                    <div className="grid grid-cols-1 gap-2">
-                      <button
-                        onClick={() => handleQuickSync("local-to-remote")}
-                        disabled={isSyncing || !dbConnected}
-                        className="w-full flex items-center justify-center space-x-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-bold transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-xs"
-                      >
-                        {isSyncing ? (
-                          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Upload className="h-3.5 w-3.5 shrink-0" />
-                        )}
-                        <span>Enviar Dados para Nuvem</span>
-                      </button>
-
-                      <button
-                        onClick={() => handleQuickSync("remote-to-local")}
-                        disabled={isSyncing || !dbConnected}
-                        className="w-full flex items-center justify-center space-x-1.5 px-3 py-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 rounded font-bold transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-xs"
-                      >
-                        {isSyncing ? (
-                          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Download className="h-3.5 w-3.5 shrink-0" />
-                        )}
-                        <span>Baixar Dados da Nuvem</span>
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <p className="text-[10px] text-emerald-600 font-medium leading-relaxed bg-emerald-50/50 p-2 border border-emerald-100 rounded">
-                        Você está conectado em tempo real à nuvem. Todas as alterações são salvas instantaneamente.
-                      </p>
-                      
-                      <button
-                        onClick={() => handleQuickSync("remote-to-local")}
-                        disabled={isSyncing || !dbConnected}
-                        className="w-full flex items-center justify-center space-x-1.5 px-3 py-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 rounded font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-xs"
-                        title="Baixa cópia da nuvem para o banco SQLite local por segurança"
-                      >
-                        {isSyncing ? (
-                          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Download className="h-3.5 w-3.5 shrink-0 text-gray-500" />
-                        )}
-                        <span>Fazer Cópia Local (Backup)</span>
-                      </button>
-                    </div>
-                  )}
+                {/* Re-check action */}
+                <div className="pt-1">
+                  <button
+                    onClick={async () => {
+                      setIsSyncing(true);
+                      await DataService.checkHealth();
+                      setIsSyncing(false);
+                      setSyncSuccess("Conexão verificada com sucesso!");
+                      setTimeout(() => setSyncSuccess(""), 3000);
+                    }}
+                    disabled={isSyncing}
+                    className="w-full flex items-center justify-center space-x-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-bold transition disabled:opacity-50 cursor-pointer shadow-xs text-xs"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${isSyncing ? "animate-spin" : ""}`} />
+                    <span>Verificar conexão novamente</span>
+                  </button>
                 </div>
 
                 {/* Notifications & Messages */}

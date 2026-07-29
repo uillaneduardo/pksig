@@ -22,7 +22,8 @@ import {
   verifyAndRepairDatabaseSchema,
   closePool,
   recreateDatabaseFromZeroInternal,
-  normalizeBudgetItemType
+  normalizeBudgetItemType,
+  generateDatabaseBackup
 } from "./src/lib/database.js";
 import { 
   createSession, 
@@ -348,6 +349,66 @@ const CONFIG_DIR = path.join(STORAGE_DIR, "config");
 // ==========================================
 // 1. SETUP & CONFIGURATION ENDPOINTS
 // ==========================================
+
+// Lightweight Health Check Endpoint for Online-First Verification
+app.get("/api/health", async (req: any, res: any) => {
+  const configured = isDatabaseConfigured();
+  const config = getDatabaseConfig();
+
+  const mode = config?.mode || "remoto";
+  const host = config?.host ? String(config.host) : "servidor configurado";
+  const databaseName = config?.database ? String(config.database) : "pksig";
+
+  if (!configured || !config) {
+    return res.status(200).json({
+      success: false,
+      server: "online",
+      database: "disconnected",
+      mode,
+      host,
+      databaseName,
+      error: "Banco de dados não está configurado."
+    });
+  }
+
+  try {
+    const test = await testConnection(config);
+    if (!test.success) {
+      return res.status(200).json({
+        success: false,
+        server: "online",
+        database: "disconnected",
+        mode,
+        host,
+        databaseName,
+        error: test.message || "Não foi possível conectar ao banco de dados MySQL."
+      });
+    }
+
+    // Run simple query verification
+    await query("SELECT 1");
+
+    return res.status(200).json({
+      success: true,
+      server: "online",
+      database: "connected",
+      mode,
+      host,
+      databaseName,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err: any) {
+    return res.status(200).json({
+      success: false,
+      server: "online",
+      database: "disconnected",
+      mode,
+      host,
+      databaseName,
+      error: err.message || "Erro ao executar consulta de teste no banco de dados."
+    });
+  }
+});
 
 // Get system setup and connection status
 app.get("/api/status", async (req: any, res: any) => {
@@ -799,9 +860,35 @@ app.get("/api/database/verify", requireAuth, async (req: any, res: any) => {
 
 // Reset and regenerate default system database
 async function handleDatabaseReset(req: any, res: any) {
-  const { confirm } = req.body;
-  if (!confirm) {
-    return res.status(400).json({ error: "É necessária uma confirmação explícita para recriar o banco de dados." });
+  const { confirmationText, password } = req.body;
+
+  // 1. Check strict confirmation phrase
+  if (!confirmationText || confirmationText.trim() !== "RECRIAR BANCO") {
+    return res.status(400).json({ 
+      error: "Para recriar o banco de dados, você deve digitar exatamente 'RECRIAR BANCO' para confirmar que está ciente da exclusão de todos os dados." 
+    });
+  }
+
+  // 2. Password re-authentication
+  if (!password || password.trim() === "") {
+    return res.status(400).json({ error: "É necessário informar a senha atual do administrador para confirmar a recriação do banco de dados." });
+  }
+
+  const sessionUser = req.session?.username;
+  if (!sessionUser) {
+    return res.status(401).json({ error: "Sessão expirada ou não autenticada." });
+  }
+
+  // Verify admin password
+  const adminRows = await query("SELECT id, name, username, password_hash FROM admins WHERE username = ?", [sessionUser]);
+  if (!adminRows || adminRows.length === 0) {
+    return res.status(403).json({ error: "Usuário administrador não localizado." });
+  }
+
+  const currentAdmin = adminRows[0];
+  const isPassValid = bcrypt.compareSync(password, currentAdmin.password_hash);
+  if (!isPassValid) {
+    return res.status(401).json({ error: "Senha do administrador incorreta. A recriação do banco foi cancelada." });
   }
 
   const config = getDatabaseConfig();
@@ -819,16 +906,17 @@ async function handleDatabaseReset(req: any, res: any) {
     return res.status(400).json({ error: `Operação não permitida: o banco de dados '${dbName}' é reservado pelo sistema.` });
   }
 
-  let currentUser: any = null;
-  if (req.session && req.session.username) {
-    try {
-      const userRows = await query("SELECT name, username, password_hash FROM admins WHERE username = ?", [req.session.username]);
-      if (userRows && userRows.length > 0) {
-        currentUser = userRows[0];
-      }
-    } catch (err) {
-      console.warn("Could not retrieve current admin details to preserve:", err);
-    }
+  // 3. MANDATORY PRE-RECREATION BACKUP
+  let backupInfo: any = null;
+  try {
+    console.log(`[Database Reset Protection] Generating pre-reset SQL backup for ${dbName}...`);
+    backupInfo = await generateDatabaseBackup();
+    console.log(`[Database Reset Protection] Backup generated successfully: ${backupInfo.filename}`);
+  } catch (backupErr: any) {
+    console.error("[Database Reset Protection] CRITICAL: Pre-reset backup failed:", backupErr);
+    return res.status(500).json({
+      error: `Não foi possível gerar o backup de segurança do banco de dados (${backupErr.message}). A recriação do banco foi CANCELADA para evitar perda irreparável de dados.`
+    });
   }
 
   let currentCompany: any = null;
@@ -841,7 +929,21 @@ async function handleDatabaseReset(req: any, res: any) {
     console.warn("Could not retrieve current company settings to preserve:", err);
   }
 
-  const op = createOperation("database_reset", "Recriação do Banco de Dados", 11, [
+  // Log audit action
+  try {
+    await logAdminAction({
+      adminId: currentAdmin.id,
+      action: "RECREATE_DATABASE",
+      description: `Recriação do banco do zero iniciada por ${currentAdmin.username}. Backup gerado: ${backupInfo.filename} (Host: ${config.host || "localhost"}, DB: ${dbName})`,
+      ipAddress: req.ip || "127.0.0.1",
+      userAgent: req.headers["user-agent"]
+    });
+  } catch (e) {
+    console.warn("Could not log admin action for database reset:", e);
+  }
+
+  const op = createOperation("database_reset", "Recriação do Banco de Dados", 12, [
+    "Gerando backup de segurança prévio",
     "Validando configurações",
     "Verificando conexão com o MySQL",
     "Verificando permissões",
@@ -855,19 +957,27 @@ async function handleDatabaseReset(req: any, res: any) {
     "Finalizando configuração"
   ]);
 
-  runDatabaseResetBackground(op.operationId, currentUser, currentCompany).catch((err) => {
+  // Mark first step (backup) as completed since we ran it synchronously
+  updateStepStatus(op.operationId, "Gerando backup de segurança prévio", "success");
+
+  runDatabaseResetBackground(op.operationId, currentAdmin, currentCompany, backupInfo).catch((err) => {
     console.error("Critical error in background database reset execution:", err);
   });
 
   return res.json({
     success: true,
     operationId: op.operationId,
-    message: "Operação de recriação do banco de dados iniciada com sucesso."
+    backupFile: backupInfo.filename,
+    backupPath: `/api/database/backups/${backupInfo.filename}`,
+    message: `Backup de segurança gerado com sucesso (${backupInfo.filename}). Recriação do banco iniciada.`
   });
 }
 
-async function runDatabaseResetBackground(operationId: string, currentUser: any, currentCompany: any) {
+async function runDatabaseResetBackground(operationId: string, currentUser: any, currentCompany: any, backupInfo: any) {
   const steps: string[] = [];
+  if (backupInfo) {
+    steps.push(`Backup prévio de segurança criado com sucesso: ${backupInfo.filename}`);
+  }
   try {
     const resetResult = await recreateDatabaseFromZeroInternal(operationId);
     steps.push(...resetResult.steps);
@@ -930,6 +1040,25 @@ async function runDatabaseResetBackground(operationId: string, currentUser: any,
 
 app.post("/api/setup/database/reset", requireAuth, handleDatabaseReset);
 app.post("/api/database/reset", requireAuth, handleDatabaseReset);
+
+// Download database backup file
+app.get("/api/database/backups/:filename", requireAuth, (req: any, res: any) => {
+  const { filename } = req.params;
+  // Security check against directory traversal
+  const sanitizedFilename = path.basename(filename);
+  if (!sanitizedFilename.startsWith("pksig-backup-") || !sanitizedFilename.endsWith(".sql")) {
+    return res.status(400).json({ error: "Nome de arquivo de backup inválido." });
+  }
+
+  const backupPath = path.join(process.cwd(), "storage", "backups", sanitizedFilename);
+  if (!fs.existsSync(backupPath)) {
+    return res.status(404).json({ error: "Arquivo de backup não encontrado." });
+  }
+
+  res.setHeader("Content-Type", "application/sql");
+  res.setHeader("Content-Disposition", `attachment; filename="${sanitizedFilename}"`);
+  return res.sendFile(backupPath);
+});
 
 // Operations polling endpoints
 app.get("/api/operations/:operationId", (req: any, res: any) => {

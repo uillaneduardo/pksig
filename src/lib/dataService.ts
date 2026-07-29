@@ -8,12 +8,24 @@ function generateUUID(): string {
   });
 }
 
+export interface SystemHealthStatus {
+  server: "online" | "offline";
+  database: "connected" | "disconnected";
+  mode: string;
+  host: string;
+  databaseName: string;
+  lastCheckedAt: string | null;
+  canWrite: boolean;
+  error?: string;
+}
+
 export interface SyncStatus {
   isOnline: boolean;
   isSyncing: boolean;
   pendingCount: number;
   lastSyncAt: string | null;
   conflictCount: number;
+  health: SystemHealthStatus;
 }
 
 type SyncListener = (status: SyncStatus) => void;
@@ -23,33 +35,83 @@ class DataServiceClass {
   private _isOnline = typeof navigator !== "undefined" ? navigator.onLine : true;
   private _isSyncing = false;
 
+  public healthStatus: SystemHealthStatus = {
+    server: "online",
+    database: "disconnected",
+    mode: "remoto",
+    host: "servidor configurado",
+    databaseName: "pksig",
+    lastCheckedAt: null,
+    canWrite: false,
+    error: undefined,
+  };
+
   constructor() {
     if (typeof window !== "undefined") {
-      window.addEventListener("online", () => this.handleNetworkChange(true));
-      window.addEventListener("offline", () => this.handleNetworkChange(false));
-      // Auto-sync on startup
-      setTimeout(() => {
-        this.sync().catch(console.error);
-      }, 2000);
-      // Auto-sync periodically every 30 seconds
+      window.addEventListener("online", () => this.checkHealth());
+      window.addEventListener("offline", () => this.checkHealth());
+      window.addEventListener("focus", () => this.checkHealth());
+
+      // Initial health check
+      this.checkHealth().catch(console.error);
+
+      // Periodic health check every 10 seconds
       setInterval(() => {
-        if (this._isOnline) {
-          this.sync().catch(console.error);
-        }
-      }, 30000);
+        this.checkHealth().catch(console.error);
+      }, 10000);
     }
   }
 
-  private async handleNetworkChange(online: boolean) {
-    this._isOnline = online;
-    this.broadcast();
-    if (online) {
-      await this.sync();
+  public async checkHealth(): Promise<SystemHealthStatus> {
+    try {
+      const res = await fetch("/api/health", { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        const canWrite = data.server === "online" && data.database === "connected";
+        this.healthStatus = {
+          server: data.server || "online",
+          database: data.database || "disconnected",
+          mode: data.mode || "remoto",
+          host: data.host || "servidor configurado",
+          databaseName: data.databaseName || "pksig",
+          lastCheckedAt: new Date().toLocaleTimeString("pt-BR"),
+          canWrite,
+          error: data.error,
+        };
+        this._isOnline = canWrite;
+      } else {
+        this.healthStatus = {
+          server: "offline",
+          database: "disconnected",
+          mode: "remoto",
+          host: "servidor configurado",
+          databaseName: "pksig",
+          lastCheckedAt: new Date().toLocaleTimeString("pt-BR"),
+          canWrite: false,
+          error: `Servidor retornou código HTTP ${res.status}`,
+        };
+        this._isOnline = false;
+      }
+    } catch (err: any) {
+      this.healthStatus = {
+        server: "offline",
+        database: "disconnected",
+        mode: "remoto",
+        host: "servidor configurado",
+        databaseName: "pksig",
+        lastCheckedAt: new Date().toLocaleTimeString("pt-BR"),
+        canWrite: false,
+        error: "Falha de conexão com o servidor backend.",
+      };
+      this._isOnline = false;
     }
+
+    this.broadcast();
+    return this.healthStatus;
   }
 
   public isOnline(): boolean {
-    return this._isOnline;
+    return this.healthStatus.canWrite;
   }
 
   public isSyncing(): boolean {
@@ -58,7 +120,6 @@ class DataServiceClass {
 
   public subscribe(listener: SyncListener): () => void {
     this.listeners.add(listener);
-    // Initial emit
     this.getSyncStatus().then(listener);
     return () => {
       this.listeners.delete(listener);
@@ -73,21 +134,21 @@ class DataServiceClass {
   public async getSyncStatus(): Promise<SyncStatus> {
     const pendingCount = await localDb.syncQueue.where("status").equals("pending").count();
     const conflictCount = await localDb.syncConflicts.where("status").equals("pending").count();
-    
-    // Get last sync from metadata
+
     const lastSyncMeta = await localDb.appMetadata.get("last_sync_at");
     const lastSyncAt = lastSyncMeta ? lastSyncMeta.value : null;
 
     return {
-      isOnline: this._isOnline,
+      isOnline: this.healthStatus.canWrite,
       isSyncing: this._isSyncing,
       pendingCount,
       lastSyncAt,
       conflictCount,
+      health: this.healthStatus,
     };
   }
 
-  // --- API CALLS WITH RETRY / IDEMPOTENCY ---
+  // --- API CALL ENGINE WITH IDEMPOTENCY ---
 
   private async apiRequest(url: string, method: string, body?: any, idempotencyKey?: string): Promise<any> {
     const headers: Record<string, string> = {
@@ -105,10 +166,10 @@ class DataServiceClass {
 
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
-      let errMsg = `Request failed: ${res.status}`;
+      let errMsg = `Falha na requisição (${res.status})`;
       try {
         const parsed = JSON.parse(errText);
-        errMsg = parsed.error || errMsg;
+        errMsg = parsed.error || parsed.message || errMsg;
       } catch (e) {}
       throw new Error(errMsg);
     }
@@ -116,54 +177,71 @@ class DataServiceClass {
     return res.json();
   }
 
-  // --- CLIENT OPERATIONS ---
+  private ensureOnlineOrThrow() {
+    if (!this.healthStatus.canWrite) {
+      throw new Error(
+        "Não foi possível salvar o registro no banco de dados remoto. Nenhuma alteração foi confirmada. Verifique sua conexão e tente novamente."
+      );
+    }
+  }
+
+  // --- CLIENT OPERATIONS (ONLINE-FIRST) ---
 
   public async listClients(search: string = ""): Promise<any[]> {
-    if (this._isOnline) {
+    await this.checkHealth();
+
+    let list: any[] = [];
+    let isFromCache = false;
+
+    if (this.healthStatus.canWrite) {
       try {
         const url = `/api/clients?search=${encodeURIComponent(search)}`;
-        const data = await this.apiRequest(url, "GET");
-        
-        // Cache the list in IndexedDB
+        list = await this.apiRequest(url, "GET");
+
         await localDb.cachedRecords.put({
           localId: "clients_list_cached",
           entityType: "clients",
-          payload: data,
+          payload: list,
           localUpdatedAt: new Date().toISOString(),
           syncStatus: "synced",
         });
 
-        return data;
+        isFromCache = false;
       } catch (err) {
-        console.warn("Failed to fetch clients from server, falling back to local cache:", err);
+        console.warn("Error fetching clients from server, using local cache:", err);
       }
     }
 
-    // Offline fallback / Cache search
-    const cached = await localDb.cachedRecords.get("clients_list_cached");
-    if (cached && Array.isArray(cached.payload)) {
-      let list = cached.payload;
-      if (search) {
-        const queryNorm = search.toLowerCase().trim();
-        list = list.filter((c: any) => 
-          (c.name && c.name.toLowerCase().includes(queryNorm)) ||
-          (c.code && c.code.toLowerCase().includes(queryNorm)) ||
-          (c.cpf_cnpj && c.cpf_cnpj.includes(queryNorm))
-        );
+    if (!isFromCache && list.length === 0 && !this.healthStatus.canWrite) {
+      const cached = await localDb.cachedRecords.get("clients_list_cached");
+      if (cached && Array.isArray(cached.payload)) {
+        list = cached.payload;
+        if (search) {
+          const queryNorm = search.toLowerCase().trim();
+          list = list.filter(
+            (c: any) =>
+              (c.name && c.name.toLowerCase().includes(queryNorm)) ||
+              (c.code && c.code.toLowerCase().includes(queryNorm)) ||
+              (c.cpf_cnpj && c.cpf_cnpj.includes(queryNorm))
+          );
+        }
+        isFromCache = true;
       }
-      return list;
     }
 
-    return [];
+    const res = Array.isArray(list) ? list : [];
+    (res as any).isFromCache = isFromCache;
+    return res;
   }
 
   public async getClient(id: string | number): Promise<any> {
     const idStr = String(id);
-    if (this._isOnline) {
+    await this.checkHealth();
+
+    if (this.healthStatus.canWrite) {
       try {
         const data = await this.apiRequest(`/api/clients/${id}`, "GET");
-        
-        // Cache detailed view
+
         await localDb.cachedRecords.put({
           localId: `client_detail_${idStr}`,
           entityType: "client_details",
@@ -172,160 +250,190 @@ class DataServiceClass {
           syncStatus: "synced",
         });
 
+        if (data && typeof data === "object") {
+          data.isFromCache = false;
+        }
         return data;
       } catch (err) {
-        console.warn(`Failed to fetch client ${id} detail from server, falling back to cache:`, err);
+        console.warn(`Error fetching client ${id} from server, using local cache:`, err);
       }
     }
 
-    // Offline load from cache
     const cached = await localDb.cachedRecords.get(`client_detail_${idStr}`);
-    if (cached) {
-      return cached.payload;
-    }
-
-    // If client was created offline and list has it
-    const listCached = await localDb.cachedRecords.get("clients_list_cached");
-    if (listCached && Array.isArray(listCached.payload)) {
-      const item = listCached.payload.find((c: any) => String(c.id) === idStr);
-      if (item) {
-        return { client: item, equipments: [], orders: [], guides: [], warranties: [] };
+    if (cached && cached.payload) {
+      const data = cached.payload;
+      if (data && typeof data === "object") {
+        data.isFromCache = true;
       }
+      return data;
     }
 
-    throw new Error("Cliente não está disponível no cache local.");
+    throw new Error("Cliente não está disponível no cache local e o servidor está inacessível.");
   }
 
   public async createClient(payload: any): Promise<any> {
-    if (this._isOnline) {
-      const idempotencyKey = generateUUID();
-      const data = await this.apiRequest("/api/clients", "POST", payload, idempotencyKey);
-      
-      // Update locally confirmed status
-      await this.addOrUpdateInListCache("clients_list_cached", { ...payload, id: data.clientId, code: data.code });
-      return data;
+    await this.checkHealth();
+    this.ensureOnlineOrThrow();
+
+    try {
+      const result = await this.apiRequest("/api/clients", "POST", payload);
+
+      if (result && result.clientId) {
+        const realClient = { ...payload, id: result.clientId, code: result.code, syncStatus: "synced" };
+        await this.addOrUpdateInListCache("clients_list_cached", realClient);
+      }
+
+      return {
+        success: true,
+        clientId: result.clientId,
+        code: result.code,
+        message: "Cliente salvo com sucesso no banco de dados remoto.",
+      };
+    } catch (err: any) {
+      console.error("createClient error:", err);
+      throw new Error(
+        err.message ||
+          "Não foi possível salvar o registro no banco de dados remoto. Nenhuma alteração foi confirmada. Verifique sua conexão e tente novamente."
+      );
     }
-
-    // Offline flow
-    const localId = `client_off_${generateUUID().substring(0, 8)}`;
-    const tempCode = `CLI-OFF-${Math.floor(1000 + Math.random() * 9000)}`;
-    const mockClient = {
-      ...payload,
-      id: localId,
-      code: tempCode,
-      status: payload.status || "ativo",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      pending: true,
-    };
-
-    // Save offline client to local store
-    await this.addOrUpdateInListCache("clients_list_cached", mockClient);
-    
-    // Cache details as well
-    await localDb.cachedRecords.put({
-      localId: `client_detail_${localId}`,
-      entityType: "client_details",
-      payload: { client: mockClient, equipments: [], orders: [], guides: [], warranties: [] },
-      localUpdatedAt: new Date().toISOString(),
-      syncStatus: "pending",
-    });
-
-    // Enqueue
-    await localDb.syncQueue.put({
-      id: generateUUID(),
-      operation: "create",
-      entityType: "clients",
-      localId,
-      payload,
-      createdAt: new Date().toISOString(),
-      attempts: 0,
-      status: "pending",
-    });
-
-    this.broadcast();
-    return { success: true, clientId: localId, code: tempCode, pending: true };
   }
 
   public async updateClient(id: string | number, payload: any): Promise<any> {
-    const idStr = String(id);
-    if (this._isOnline && !idStr.startsWith("client_off_")) {
-      const idempotencyKey = generateUUID();
-      const data = await this.apiRequest(`/api/clients/${id}`, "PUT", payload, idempotencyKey);
+    await this.checkHealth();
+    this.ensureOnlineOrThrow();
+
+    try {
+      const result = await this.apiRequest(`/api/clients/${id}`, "PUT", payload);
       await this.updateInListCache("clients_list_cached", id, payload);
-      return data;
+
+      return {
+        success: true,
+        clientId: id,
+        message: "Cliente atualizado com sucesso no banco de dados remoto.",
+      };
+    } catch (err: any) {
+      console.error("updateClient error:", err);
+      throw new Error(
+        err.message ||
+          "Não foi possível salvar o registro no banco de dados remoto. Nenhuma alteração foi confirmada. Verifique sua conexão e tente novamente."
+      );
     }
-
-    // Offline update flow
-    await this.updateInListCache("clients_list_cached", id, payload);
-    
-    const cachedDetail = await localDb.cachedRecords.get(`client_detail_${idStr}`);
-    if (cachedDetail) {
-      cachedDetail.payload.client = { ...cachedDetail.payload.client, ...payload };
-      cachedDetail.syncStatus = "pending";
-      await localDb.cachedRecords.put(cachedDetail);
-    }
-
-    await localDb.syncQueue.put({
-      id: generateUUID(),
-      operation: "update",
-      entityType: "clients",
-      localId: idStr,
-      payload,
-      createdAt: new Date().toISOString(),
-      attempts: 0,
-      status: "pending",
-    });
-
-    this.broadcast();
-    return { success: true, pending: true };
   }
 
-  // --- SERVICE ORDERS ---
+  // --- EQUIPMENT OPERATIONS (ONLINE-FIRST) ---
 
-  public async listServiceOrders(search: string = ""): Promise<any[]> {
-    if (this._isOnline) {
+  public async createEquipment(payload: any): Promise<any> {
+    await this.checkHealth();
+    this.ensureOnlineOrThrow();
+
+    try {
+      const result = await this.apiRequest("/api/equipment", "POST", payload);
+
+      if (result && result.equipmentId && payload.client_id) {
+        await this.addEquipmentToClientCache(payload.client_id, {
+          ...payload,
+          id: result.equipmentId,
+          code: result.code,
+        });
+      }
+
+      return {
+        success: true,
+        equipmentId: result.equipmentId,
+        code: result.code,
+        message: "Equipamento cadastrado com sucesso no banco de dados remoto.",
+      };
+    } catch (err: any) {
+      console.error("createEquipment error:", err);
+      throw new Error(
+        err.message ||
+          "Não foi possível salvar o registro no banco de dados remoto. Nenhuma alteração foi confirmada. Verifique sua conexão e tente novamente."
+      );
+    }
+  }
+
+  public async updateEquipment(id: string | number, payload: any): Promise<any> {
+    await this.checkHealth();
+    this.ensureOnlineOrThrow();
+
+    try {
+      const result = await this.apiRequest(`/api/equipment/${id}`, "PUT", payload);
+
+      return {
+        success: true,
+        equipmentId: id,
+        message: "Equipamento atualizado com sucesso no banco de dados remoto.",
+      };
+    } catch (err: any) {
+      console.error("updateEquipment error:", err);
+      throw new Error(
+        err.message ||
+          "Não foi possível salvar o registro no banco de dados remoto. Nenhuma alteração foi confirmada. Verifique sua conexão e tente novamente."
+      );
+    }
+  }
+
+  // --- SERVICE ORDER OPERATIONS (ONLINE-FIRST) ---
+
+  public async listServiceOrders(search: string = "", status: string = ""): Promise<any[]> {
+    await this.checkHealth();
+
+    let list: any[] = [];
+    let isFromCache = false;
+
+    if (this.healthStatus.canWrite) {
       try {
-        const url = `/api/service-orders?search=${encodeURIComponent(search)}`;
-        const data = await this.apiRequest(url, "GET");
-        
+        const url = `/api/service-orders?q=${encodeURIComponent(search)}&status=${encodeURIComponent(status)}`;
+        list = await this.apiRequest(url, "GET");
+
         await localDb.cachedRecords.put({
           localId: "service_orders_list_cached",
           entityType: "service_orders",
-          payload: data,
+          payload: list,
           localUpdatedAt: new Date().toISOString(),
           syncStatus: "synced",
         });
 
-        return data;
+        isFromCache = false;
       } catch (err) {
-        console.warn("Failed to fetch service orders from server, falling back to cache:", err);
+        console.warn("Error fetching service orders, using local cache:", err);
       }
     }
 
-    const cached = await localDb.cachedRecords.get("service_orders_list_cached");
-    if (cached && Array.isArray(cached.payload)) {
-      let list = cached.payload;
-      if (search) {
-        const queryNorm = search.toLowerCase().trim();
-        list = list.filter((o: any) => 
-          (o.code && o.code.toLowerCase().includes(queryNorm)) ||
-          (o.client_name && o.client_name.toLowerCase().includes(queryNorm)) ||
-          (o.problem_reported && o.problem_reported.toLowerCase().includes(queryNorm))
-        );
+    if (!isFromCache && list.length === 0 && !this.healthStatus.canWrite) {
+      const cached = await localDb.cachedRecords.get("service_orders_list_cached");
+      if (cached && Array.isArray(cached.payload)) {
+        list = cached.payload;
+        if (search) {
+          const q = search.toLowerCase().trim();
+          list = list.filter(
+            (o: any) =>
+              (o.code && o.code.toLowerCase().includes(q)) ||
+              (o.client_name && o.client_name.toLowerCase().includes(q)) ||
+              (o.brand && o.brand.toLowerCase().includes(q)) ||
+              (o.model && o.model.toLowerCase().includes(q))
+          );
+        }
+        if (status) {
+          list = list.filter((o: any) => o.status_name === status);
+        }
+        isFromCache = true;
       }
-      return list;
     }
 
-    return [];
+    const res = Array.isArray(list) ? list : [];
+    (res as any).isFromCache = isFromCache;
+    return res;
   }
 
   public async getServiceOrder(id: string | number): Promise<any> {
     const idStr = String(id);
-    if (this._isOnline) {
+    await this.checkHealth();
+
+    if (this.healthStatus.canWrite) {
       try {
         const data = await this.apiRequest(`/api/service-orders/${id}`, "GET");
-        
+
         await localDb.cachedRecords.put({
           localId: `service_order_detail_${idStr}`,
           entityType: "service_order_details",
@@ -334,409 +442,344 @@ class DataServiceClass {
           syncStatus: "synced",
         });
 
+        if (data && typeof data === "object") {
+          data.isFromCache = false;
+        }
         return data;
       } catch (err) {
-        console.warn(`Failed to fetch service order ${id} detail from server, falling back to cache:`, err);
+        console.warn(`Error fetching OS ${id} from server, using local cache:`, err);
       }
     }
 
     const cached = await localDb.cachedRecords.get(`service_order_detail_${idStr}`);
-    if (cached) {
-      return cached.payload;
+    if (cached && cached.payload) {
+      const data = cached.payload;
+      if (data && typeof data === "object") {
+        data.isFromCache = true;
+      }
+      return data;
     }
 
-    throw new Error("Ordem de serviço não está disponível no cache local.");
+    throw new Error("Ordem de serviço não está disponível no cache local e o servidor está inacessível.");
   }
 
   public async createServiceOrder(payload: any): Promise<any> {
-    if (this._isOnline && !String(payload.client_id).startsWith("client_off_") && !String(payload.equipment_id).startsWith("equip_off_")) {
-      const idempotencyKey = generateUUID();
-      const data = await this.apiRequest("/api/service-orders", "POST", payload, idempotencyKey);
-      return data;
+    await this.checkHealth();
+    this.ensureOnlineOrThrow();
+
+    try {
+      const result = await this.apiRequest("/api/service-orders", "POST", payload);
+
+      if (result && result.osId) {
+        const realOS = { ...payload, id: result.osId, code: result.code, syncStatus: "synced" };
+        await this.addOrUpdateInListCache("service_orders_list_cached", realOS);
+      }
+
+      return {
+        success: true,
+        osId: result.osId,
+        code: result.code,
+        message: "Ordem de serviço criada com sucesso no banco de dados remoto.",
+      };
+    } catch (err: any) {
+      console.error("createServiceOrder error:", err);
+      throw new Error(
+        err.message ||
+          "Não foi possível salvar o registro no banco de dados remoto. Nenhuma alteração foi confirmada. Verifique sua conexão e tente novamente."
+      );
     }
-
-    // Offline / Pending dependencies flow
-    const localId = `os_off_${generateUUID().substring(0, 8)}`;
-    const tempCode = `OS-OFF-${Math.floor(1000 + Math.random() * 9000)}`;
-    const mockOS = {
-      ...payload,
-      id: localId,
-      code: tempCode,
-      status_id: 1,
-      status_name: "Aberto",
-      entry_date: new Date().toISOString(),
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      pending: true,
-    };
-
-    // Add to service orders cached list
-    await this.addOrUpdateInListCache("service_orders_list_cached", mockOS);
-
-    // Cache detailed view
-    await localDb.cachedRecords.put({
-      localId: `service_order_detail_${localId}`,
-      entityType: "service_order_details",
-      payload: { order: mockOS, items: [], guides: [], warranties: [] },
-      localUpdatedAt: new Date().toISOString(),
-      syncStatus: "pending",
-    });
-
-    // Enqueue
-    await localDb.syncQueue.put({
-      id: generateUUID(),
-      operation: "create",
-      entityType: "service_orders",
-      localId,
-      payload,
-      createdAt: new Date().toISOString(),
-      attempts: 0,
-      status: "pending",
-    });
-
-    this.broadcast();
-    return { success: true, osId: localId, code: tempCode, pending: true };
   }
 
   public async updateServiceOrder(id: string | number, payload: any): Promise<any> {
-    const idStr = String(id);
-    if (this._isOnline && !idStr.startsWith("os_off_")) {
-      const idempotencyKey = generateUUID();
-      const data = await this.apiRequest(`/api/service-orders/${id}`, "PUT", payload, idempotencyKey);
-      return data;
+    await this.checkHealth();
+    this.ensureOnlineOrThrow();
+
+    try {
+      const result = await this.apiRequest(`/api/service-orders/${id}`, "PUT", payload);
+
+      return {
+        success: true,
+        osId: id,
+        statusName: result.statusName,
+        message: "Ordem de serviço atualizada com sucesso no banco de dados remoto.",
+      };
+    } catch (err: any) {
+      console.error("updateServiceOrder error:", err);
+      throw new Error(
+        err.message ||
+          "Não foi possível salvar o registro no banco de dados remoto. Nenhuma alteração foi confirmada. Verifique sua conexão e tente novamente."
+      );
     }
-
-    // Offline update flow
-    const cachedDetail = await localDb.cachedRecords.get(`service_order_detail_${idStr}`);
-    if (cachedDetail) {
-      cachedDetail.payload.order = { ...cachedDetail.payload.order, ...payload };
-      cachedDetail.syncStatus = "pending";
-      await localDb.cachedRecords.put(cachedDetail);
-    }
-
-    await localDb.syncQueue.put({
-      id: generateUUID(),
-      operation: "update",
-      entityType: "service_orders",
-      localId: idStr,
-      payload,
-      createdAt: new Date().toISOString(),
-      attempts: 0,
-      status: "pending",
-    });
-
-    this.broadcast();
-    return { success: true, pending: true };
   }
 
-  // --- EQUIPMENTS ---
+  public async deleteServiceOrder(id: string | number): Promise<any> {
+    await this.checkHealth();
+    this.ensureOnlineOrThrow();
 
-  public async createEquipment(payload: any): Promise<any> {
-    if (this._isOnline && !String(payload.client_id).startsWith("client_off_")) {
-      const idempotencyKey = generateUUID();
-      const data = await this.apiRequest("/api/equipment", "POST", payload, idempotencyKey);
-      
-      // Update client cache list with equipment
-      await this.addEquipmentToClientCache(payload.client_id, { ...payload, id: data.equipmentId, code: data.code });
-      return data;
+    try {
+      const result = await this.apiRequest(`/api/service-orders/${id}`, "DELETE");
+      await localDb.cachedRecords.delete(`service_order_detail_${id}`);
+
+      return {
+        success: true,
+        message: result.message || "Ordem de serviço excluída com sucesso no banco de dados remoto.",
+      };
+    } catch (err: any) {
+      console.error("deleteServiceOrder error:", err);
+      throw new Error(
+        err.message ||
+          "Não foi possível excluir o registro no banco de dados remoto. Nenhuma alteração foi realizada. Verifique sua conexão e tente novamente."
+      );
     }
-
-    // Offline / Dependency creation
-    const localId = `equip_off_${generateUUID().substring(0, 8)}`;
-    const tempCode = `EQ-OFF-${Math.floor(1000 + Math.random() * 9000)}`;
-    const mockEquip = {
-      ...payload,
-      id: localId,
-      code: tempCode,
-      status: payload.status || "Disponível",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      pending: true,
-    };
-
-    // Save in Client Cache Detail
-    await this.addEquipmentToClientCache(payload.client_id, mockEquip);
-
-    // Enqueue
-    await localDb.syncQueue.put({
-      id: generateUUID(),
-      operation: "create",
-      entityType: "equipment",
-      localId,
-      payload,
-      createdAt: new Date().toISOString(),
-      attempts: 0,
-      status: "pending",
-    });
-
-    this.broadcast();
-    return { success: true, equipmentId: localId, code: tempCode, pending: true };
   }
 
-  public async updateEquipment(id: string | number, payload: any): Promise<any> {
-    const idStr = String(id);
-    if (this._isOnline && !idStr.startsWith("equip_off_")) {
-      const idempotencyKey = generateUUID();
-      const data = await this.apiRequest(`/api/equipment/${id}`, "PUT", payload, idempotencyKey);
-      return data;
-    }
-
-    // Offline update flow
-    await localDb.syncQueue.put({
-      id: generateUUID(),
-      operation: "update",
-      entityType: "equipment",
-      localId: idStr,
-      payload,
-      createdAt: new Date().toISOString(),
-      attempts: 0,
-      status: "pending",
-    });
-
-    this.broadcast();
-    return { success: true, pending: true };
-  }
-
-  // --- BUDGET / PAYMENTS ---
+  // --- BUDGET ITEM OPERATIONS (ONLINE-FIRST) ---
 
   public async addBudgetItem(osId: string | number, payload: any): Promise<any> {
-    const osIdStr = String(osId);
-    if (this._isOnline && !osIdStr.startsWith("os_off_")) {
-      const idempotencyKey = generateUUID();
-      const data = await this.apiRequest(`/api/service-orders/${osId}/budget`, "POST", payload, idempotencyKey);
-      return data;
+    await this.checkHealth();
+    this.ensureOnlineOrThrow();
+
+    try {
+      const result = await this.apiRequest(`/api/service-orders/${osId}/budget`, "POST", payload);
+
+      return {
+        success: true,
+        itemId: result.itemId,
+        message: "Item de orçamento adicionado com sucesso no banco de dados remoto.",
+      };
+    } catch (err: any) {
+      console.error("addBudgetItem error:", err);
+      throw new Error(
+        err.message ||
+          "Não foi possível salvar o item no banco de dados remoto. Nenhuma alteração foi confirmada. Verifique sua conexão e tente novamente."
+      );
     }
-
-    // Offline budg item creation
-    const localId = `budget_off_${generateUUID().substring(0, 8)}`;
-    const mockItem = {
-      ...payload,
-      id: localId,
-      service_order_id: osId,
-      total_value: parseFloat(payload.quantity) * parseFloat(payload.unit_value),
-      created_at: new Date().toISOString(),
-      pending: true,
-    };
-
-    const cachedDetail = await localDb.cachedRecords.get(`service_order_detail_${osIdStr}`);
-    if (cachedDetail) {
-      cachedDetail.payload.items = cachedDetail.payload.items || [];
-      cachedDetail.payload.items.push(mockItem);
-      cachedDetail.syncStatus = "pending";
-      await localDb.cachedRecords.put(cachedDetail);
-    }
-
-    await localDb.syncQueue.put({
-      id: generateUUID(),
-      operation: "create",
-      entityType: "budget_items",
-      localId,
-      payload: { ...payload, osId },
-      createdAt: new Date().toISOString(),
-      attempts: 0,
-      status: "pending",
-    });
-
-    this.broadcast();
-    return { success: true, itemId: localId, pending: true };
   }
 
   public async updateBudgetItem(osId: string | number, itemId: string | number, payload: any): Promise<any> {
-    const osIdStr = String(osId);
-    const itemIdStr = String(itemId);
-    if (this._isOnline && !osIdStr.startsWith("os_off_") && !itemIdStr.startsWith("budget_off_")) {
-      const idempotencyKey = generateUUID();
-      const data = await this.apiRequest(`/api/service-orders/${osId}/budget/${itemId}`, "PUT", payload, idempotencyKey);
-      return data;
+    await this.checkHealth();
+    this.ensureOnlineOrThrow();
+
+    try {
+      const result = await this.apiRequest(`/api/service-orders/${osId}/budget/${itemId}`, "PUT", payload);
+
+      return {
+        success: true,
+        itemId,
+        message: "Item de orçamento atualizado com sucesso no banco de dados remoto.",
+      };
+    } catch (err: any) {
+      console.error("updateBudgetItem error:", err);
+      throw new Error(
+        err.message ||
+          "Não foi possível atualizar o item no banco de dados remoto. Nenhuma alteração foi confirmada. Verifique sua conexão e tente novamente."
+      );
     }
-
-    // Offline logic
-    const cachedDetail = await localDb.cachedRecords.get(`service_order_detail_${osIdStr}`);
-    if (cachedDetail && Array.isArray(cachedDetail.payload.items)) {
-      cachedDetail.payload.items = cachedDetail.payload.items.map((item: any) => {
-        if (String(item.id) === itemIdStr) {
-          return { ...item, ...payload, total_value: parseFloat(payload.quantity) * parseFloat(payload.unit_value) };
-        }
-        return item;
-      });
-      cachedDetail.syncStatus = "pending";
-      await localDb.cachedRecords.put(cachedDetail);
-    }
-
-    await localDb.syncQueue.put({
-      id: generateUUID(),
-      operation: "update",
-      entityType: "budget_items",
-      localId: itemIdStr,
-      payload: { ...payload, osId, itemId },
-      createdAt: new Date().toISOString(),
-      attempts: 0,
-      status: "pending",
-    });
-
-    this.broadcast();
-    return { success: true, pending: true };
   }
 
   public async deleteBudgetItem(osId: string | number, itemId: string | number): Promise<any> {
-    const osIdStr = String(osId);
-    const itemIdStr = String(itemId);
-    if (this._isOnline && !osIdStr.startsWith("os_off_") && !itemIdStr.startsWith("budget_off_")) {
-      const data = await this.apiRequest(`/api/service-orders/${osId}/budget/${itemId}`, "DELETE");
-      return data;
-    }
-
-    // Offline logic
-    const cachedDetail = await localDb.cachedRecords.get(`service_order_detail_${osIdStr}`);
-    if (cachedDetail && Array.isArray(cachedDetail.payload.items)) {
-      cachedDetail.payload.items = cachedDetail.payload.items.filter((item: any) => String(item.id) !== itemIdStr);
-      cachedDetail.syncStatus = "pending";
-      await localDb.cachedRecords.put(cachedDetail);
-    }
-
-    await localDb.syncQueue.put({
-      id: generateUUID(),
-      operation: "delete",
-      entityType: "budget_items",
-      localId: itemIdStr,
-      payload: { osId, itemId },
-      createdAt: new Date().toISOString(),
-      attempts: 0,
-      status: "pending",
-    });
-
-    this.broadcast();
-    return { success: true, pending: true };
-  }
-
-  // --- CORE SYSTEM SYNCHRONIZATION (ETAPA 5) ---
-
-  public async sync(): Promise<void> {
-    if (this._isSyncing) return;
-    if (!this._isOnline) return;
-
-    this._isSyncing = true;
-    this.broadcast();
+    await this.checkHealth();
+    this.ensureOnlineOrThrow();
 
     try {
-      // Get all pending operations chronologically
-      const queue = await localDb.syncQueue
-        .where("status")
-        .equals("pending")
-        .sortBy("createdAt");
+      const result = await this.apiRequest(`/api/service-orders/${osId}/budget/${itemId}`, "DELETE");
 
-      if (queue.length === 0) {
-        // Successful sync, update timestamp
-        await localDb.appMetadata.put({
-          key: "last_sync_at",
-          value: new Date().toLocaleString("pt-BR"),
-          updatedAt: new Date().toISOString(),
-        });
-        return;
-      }
+      return {
+        success: true,
+        message: "Item de orçamento removido do banco de dados remoto com sucesso.",
+      };
+    } catch (err: any) {
+      console.error("deleteBudgetItem error:", err);
+      throw new Error(
+        err.message ||
+          "Não foi possível remover o item no banco de dados remoto. Nenhuma alteração foi confirmada. Verifique sua conexão e tente novamente."
+      );
+    }
+  }
 
-      console.log(`[PWA Sync] Processing ${queue.length} items from syncQueue...`);
+  // --- PAYMENT GUIDE & FINANCIAL OPERATIONS (ONLINE-FIRST) ---
 
-      for (const item of queue) {
-        // Mark as syncing
-        item.status = "syncing";
-        await localDb.syncQueue.put(item);
+  public async createPaymentGuide(osId: string | number, payload: any): Promise<any> {
+    await this.checkHealth();
+    this.ensureOnlineOrThrow();
 
-        try {
-          // Resolve internal references for offline dependent entities
-          await this.resolveDependencies(item);
+    try {
+      const result = await this.apiRequest(`/api/service-orders/${osId}/guide`, "POST", payload);
 
-          let result: any = null;
-          const { operation, entityType, localId, payload } = item;
+      return {
+        success: true,
+        guideId: result.guideId,
+        message: "Guia de pagamento gerada com sucesso no banco de dados remoto.",
+      };
+    } catch (err: any) {
+      throw new Error(
+        err.message ||
+          "Não foi possível gerar a guia de pagamento no banco de dados remoto. Verifique sua conexão e tente novamente."
+      );
+    }
+  }
 
-          if (entityType === "clients") {
-            if (operation === "create") {
-              result = await this.apiRequest("/api/clients", "POST", payload, item.id);
-              const serverId = result.clientId;
-              
-              // Map old offline ID to real server ID in our cached records and sync queues!
-              await this.updateOfflineIdReference("clients", localId, serverId);
-              await this.replaceCachedClientDetail(localId, serverId, { ...payload, id: serverId, code: result.code });
-            } else if (operation === "update") {
-              result = await this.apiRequest(`/api/clients/${localId}`, "PUT", payload, item.id);
-            }
-          } else if (entityType === "equipment") {
-            if (operation === "create") {
-              result = await this.apiRequest("/api/equipment", "POST", payload, item.id);
-              const serverId = result.equipmentId;
+  public async payPaymentGuide(guideId: string | number, payload: any): Promise<any> {
+    await this.checkHealth();
+    this.ensureOnlineOrThrow();
 
-              await this.updateOfflineIdReference("equipment", localId, serverId);
-            }
-          } else if (entityType === "service_orders") {
-            if (operation === "create") {
-              result = await this.apiRequest("/api/service-orders", "POST", payload, item.id);
-              const serverId = result.osId;
+    try {
+      const result = await this.apiRequest(`/api/payment-guides/${guideId}/pay`, "POST", payload);
 
-              await this.updateOfflineIdReference("service_orders", localId, serverId);
-              await this.replaceCachedOSDetail(localId, serverId, { ...payload, id: serverId, code: result.code });
-            } else if (operation === "update") {
-              result = await this.apiRequest(`/api/service-orders/${localId}`, "PUT", payload, item.id);
-            }
-          } else if (entityType === "budget_items") {
-            if (operation === "create") {
-              const osIdValue = payload.osId || localId;
-              result = await this.apiRequest(`/api/service-orders/${osIdValue}/budget`, "POST", payload, item.id);
-            }
+      return {
+        success: true,
+        paymentId: result.paymentId,
+        message: "Pagamento registrado com sucesso no banco de dados remoto.",
+      };
+    } catch (err: any) {
+      throw new Error(
+        err.message ||
+          "Não foi possível registrar o pagamento no banco de dados remoto. Verifique sua conexão e tente novamente."
+      );
+    }
+  }
+
+  public async createTransaction(payload: any): Promise<any> {
+    await this.checkHealth();
+    this.ensureOnlineOrThrow();
+
+    try {
+      const result = await this.apiRequest("/api/finance/transactions", "POST", payload);
+
+      return {
+        success: true,
+        id: result.id,
+        message: "Transação financeira registrada com sucesso no banco de dados remoto.",
+      };
+    } catch (err: any) {
+      throw new Error(
+        err.message ||
+          "Não foi possível registrar a transação no banco de dados remoto. Verifique sua conexão e tente novamente."
+      );
+    }
+  }
+
+  public async createWarranty(osId: string | number, payload: any): Promise<any> {
+    await this.checkHealth();
+    this.ensureOnlineOrThrow();
+
+    try {
+      const result = await this.apiRequest(`/api/service-orders/${osId}/warranty`, "POST", payload);
+
+      return {
+        success: true,
+        warrantyId: result.warrantyId,
+        message: "Garantia gerada com sucesso no banco de dados remoto.",
+      };
+    } catch (err: any) {
+      throw new Error(
+        err.message ||
+          "Não foi possível gerar o termo de garantia no banco de dados remoto. Verifique sua conexão e tente novamente."
+      );
+    }
+  }
+
+  // --- LEGACY INDEXEDDB DIAGNOSTIC AND RECOVERY AREA ---
+
+  public async getLegacyPendingItems(): Promise<{ queue: SyncQueueItem[]; conflicts: SyncConflict[] }> {
+    const queue = await localDb.syncQueue.toArray();
+    const conflicts = await localDb.syncConflicts.toArray();
+    return { queue, conflicts };
+  }
+
+  public async resendLegacyItem(queueItemId: string): Promise<{ success: boolean; message: string }> {
+    await this.checkHealth();
+    if (!this.healthStatus.canWrite) {
+      throw new Error("O banco de dados remoto está inacessível no momento. Não é possível reenviar o item.");
+    }
+
+    const item = await localDb.syncQueue.get(queueItemId);
+    if (!item) {
+      throw new Error("Item pendente não localizado no armazenamento local.");
+    }
+
+    item.status = "syncing";
+    await localDb.syncQueue.put(item);
+
+    try {
+      await this.resolveDependencies(item);
+      const { operation, entityType, localId, payload } = item;
+      let result: any = null;
+
+      if (entityType === "clients") {
+        if (operation === "create") {
+          result = await this.apiRequest("/api/clients", "POST", payload, item.id);
+          if (result && result.clientId) {
+            await this.updateOfflineIdReference("clients", localId, result.clientId);
           }
-
-          // Successful dispatch! Delete from queue
-          await localDb.syncQueue.delete(item.id);
-
-        } catch (err: any) {
-          console.error(`[PWA Sync Error] Item ${item.id} failed:`, err);
-          
-          if (err.message && (err.message.includes("409") || err.message.toLowerCase().includes("conflito"))) {
-            // Conflict found! Save to conflicts table for user manual resolution
-            await localDb.syncConflicts.put({
-              id: generateUUID(),
-              entityType: item.entityType,
-              localId: item.localId,
-              localPayload: item.payload,
-              serverPayload: err.serverData || { error: "Versão conflitante no servidor" },
-              detectedAt: new Date().toISOString(),
-              status: "pending",
-            });
-            item.status = "failed";
-            item.lastError = `Conflito de dados: ${err.message}`;
-            await localDb.syncQueue.put(item);
-          } else if (err.message && (err.message.includes("400") || err.message.includes("422") || err.message.toLowerCase().includes("validation"))) {
-            // Irrecoverable validation error, mark as failed, do not repeat infinitely
-            item.status = "failed";
-            item.attempts += 1;
-            item.lastError = `Erro de validação: ${err.message}`;
-            await localDb.syncQueue.put(item);
-          } else {
-            // Temporary network/server failure. Put back to pending, increment attempts
-            item.status = "pending";
-            item.attempts += 1;
-            item.lastError = err.message || "Erro de conexão temporário";
-            await localDb.syncQueue.put(item);
-            
-            // Stop syncing subsequent items to preserve chronological order
-            break;
+        } else if (operation === "update") {
+          result = await this.apiRequest(`/api/clients/${localId}`, "PUT", payload, item.id);
+        }
+      } else if (entityType === "equipment") {
+        if (operation === "create") {
+          result = await this.apiRequest("/api/equipment", "POST", payload, item.id);
+          if (result && result.equipmentId) {
+            await this.updateOfflineIdReference("equipment", localId, result.equipmentId);
           }
+        }
+      } else if (entityType === "service_orders") {
+        if (operation === "create") {
+          result = await this.apiRequest("/api/service-orders", "POST", payload, item.id);
+          if (result && result.osId) {
+            await this.updateOfflineIdReference("service_orders", localId, result.osId);
+          }
+        } else if (operation === "update") {
+          result = await this.apiRequest(`/api/service-orders/${localId}`, "PUT", payload, item.id);
+        }
+      } else if (entityType === "budget_items") {
+        if (operation === "create") {
+          const osIdValue = payload.osId || localId;
+          result = await this.apiRequest(`/api/service-orders/${osIdValue}/budget`, "POST", payload, item.id);
         }
       }
 
-      // Sync completed. Update timestamp.
-      await localDb.appMetadata.put({
-        key: "last_sync_at",
-        value: new Date().toLocaleString("pt-BR"),
-        updatedAt: new Date().toISOString(),
-      });
-
-    } finally {
-      this._isSyncing = false;
+      await localDb.syncQueue.delete(item.id);
       this.broadcast();
+      return { success: true, message: "Item sincronizado e confirmado no banco MySQL com sucesso!" };
+    } catch (err: any) {
+      item.status = "failed";
+      item.attempts += 1;
+      item.lastError = err.message || "Erro de sincronização";
+      await localDb.syncQueue.put(item);
+      this.broadcast();
+      throw new Error(`Falha ao reenviar item ao servidor: ${err.message}`);
     }
   }
 
-  // --- OFFLINE HELPER METHODS ---
+  public async exportLegacyPendingItems(): Promise<string> {
+    const queue = await localDb.syncQueue.toArray();
+    const conflicts = await localDb.syncConflicts.toArray();
+
+    const exportData = {
+      app: "PKSIG PWA - Diagnóstico de Dados Locais",
+      exportDate: new Date().toISOString(),
+      pendingCount: queue.length,
+      conflictCount: conflicts.length,
+      syncQueue: queue,
+      syncConflicts: conflicts,
+    };
+
+    return JSON.stringify(exportData, null, 2);
+  }
+
+  public async discardLegacyItem(itemId: string): Promise<void> {
+    await localDb.syncQueue.delete(itemId);
+    await localDb.syncConflicts.delete(itemId);
+    this.broadcast();
+  }
+
+  public async clearLegacyStorage(): Promise<void> {
+    await localDb.syncQueue.clear();
+    await localDb.syncConflicts.clear();
+    this.broadcast();
+  }
+
+  // --- INTERNAL CACHE HELPERS ---
 
   private async addOrUpdateInListCache(key: string, item: any) {
     const cached = await localDb.cachedRecords.get(key);
@@ -755,7 +798,7 @@ class DataServiceClass {
         entityType: "list",
         payload: [item],
         localUpdatedAt: new Date().toISOString(),
-        syncStatus: "pending",
+        syncStatus: "synced",
       });
     }
   }
@@ -783,19 +826,16 @@ class DataServiceClass {
       } else {
         cached.payload.equipments.unshift(equip);
       }
-      cached.syncStatus = "pending";
       await localDb.cachedRecords.put(cached);
     }
   }
 
-  // Resolves pending dependencies dynamically for offline objects
   private async resolveDependencies(item: SyncQueueItem) {
     const { payload } = item;
     if (payload.client_id && String(payload.client_id).startsWith("client_off_")) {
       const mappingKey = `mapping_clients_${payload.client_id}`;
       const mappedVal = await localDb.appMetadata.get(mappingKey);
       if (mappedVal) {
-        console.log(`[PWA Dependency Resolver] Mapping client_id ${payload.client_id} -> ${mappedVal.value} on sync item ${item.id}`);
         payload.client_id = parseInt(mappedVal.value);
       }
     }
@@ -803,7 +843,6 @@ class DataServiceClass {
       const mappingKey = `mapping_equipment_${payload.equipment_id}`;
       const mappedVal = await localDb.appMetadata.get(mappingKey);
       if (mappedVal) {
-        console.log(`[PWA Dependency Resolver] Mapping equipment_id ${payload.equipment_id} -> ${mappedVal.value} on sync item ${item.id}`);
         payload.equipment_id = parseInt(mappedVal.value);
       }
     }
@@ -816,16 +855,13 @@ class DataServiceClass {
     }
   }
 
-  // Scans the queue and cached records to translate temporary IDs to real database IDs
   private async updateOfflineIdReference(entityType: string, oldId: string, newId: number) {
-    // Save reference mapping in appMetadata
     await localDb.appMetadata.put({
       key: `mapping_${entityType}_${oldId}`,
       value: String(newId),
       updatedAt: new Date().toISOString(),
     });
 
-    // 1. Scan remaining sync queue payloads and translate old IDs
     const queue = await localDb.syncQueue.where("status").equals("pending").toArray();
     for (const qItem of queue) {
       let modified = false;
@@ -847,51 +883,6 @@ class DataServiceClass {
       if (modified) {
         await localDb.syncQueue.put(qItem);
       }
-    }
-
-    // 2. Scan and translate cached list IDs
-    if (entityType === "clients") {
-      const listCached = await localDb.cachedRecords.get("clients_list_cached");
-      if (listCached && Array.isArray(listCached.payload)) {
-        const item = listCached.payload.find((c: any) => String(c.id) === oldId);
-        if (item) {
-          item.id = newId;
-          item.pending = false;
-          await localDb.cachedRecords.put(listCached);
-        }
-      }
-    } else if (entityType === "service_orders") {
-      const listCached = await localDb.cachedRecords.get("service_orders_list_cached");
-      if (listCached && Array.isArray(listCached.payload)) {
-        const item = listCached.payload.find((o: any) => String(o.id) === oldId);
-        if (item) {
-          item.id = newId;
-          item.pending = false;
-          await localDb.cachedRecords.put(listCached);
-        }
-      }
-    }
-  }
-
-  private async replaceCachedClientDetail(oldId: string, newId: number, fullRecord: any) {
-    const cached = await localDb.cachedRecords.get(`client_detail_${oldId}`);
-    if (cached) {
-      await localDb.cachedRecords.delete(`client_detail_${oldId}`);
-      cached.localId = `client_detail_${newId}`;
-      cached.payload.client = { ...cached.payload.client, ...fullRecord, id: newId, pending: false };
-      cached.syncStatus = "synced";
-      await localDb.cachedRecords.put(cached);
-    }
-  }
-
-  private async replaceCachedOSDetail(oldId: string, newId: number, fullRecord: any) {
-    const cached = await localDb.cachedRecords.get(`service_order_detail_${oldId}`);
-    if (cached) {
-      await localDb.cachedRecords.delete(`service_order_detail_${oldId}`);
-      cached.localId = `service_order_detail_${newId}`;
-      cached.payload.order = { ...cached.payload.order, ...fullRecord, id: newId, pending: false };
-      cached.syncStatus = "synced";
-      await localDb.cachedRecords.put(cached);
     }
   }
 }

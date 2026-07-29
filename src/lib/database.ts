@@ -1234,3 +1234,110 @@ export async function recreateDatabaseFromZeroInternal(operationId?: string): Pr
 
   return { success: true, message: "Banco de dados recriado com sucesso do zero!", steps };
 }
+
+export async function generateDatabaseBackup(customBackupDir?: string): Promise<{
+  success: boolean;
+  filename: string;
+  filePath: string;
+  fileSize: number;
+  tableCount: number;
+}> {
+  const config = getDatabaseConfig();
+  if (!config) {
+    throw new Error("Banco de dados não configurado para realizar o backup.");
+  }
+
+  const dbName = config.database;
+  if (!dbName) {
+    throw new Error("Nome do banco de dados não informado na configuração.");
+  }
+
+  const backupDir = customBackupDir || path.join(process.cwd(), "storage", "backups");
+  if (!fs.existsSync(backupDir)) {
+    fs.mkdirSync(backupDir, { recursive: true });
+  }
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "-").slice(0, 19);
+  const filename = `pksig-backup-${timestamp}.sql`;
+  const filePath = path.join(backupDir, filename);
+
+  const activePool = await getPool();
+  const connection = await activePool.getConnection();
+
+  try {
+    const [tablesRows] = await connection.query(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = ? AND table_type = 'BASE TABLE'",
+      [dbName]
+    );
+    const tables = (tablesRows as any[]).map((r) => r.TABLE_NAME || r.table_name || Object.values(r)[0]);
+
+    let sqlContent = `-- ==========================================\n`;
+    sqlContent += `-- PKSIG DATABASE BACKUP\n`;
+    sqlContent += `-- Data/Hora: ${new Date().toLocaleString("pt-BR")}\n`;
+    sqlContent += `-- Host: ${config.host || "localhost"}\n`;
+    sqlContent += `-- Database: ${dbName}\n`;
+    sqlContent += `-- ==========================================\n\n`;
+    sqlContent += `SET FOREIGN_KEY_CHECKS = 0;\n\n`;
+
+    for (const table of tables) {
+      const escapedTable = "`" + table.replace(/`/g, "``") + "`";
+      sqlContent += `-- ------------------------------------------\n`;
+      sqlContent += `-- Table structure and data for ${escapedTable}\n`;
+      sqlContent += `-- ------------------------------------------\n`;
+      sqlContent += `DROP TABLE IF EXISTS ${escapedTable};\n`;
+
+      const [createRows] = await connection.query(`SHOW CREATE TABLE ${escapedTable}`);
+      const createStmt = (createRows as any[])[0]?.["Create Table"] || (createRows as any[])[0]?.["create table"];
+      if (createStmt) {
+        sqlContent += `${createStmt};\n\n`;
+      }
+
+      const [rows] = await connection.query(`SELECT * FROM ${escapedTable}`);
+      const dataRows = rows as any[];
+      if (dataRows.length > 0) {
+        const columns = Object.keys(dataRows[0]).map((col) => "`" + col.replace(/`/g, "``") + "`").join(", ");
+        
+        for (const row of dataRows) {
+          const values = Object.values(row).map((val) => {
+            if (val === null || val === undefined) return "NULL";
+            if (typeof val === "number") return String(val);
+            if (typeof val === "boolean") return val ? "1" : "0";
+            if (val instanceof Date) {
+              return `'${val.toISOString().slice(0, 19).replace("T", " ")}'`;
+            }
+            if (Buffer.isBuffer(val)) {
+              return `X'${val.toString("hex")}'`;
+            }
+            const escapedStr = String(val)
+              .replace(/\\/g, "\\\\")
+              .replace(/'/g, "\\'")
+              .replace(/\n/g, "\\n")
+              .replace(/\r/g, "\\r");
+            return `'${escapedStr}'`;
+          }).join(", ");
+
+          sqlContent += `INSERT INTO ${escapedTable} (${columns}) VALUES (${values});\n`;
+        }
+        sqlContent += `\n`;
+      }
+    }
+
+    sqlContent += `SET FOREIGN_KEY_CHECKS = 1;\n`;
+
+    fs.writeFileSync(filePath, sqlContent, "utf8");
+    const stats = fs.statSync(filePath);
+
+    console.log(`[Backup Engine] Backup generated successfully: ${filename} (${stats.size} bytes, ${tables.length} tables)`);
+
+    return {
+      success: true,
+      filename,
+      filePath,
+      fileSize: stats.size,
+      tableCount: tables.length,
+    };
+  } finally {
+    connection.release();
+  }
+}
+
